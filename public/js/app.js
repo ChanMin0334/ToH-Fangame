@@ -7,7 +7,7 @@ import './tabs/rankings.js';
 import './tabs/friends.js';
 import './tabs/me.js';
 import './tabs/relations.js';
-
+import './tabs/char.js
 
 window.addEventListener('hashchange', ()=>{ highlightTab(); router(); });
 
