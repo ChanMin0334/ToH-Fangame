@@ -130,3 +130,87 @@ export async function loadRankingsFromServer(topN = 50){
 export function restoreRankingCache(){
   try{ const raw = localStorage.getItem(KEY.rankings); if(raw) App.rankings = JSON.parse(raw); }catch{}
 }
+
+
+// ---------- 좋아요 (7일 쿨타임) ----------
+const RELIKE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export async function likeCharacter(charId, currentUser){
+  if(!currentUser){ showToast && showToast('로그인이 필요해'); return; }
+  const uid = currentUser.uid;
+
+  // 내 좋아요 기록
+  const likeDocRef = fx.doc(db, 'chars', charId, 'likes', uid);
+  const likeDoc    = await fx.getDoc(likeDocRef);
+  const now = Date.now();
+  if (likeDoc.exists()){
+    const last = likeDoc.data().lastLikedAt?.toMillis?.() ?? likeDoc.data().lastLikedAt ?? 0;
+    const remain = last + RELIKE_MS - now;
+    if (remain > 0){
+      const days = Math.ceil(remain / (24*60*60*1000));
+      showToast && showToast(`아직 ${days}일 남았어. 일주일 후에 다시 가능해!`);
+      return;
+    }
+  }
+
+  // 기록 갱신
+  await fx.setDoc(likeDocRef, { uid, lastLikedAt: fx.serverTimestamp() }, { merge:true });
+
+  // 캐릭 카운트 +1 (규칙에서 +1만 허용)
+  const charRef = fx.doc(db, 'chars', charId);
+  await fx.setDoc(charRef, {
+    likes_total:  fx.increment(1),
+    likes_weekly: fx.increment(1)
+  }, { merge:true });
+
+  // 로컬 반영(있으면)
+  const i = App.state.chars.findIndex(c=> (c.char_id||c.id) === charId);
+  if(i>=0){
+    const c = App.state.chars[i];
+    c.likes_total  = (c.likes_total  || 0) + 1;
+    c.likes_weekly = (c.likes_weekly || 0) + 1;
+    saveLocal();
+  }
+  showToast && showToast('좋아요! 💙');
+
+  // (선택) 랭킹 새로고침
+  try { await loadRankingsFromServer(); } catch {}
+}
+
+// ---------- Elo 업데이트(두 캐릭 동시에) ----------
+function expectedScore(rA, rB){ return 1 / (1 + Math.pow(10, (rB - rA) / 400)); }
+
+export async function applyBattleResult(charAId, charBId, verdict, K=32){
+  const aRef = fx.doc(db, 'chars', charAId);
+  const bRef = fx.doc(db, 'chars', charBId);
+
+  await fx.runTransaction(db, async (tx)=>{
+    const aSnap = await tx.get(aRef);
+    const bSnap = await tx.get(bRef);
+    if(!aSnap.exists() || !bSnap.exists()) throw new Error('캐릭터 없음');
+
+    const A = aSnap.data(), B = bSnap.data();
+    const RA = A.elo ?? 1200, RB = B.elo ?? 1200;
+
+    let SA = 0.5, SB = 0.5;
+    if (verdict==='win')  { SA=1; SB=0; }
+    if (verdict==='loss') { SA=0; SB=1; }
+
+    const EA = expectedScore(RA, RB), EB = expectedScore(RB, RA);
+    const newRA = Math.round(RA + K * (SA - EA));
+    const newRB = Math.round(RB + K * (SB - EB));
+
+    tx.set(aRef, {
+      elo:newRA,
+      wins:(A.wins||0)+(verdict==='win'?1:0),
+      losses:(A.losses||0)+(verdict==='loss'?1:0),
+      draws:(A.draws||0)+(verdict==='draw'?1:0)
+    },{merge:true});
+    tx.set(bRef, {
+      elo:newRB,
+      wins:(B.wins||0)+(verdict==='loss'?1:0),
+      losses:(B.losses||0)+(verdict==='win'?1:0),
+      draws:(B.draws||0)+(verdict==='draw'?1:0)
+    },{merge:true});
+  });
+}
