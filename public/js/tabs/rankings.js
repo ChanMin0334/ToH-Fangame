@@ -25,7 +25,7 @@ function tabs(){
 
 function rankCard(c, i){
   const open=()=> location.hash = `#/char/${c.id}`;
-  const thumb = c.image_url
+  const thumb = (c.image_b64 || c.image_url)
     ? el('img',{className:'rank-thumb', src:c.image_url, alt:c.name})
     : el('div',{className:'rank-thumb'});
   const stat = (State.tab==='weekly') ? (c.likes_weekly||0)
