@@ -1,4 +1,5 @@
 // /public/js/tabs/create.js
+import { getLocalGeminiKey } from '../api/user.js';
 import { auth, db, fx } from '../api/firebase.js';
 import { fetchWorlds, getMyCharCount, createCharMinimal } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
@@ -43,7 +44,8 @@ function mountCooldown(btn, lockedByCount){
 }
 
 // ===== BYOK 키 읽기(Gemini) =====
-function getByok(){ return (localStorage.getItem('toh_byok') || '').trim(); }
+function getByok(){ return (getLocalGeminiKey() || '').trim(); }
+
 
 // ===== Gemini 호출(간단 래퍼) =====
 async function callGeminiJSON({ model='gemini-1.5-flash', system, user, temperature=0.8 }){
