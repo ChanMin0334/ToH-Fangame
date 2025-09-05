@@ -1,34 +1,67 @@
-// /public/js/api/firebase.js
-// Firebase SDK v10 모듈러 (중복 export 금지, 한 번만 선언)
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import {
-  getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut
-} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import {
-  getFirestore, doc, getDoc, setDoc, addDoc, updateDoc,
-  collection, query, where, getDocs, orderBy, limit, serverTimestamp
-} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
-import {
-  getStorage, ref, uploadBytes, getDownloadURL
-} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';
+// /public/js/app.js
+import { auth, ax } from './api/firebase.js';
+import { fetchWorlds, App } from './api/store.js';
+import { routeOnce, highlightTab } from './router.js';
+import { showToast } from './ui/toast.js';
 
-// 🔧 네 프로젝트 설정 유지
-const firebaseConfig = {
-  apiKey: "AIzaSyA4ilV6tRpqZrkgXRTKdFP_YjAl3CmfYWo",
-  authDomain: "tale-of-heros---fangame.firebaseapp.com",
-  projectId: "tale-of-heros---fangame",
-  storageBucket: "tale-of-heros---fangame.firebasestorage.app",
-  messagingSenderId: "648588906865",
-  appId: "1:648588906865:web:eb4baf1c0ed9cdbc7ba6d0"
-};
+async function boot(){
+  await fetchWorlds();
 
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const provider = new GoogleAuthProvider();
-export const db = getFirestore(app);
-export const storage = getStorage(app);
+  // 로그인 상태 변화에 맞춰 UI/라우팅 반영
+  ax.onAuthStateChanged(auth, (u)=>{
+    App.state.user = u || null;
+    toggleAuthButton(u);
+    routeOnce();
+    highlightTab();
+  });
 
-// 한 번만 export (중복 금지)
-export const fx = { doc, getDoc, setDoc, addDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp };
-export const sx = { ref, uploadBytes, getDownloadURL };
-export const ax = { onAuthStateChanged, signInWithPopup, signOut };
+  // 라우팅
+  window.addEventListener('hashchange', ()=>{ routeOnce(); highlightTab(); });
+
+  // 헤더의 단일 버튼: 로그인이면 로그아웃, 아니면 로그인
+  const btn = document.getElementById('btnAuth');
+  if (btn) {
+    btn.addEventListener('click', onClickAuthButton);
+  }
+}
+boot();
+
+// ================= helpers =================
+async function onClickAuthButton(){
+  try{
+    if (auth.currentUser) {
+      // 이미 로그인 → 즉시 로그아웃
+      await ax.signOut(auth);
+      showToast('로그아웃 완료');
+      return;
+    }
+    // 로그인 시도 (필수: provider 인스턴스 필요)
+    const provider = new ax.GoogleAuthProvider();
+    try{
+      await ax.signInWithPopup(auth, provider);
+    }catch(e){
+      // 팝업 차단 등 → 리다이렉트로 폴백
+      if (String(e?.code||'').includes('popup')) {
+        await ax.signInWithRedirect(auth, provider);
+      } else {
+        throw e;
+      }
+    }
+    showToast('로그인 완료');
+  }catch(e){
+    console.error('[auth] error', e);
+    showToast(auth.currentUser ? '로그아웃 실패' : '로그인 실패');
+  }
+}
+
+function toggleAuthButton(user){
+  const btn = document.getElementById('btnAuth');
+  if (!btn) return;
+  if (user) {
+    btn.textContent = '로그아웃';
+    btn.title = '현재 로그인됨';
+  } else {
+    btn.textContent = '구글 로그인';
+    btn.title = '로그인이 필요해';
+  }
+}
