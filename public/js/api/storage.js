@@ -1,20 +1,17 @@
 // /public/js/api/storage.js
-// 업로드=덮어쓰기. 경로는 고정 이름 사용(avatar.jpg).
 import { storage, sx, auth } from './firebase.js';
+import { SUPABASE, STORAGE_BACKEND } from './config.js';
 
-// 현재 사용 백엔드: localStorage('toh_storage_backend') = 'supabase' | 'firebase'
-function readLS(k, d=''){ try{ return localStorage.getItem(k) || d; }catch{ return d; } }
-export function getStorageBackend(){ return readLS('toh_storage_backend','supabase'); }
-export function setStorageBackend(v){ localStorage.setItem('toh_storage_backend', v); }
+function getStorageBackend(){ return STORAGE_BACKEND; }
 
-// ---------- Supabase ----------
+// Supabase 클라 생성에 localStorage 대신 config 사용
 async function supa() {
-  const url  = readLS('toh_supa_url');
-  const anon = readLS('toh_supa_anon');
-  if(!url || !anon) throw new Error('Supabase URL/Anon 키가 없어. 내정보 탭에서 저장해줘.');
+  const { url, anon } = SUPABASE;
+  if(!url || !anon) throw new Error('Supabase 설정이 비어있어 (config.js 확인).');
   const mod = await import('https://esm.sh/@supabase/supabase-js@2');
   return mod.createClient(url, anon);
 }
+
 async function supabaseUploadStable(path, blob, contentType='image/jpeg'){
   const client = await supa();
   const { error } = await client.storage.from('images').upload(path, blob, {
