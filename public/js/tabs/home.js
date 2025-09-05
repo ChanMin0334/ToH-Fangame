@@ -121,40 +121,41 @@ async function onClickNew(){
 function cardHtml(c){
   const t = tierOf(c.elo||1000);
   const img = c.image_url
-    ? `<img src="${c.image_url}" alt="${c.name}" style="width:92px;height:92px;border-radius:12px;object-fit:cover;background:#0e0f12;">`
-    : `<div style="width:92px;height:92px;border-radius:12px;background:#0e0f12;"></div>`;
+    ? `<img src="${c.image_url}" alt="${c.name}" style="width:100px;height:100px;border-radius:12px;object-fit:cover;background:#0e0f12;">`
+    : `<div style="width:100px;height:100px;border-radius:12px;background:#0e0f12;"></div>`;
 
   return `
-  <div class="card clickable" data-id="${c.id}" style="position:relative; padding:12px;">
+  <div class="card clickable" data-id="${c.id}"
+       style="position:relative; padding:16px; margin-bottom:20px;">
     <!-- 삭제 버튼 -->
     <button class="icon-btn" data-del="${c.id}"
       title="캐릭터 삭제"
-      style="position:absolute; right:10px; top:10px; width:32px;height:32px;border-radius:8px;
+      style="position:absolute; right:12px; top:12px; width:32px;height:32px;border-radius:8px;
              border:1px solid rgba(255,255,255,.14); background:#1a1b1f; color:#ff6767; display:grid; place-items:center;">
       <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M9 3h6a1 1 0 0 1 1 1v1h4v2H4V5h4V4a1 1 0 0 1 1-1zm1 5h2v10h-2V8zm4 0h2v10h-2V8zM8 8h2v10H8V8z"/></svg>
     </button>
 
-    <div class="row" style="gap:12px; align-items:center;">
+    <div class="row" style="gap:20px; align-items:center;">
       <!-- 왼쪽: 이미지 -->
       <div class="thumb sq">
         ${img}
       </div>
 
       <!-- 오른쪽: 정보 -->
-      <div class="col" style="gap:6px; flex:1;">
-        <!-- 이름 (오른쪽 위 정렬 느낌으로, 상단에 크게) -->
+      <div class="col" style="gap:8px; flex:1; padding-left:8px;">
+        <!-- 이름 -->
         <div class="row" style="justify-content:space-between; align-items:flex-start;">
-          <div class="title" style="font-size:18px; font-weight:800;">${c.name}</div>
+          <div class="title" style="font-size:20px; font-weight:800;">${c.name}</div>
         </div>
 
         <!-- 지역 / 티어 라벨 -->
-        <div class="chips" style="display:flex; gap:6px; flex-wrap:wrap;">
+        <div class="chips" style="display:flex; gap:8px; flex-wrap:wrap;">
           <span class="chip">${c.world_id}</span>
           <span class="chip" style="background:${t.color}; color:#121316; font-weight:700;">${t.name}</span>
         </div>
 
         <!-- 주간 / 누적 / Elo -->
-        <div class="row gap8 mt6" style="display:flex; gap:8px; flex-wrap:wrap;">
+        <div class="row gap8 mt6" style="display:flex; gap:12px; flex-wrap:wrap;">
           <span class="pill">주간 ${c.likes_weekly||0}</span>
           <span class="pill">누적 ${c.likes_total||0}</span>
           <span class="pill">Elo ${c.elo||1000}</span>
