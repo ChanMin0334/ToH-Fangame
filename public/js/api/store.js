@@ -1,3 +1,4 @@
+// /public/js/api/store.js
 import { db, auth, fx, storage, sx } from './firebase.js';
 import { showToast } from '../ui/toast.js';
 
@@ -6,14 +7,11 @@ export const App = {
     user: null,
     worlds: null,
     currentWorldId: 'gionkir',
-    myChars: [],        // 항상 서버→메모리
+    myChars: []
   }
 };
-// 랭킹 캐시(메모리)
-export let rankingsLoadedAt = 0;
-App.rankings = null;
 
-// ----- 유틸 -----
+// ===== 티어 계산 =====
 export function tierOf(elo=1000){
   if (elo < 900) return {name:'Bronze',  color:'#7a5a3a'};
   if (elo < 1100) return {name:'Silver',  color:'#8aa0b8'};
@@ -23,55 +21,7 @@ export function tierOf(elo=1000){
   return {name:'Master', color:'#b678ff'};
 }
 
-// ---- Rankings: Firestore에서 상위 N명 로딩 + 로컬 캐시 ----
-export async function loadRankingsFromServer(topN = 50){
-  const col = fx.collection(db, 'chars');
-
-  const take = (field) =>
-    fx.getDocs(fx.query(col, fx.orderBy(field, 'desc'), fx.limit(topN)));
-
-  // likes_weekly / likes_total / elo 각각 단일 정렬이므로 인덱스 추가 필요 없음
-  const [wSnap, tSnap, eSnap] = await Promise.all([
-    take('likes_weekly'),
-    take('likes_total'),
-    take('elo'),
-  ]);
-
-  const toArr = (snap) => {
-    const arr = [];
-    snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
-    return arr;
-  };
-
-  App.rankings = {
-    weekly: toArr(wSnap),
-    total:  toArr(tSnap),
-    elo:    toArr(eSnap),
-    fetchedAt: Date.now(),
-  };
-  rankingsLoadedAt = App.rankings.fetchedAt;
-
-  // 로컬 캐시(선택)
-  try { localStorage.setItem('toh_rankings', JSON.stringify(App.rankings)); } catch {}
-  return App.rankings;
-}
-
-export function restoreRankingCache(){
-  try{
-    const raw = localStorage.getItem('toh_rankings');
-    if(!raw) return null;
-    const obj = JSON.parse(raw);
-    // 형식 간단 검증
-    if(obj && obj.weekly && obj.total && obj.elo){
-      App.rankings = obj;
-      rankingsLoadedAt = obj.fetchedAt || 0;
-      return obj;
-    }
-  }catch{}
-  return null;
-}
-
-
+// ===== 세계관 로딩 =====
 export async function fetchWorlds(){
   if (App.state.worlds) return App.state.worlds;
   const w = await fetch('/assets/worlds.json').then(r=>r.json());
@@ -79,21 +29,21 @@ export async function fetchWorlds(){
   return w;
 }
 
-// ----- Auth 후크 밖에서 호출하는 “읽기/쓰기” 래퍼 -----
+// ===== 내 캐릭 목록 =====
 export async function fetchMyChars(uid){
   const q = fx.query(fx.collection(db,'chars'), fx.where('owner_uid','==', uid));
   const s = await fx.getDocs(q);
-  const arr = [];
-  s.forEach(d => arr.push({ id: d.id, ...d.data() }));
+  const arr=[]; s.forEach(d=>arr.push({id:d.id, ...d.data()}));
   App.state.myChars = arr;
   return arr;
 }
 
+// ===== 최소 생성 =====
 export async function createCharMinimal({ world_id, name, input_info }){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
   const now = Date.now();
-  const docRef = await fx.addDoc(fx.collection(db,'chars'), {
+  const ref = await fx.addDoc(fx.collection(db,'chars'), {
     owner_uid: u.uid,
     world_id, name, input_info,
     image_url: '',
@@ -114,9 +64,10 @@ export async function createCharMinimal({ world_id, name, input_info }){
     createdAt: now, updatedAt: now
   });
   showToast('캐릭터가 생성되었어!');
-  return docRef.id;
+  return ref.id;
 }
 
+// ===== 스킬 2개 장착 =====
 export async function updateAbilitiesEquipped(charId, indices){
   const u = auth.currentUser; if(!u) return;
   if(!Array.isArray(indices) || indices.length !== 2) return;
@@ -124,34 +75,62 @@ export async function updateAbilitiesEquipped(charId, indices){
   showToast('스킬 장착 변경');
 }
 
-export async function updateItemsEquipped(charId, charItemDocIds /* length ≤3 */){
+// ===== 아이템 3칸 =====
+export async function updateItemsEquipped(charId, ids){
   const u = auth.currentUser; if(!u) return;
-  const safe = (charItemDocIds||[]).slice(0,3);
+  const safe = (ids||[]).slice(0,3);
   await fx.updateDoc(fx.doc(db,'chars',charId), { items_equipped: safe, updatedAt: Date.now() });
   showToast('아이템 장착 변경');
 }
 
-// ----- 이미지 1:1 업로드(512x512 중앙 크롭) -----
+// ===== 1:1 아바타 업로드(512px) =====
 export async function uploadAvatarSquare(charId, file){
-  const u = auth.currentUser;
-  if(!u) throw new Error('로그인이 필요해');
-  const bmp = await createImageBitmap(await file.arrayBuffer().then(b=>new Blob([b])));
-  const size = Math.min(bmp.width, bmp.height);
-  const sx0 = (bmp.width  - size)/2;
-  const sy0 = (bmp.height - size)/2;
+  const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
 
-  const canvas = document.createElement('canvas');
-  canvas.width = 512; canvas.height = 512;
-  const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(bmp, sx0, sy0, size, size, 0, 0, 512, 512);
+  const buf = await file.arrayBuffer();
+  const bmp = await createImageBitmap(new Blob([buf]));
+  const side = Math.min(bmp.width, bmp.height);
+  const sx0 = (bmp.width-side)/2, sy0=(bmp.height-side)/2;
 
-  const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
+  const canvas = document.createElement('canvas'); canvas.width=512; canvas.height=512;
+  const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled=true;
+  ctx.drawImage(bmp, sx0, sy0, side, side, 0, 0, 512, 512);
+  const blob = await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.85));
+
   const path = `char_avatars/${u.uid}/${charId}/v${Date.now()}.jpg`;
   const r = sx.ref(storage, path);
-  await sx.uploadBytes(r, blob, { contentType: 'image/jpeg', cacheControl: 'public,max-age=31536000,immutable' });
+  await sx.uploadBytes(r, blob, { contentType:'image/jpeg', cacheControl:'public,max-age=31536000,immutable' });
   const url = await sx.getDownloadURL(r);
+
   await fx.updateDoc(fx.doc(db,'chars',charId), { image_url: url, updatedAt: Date.now() });
   showToast('아바타 업로드 완료');
   return url;
 }
+
+// ===== 랭킹 로딩/캐시 =====
+export let rankingsLoadedAt = 0;
+App.rankings = null;
+
+export async function loadRankingsFromServer(topN = 50){
+  const col = fx.collection(db,'chars');
+  const take = (field)=> fx.getDocs(fx.query(col, fx.orderBy(field,'desc'), fx.limit(topN)));
+  const [w,t,e] = await Promise.all([ take('likes_weekly'), take('likes_total'), take('elo') ]);
+
+  const toArr = (snap)=>{ const arr=[]; snap.forEach(d=>arr.push({id:d.id, ...d.data()})); return arr; };
+  App.rankings = { weekly: toArr(w), total: toArr(t), elo: toArr(e), fetchedAt: Date.now() };
+  rankingsLoadedAt = App.rankings.fetchedAt;
+  try{ localStorage.setItem('toh_rankings', JSON.stringify(App.rankings)); }catch{}
+  return App.rankings;
+}
+
+export function restoreRankingCache(){
+  try{
+    const raw = localStorage.getItem('toh_rankings'); if(!raw) return null;
+    const obj = JSON.parse(raw);
+    if(obj?.weekly && obj?.total && obj?.elo){ App.rankings=obj; rankingsLoadedAt=obj.fetchedAt||0; return obj; }
+  }catch{}
+  return null;
+}
+
+// === 레거시 호환: saveLocal 참조하는 오래된 파일 대비 (no-op) ===
+export function saveLocal(){ /* noop */ }
