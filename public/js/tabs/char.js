@@ -1,9 +1,10 @@
 // public/js/tabs/char.js
-import { App, saveLocal, likeCharacter } from '../api/store.js';
+import { App, saveLocal, likeCharacter, canRerollToday, markReroll } from '../api/store.js';
 import { el } from '../ui/components.js';
 import { storage, sx } from '../api/firebase.js';
 import { auth } from '../api/auth.js';
 import { showToast } from '../ui/toast.js';
+import { rerollSkills } from '../api/ai.js';
 
 function makeFileInput(onChange){
   const input = el('input', {
@@ -88,12 +89,33 @@ function render(charId){
     onclick:()=> likeCharacter(c.char_id || c.id, auth.currentUser)
   }, '좋아요');
 
+  const btnReroll = el('button',{ className:'btn', onclick: async ()=>{
+    if(!canRerollToday(c)){ showToast && showToast('오늘 리롤 한도를 초과했어.'); return; }
+    const worldName = (App.state.worlds?.worlds||[]).find(w=>w.id===c.world_id)?.name || '';
+    try{
+      const raw = await rerollSkills({ name: c.name, worldName, info: c.input_info||'' });
+      const data = JSON.parse(raw);
+      if(Array.isArray(data.abilities) && data.abilities.length===4){
+        // 미리보기 선택
+        if(confirm('새 스킬로 교체할까?')){
+          c.abilities = data.abilities.map(x=>({ name:x.name||'', desc:x.desc_soft||x.desc||'', desc_raw:x.desc_raw||x.desc||'' }));
+          markReroll(c);
+          saveLocal();
+          showToast && showToast('리롤 완료!');
+          render(c.char_id || c.id);
+        }
+      } else {
+        showToast && showToast('리롤 실패: 형식 오류');
+      }
+    }catch(e){ showToast && showToast(e.message||'리롤 실패'); }
+  }}, '스킬 리롤');
+
   const btnBack = el('button',{ className:'btn', onclick:()=>history.back() }, '← 돌아가기');
 
   v.replaceChildren(
     el('div',{ className:'col', style:'gap:12px' },
       img,
-      el('div',{ className:'row', style:'gap:8px' }, btnUpload, btnLike),
+      el('div',{ className:'row', style:'gap:8px' }, btnUpload, btnLike, btnReroll),
       info,
       el('div',{}, btnBack)
     )
