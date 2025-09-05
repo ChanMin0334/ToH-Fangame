@@ -15,8 +15,6 @@ window.addEventListener('hashchange', ()=>{ highlightTab(); router(); });
 async function boot(){
 await initLocalCache();
 ensureWeeklyReset();
-document.getElementById('btnExport').onclick = exportAll;
-document.getElementById('importFile').addEventListener('change', importAll);
 document.getElementById('btnLogin').onclick = signInWithGoogle;
 document.getElementById('btnLogout').onclick = signOutNow;
 onAuthChanged(user=>{
