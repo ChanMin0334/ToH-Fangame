@@ -114,3 +114,19 @@ function lastWeeklyResetKST() {
   const back = kst.getTime() - 9 * 3600 * 1000 - d.getTimezoneOffset() * 60000;
   return back;
 }
+
+
+// ---------- 랭킹: Firestore에서 읽기 ----------
+export async function loadRankingsFromServer(topN = 50){
+  const col  = fx.collection(db, 'chars');
+  const take = (field)=> fx.getDocs(fx.query(col, fx.orderBy(field,'desc'), fx.limit(topN)));
+  const [w,t,e] = await Promise.all([ take('likes_weekly'), take('likes_total'), take('elo') ]);
+
+  const toArr = (snap)=>{ const arr=[]; snap.forEach(d=> arr.push({ id:d.id, ...d.data() })); return arr; };
+  App.rankings = { weekly: toArr(w), total: toArr(t), elo: toArr(e), fetchedAt: Date.now() };
+  try { localStorage.setItem(KEY.rankings, JSON.stringify(App.rankings)); } catch {}
+  return App.rankings;
+}
+export function restoreRankingCache(){
+  try{ const raw = localStorage.getItem(KEY.rankings); if(raw) App.rankings = JSON.parse(raw); }catch{}
+}
