@@ -18,9 +18,18 @@ function normalizeChar(c){
   return out;
 }
 async function fetchInventory(charId){
-  const q = fx.query(fx.collection(db,'char_items'), fx.where('char_id','==', `chars/${charId}`));
-  const s = await fx.getDocs(q); const arr=[]; s.forEach(d=>arr.push({id:d.id, ...d.data()})); return arr;
+  try{
+    const q = fx.query(fx.collection(db,'char_items'), fx.where('char_id','==', `chars/${charId}`));
+    const s = await fx.getDocs(q);
+    const arr=[]; s.forEach(d=>arr.push({id:d.id, ...d.data()}));
+    return arr;
+  }catch(e){
+    // 상위에서 처리할 수 있도록 다시 던지되, 콘솔에 남김
+    console.error('[char] fetchInventory failed', e);
+    throw e;
+  }
 }
+
 function rarityClass(r){ return r==='legend'?'rarity-legend': r==='epic'?'rarity-epic': r==='rare'?'rarity-rare':'rarity-common'; }
 
 // ---------- entry ----------
@@ -197,7 +206,19 @@ async function renderLoadout(c, view){
   const equippedItems = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
 
   // 인벤토리
-  const inv = await fetchInventory(c.id);
+  let inv = [];
+  try{
+    inv = await fetchInventory(c.id);
+  } catch(e){
+    console.error('[char] fetchInventory error', e);
+    if (e?.code === 'permission-denied') {
+      showToast('인벤토리 조회 권한이 없어. 로그인하거나 규칙을 확인해줘!');
+    } else {
+      showToast('인벤토리 로딩 중 오류가 났어.');
+    }
+    inv = []; // 권한 없으면 빈 인벤토리로 진행
+  }
+
 
   // UI
   view.innerHTML = `
