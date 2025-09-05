@@ -26,7 +26,10 @@ async function handleUpload(c){
     const safe = `${Date.now()}_${(f.name||'img').replace(/[^a-zA-Z0-9._-]/g,'_')}`;
     const r = sx.ref(storage, `uploads/${uid}/${c.char_id || c.id}/${safe}`);
 
-    await sx.uploadBytes(r, f);
+    await sx.uploadBytes(r, f, {
+      contentType: f.type || 'image/jpeg',
+      cacheControl: 'public, max-age=31536000, immutable'
+    });
     const url = await sx.getDownloadURL(r);
 
     c.image_url = url;
