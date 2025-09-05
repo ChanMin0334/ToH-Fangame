@@ -1,4 +1,8 @@
+
+
 // /public/js/api/user.js
+import { uploadUserAvatar } from './storage.js';
+
 import { db, auth, fx, storage, sx } from './firebase.js';
 
 export function getLocalGeminiKey(){ return localStorage.getItem('toh_gemini_key') || ''; }
@@ -95,7 +99,7 @@ export async function uploadAvatarBlob(blob){
   const path=`users/${u.uid}/avatar_${Date.now()}.jpg`;
   const ref=sx.ref(storage, path);
   await sx.uploadBytes(ref, blob, { contentType:'image/jpeg' });
-  const url=await sx.getDownloadURL(ref);
+  const url = await uploadUserAvatar(blob);
   await fx.updateDoc(userRef(u.uid), { avatarURL:url, updatedAt:Date.now() });
   return url;
 }
