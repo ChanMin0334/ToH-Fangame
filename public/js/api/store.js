@@ -114,7 +114,9 @@ export async function uploadAvatarSquare(charId, file){
   const path = `char_avatars/${u.uid}/${charId}/v${Date.now()}.jpg`;
   const r = sx.ref(storage, path);
   await sx.uploadBytes(r, blob, { contentType:'image/jpeg', cacheControl:'public,max-age=31536000,immutable' });
-  const url = await sx.getDownloadURL(r);
+  const url = await uploadCharAvatar(charId, blob); // ← 교체 업로드
+  await fx.updateDoc(fx.doc(db,'chars',charId), { image_url: url, updatedAt: Date.now() });
+
 
   await fx.updateDoc(fx.doc(db,'chars',charId), { image_url: url, updatedAt: Date.now() });
   showToast('아바타 업로드 완료');
