@@ -1,0 +1,342 @@
+:root{ --bg:#0c0f14; --panel:#11151c; --muted:#9aa4b2; --text:#eef1f6; --bd:#212a36; --chip:#161b23; --pri1:#3b82f6; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; }
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Noto Sans KR, sans-serif}
+.wrap{min-height:100%;padding-bottom:72px}
+.topbar{position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;background:rgba(12,15,20,.7);backdrop-filter:blur(8px);border-bottom:1px solid var(--bd)}
+.view{padding:12px}
+.grid{display:grid;grid-template-columnㄹs:repeat(2,1fr);gap:12px}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.row{display:flex;gap:8px;align-items:center}
+.col{display:flex;flex-direction:column;gap:10px}
+.muted{color:var(--muted)}
+.title{font-weight:800}
+.btn{appearance:none;border:1px solid var(--bd);background:#0e131a;color:var(--text);padding:9px 12px;border-radius:10px;cursor:pointer}
+.btn.ghost{background:transparent}
+.btn.pri{background:linear-gradient(180deg,#4f8efc,#2a63d4);border-color:#204eac}
+.btn.ok{background:linear-gradient(180deg,#2fbf74,#198a54);border-color:#0f6b41}
+.pill{padding:4px 10px;border-radius:999px;border:1px solid var(--bd);background:#0e131a;color:var(--muted);font-size:12px}
+.chip{background:var(--chip);border:1px solid var(--bd);border-radius:999px;padding:4px 10px;color:var(--muted)}
+.input,textarea,select{width:100%;padding:10px;border-radius:10px;border:1px solid var(--bd);background:#0c1117;color:var(--text)}
+.hint{font-size:12px;color:var(--muted)}
+.hr{height:1px;background:var(--bd);margin:10px 0}
+
+
+.bottombar{position:fixed;left:0;right:0;bottom:0;height:72px;padding-bottom:env(safe-area-inset-bottom);display:flex;justify-content:space-around;align-items:center;background:#0e131a;border-top:1px solid var(--bd);z-index:10}
+.bottombar a{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--muted);text-decoration:none;font-size:12px;padding:6px 8px}
+.bottombar a.active{color:#fff}
+
+
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#0e131a;border:1px solid var(--bd);padding:10px 14px;border-radius:10px;z-index:50;opacity:0;transition:opacity .25s}
+.toast.show{opacity:1}
+
+
+@media (min-width: 720px){ .grid{grid-template-columns:repeat(3,1fr)} }
+/* ===== UI revamp: stack layout & cards ===== */
+.view { max-width: 720px; margin: 0 auto; padding: 16px 12px 96px; }
+
+.stack {
+  display: flex; flex-direction: column; gap: 12px; align-items: center;
+}
+.stack > * { width: 100%; max-width: 640px; }
+
+.card.char {
+  display: grid; grid-template-columns: 112px 1fr; gap: 12px; align-items: center;
+}
+.char-thumb {
+  width: 112px; height: 112px; border-radius: 12px; object-fit: cover;
+  border: 1px solid #223; background: #111;
+}
+.char-thumb.blank {
+  display:flex; align-items:center; justify-content:center; color:#8a93a0; font-size:12px;
+}
+.meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+
+.btn.tab { border-radius: 999px; padding: 6px 12px; }
+.btn.tab.active { background: #2f6df6; color: #fff; }
+
+.rank-grid { display: flex; flex-direction: column; gap: 8px; }
+.rank-card {
+  display:grid; grid-template-columns: 40px 72px 1fr auto; gap:10px; align-items:center;
+  padding:10px; border:1px solid #223; border-radius:12px; background:#0b0f16;
+}
+.rank-no { font-weight:700; text-align:center; }
+.rank-thumb { width:72px; height:72px; object-fit:cover; border-radius:8px; border:1px solid #223; background:#0e131b; }
+.rank-name { font-weight:600; }
+.rank-stat { font-variant-numeric: tabular-nums; opacity:.9; }
+
+.stepper { display:flex; gap:8px; margin-bottom:12px; }
+.step { padding:6px 10px; border-radius:999px; border:1px solid #223; }
+.step.active { background:#1a2230; }
+
+.chips { display:flex; gap:8px; flex-wrap:wrap; }
+.chip.sel { background:#1a2230; border:1px solid #2a3a52; }
+
+.site-list { display:flex; flex-direction:column; gap:8px; }
+.site-item { border:1px solid #223; border-radius:12px; padding:10px; cursor:pointer; }
+.site-item.sel { outline:2px solid #2f6df6; }
+/* === ToH additions === */
+.container.narrow { max-width: 720px; margin: 0 auto; padding: 16px; }
+.card { background:#1b1e23; border:1px solid #2a2f36; border-radius:14px; }
+.p0{padding:0} .p12{padding:12px} .p16{padding:16px}
+.mt6{margin-top:6px} .mt8{margin-top:8px} .mt12{margin-top:12px} .mt16{margin-top:16px}
+.row{display:flex;gap:12px;align-items:center}
+.col{display:flex;flex-direction:column}
+.center{display:flex;justify-content:center;align-items:center}
+.title{font-weight:600}
+.text-dim{opacity:.7}
+.btn{padding:10px 14px;border-radius:10px;border:1px solid #39414b;background:#2a3140}
+.btn.primary{background:#4062ff;border-color:#4062ff} .btn.large{padding:12px 18px;font-weight:600}
+.btn.ghost{background:transparent;border-color:#39414b}
+.icon-btn{border:1px solid #39414b;background:#2a3140;padding:6px 10px;border-radius:10px}
+.icon-btn.heart{border-radius:50%}
+.input,.textarea{width:100%;border-radius:10px;border:1px solid #39414b;background:#0f1216;color:#ddd;padding:10px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{padding:6px 10px;border-radius:999px;border:1px solid #39414b;background:#151922}
+.chip.active{background:#4062ff;border-color:#4062ff}
+.thumb.sq{width:64px;height:64px;border-radius:12px;background:#101318}
+.avatar-wrap{position:relative;width:144px;height:144px;border-radius:16px;overflow:hidden}
+.avatar-wrap img{width:100%;height:100%;object-fit:cover}
+.avatar-wrap img.noimg{background:#0f1216}
+.stats4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.pill{display:inline-flex;gap:6px;align-items:center;padding:6px 10px;border-radius:10px;background:#141922;border:1px solid #2b313a}
+.pill.white .v{color:#fff}
+.pill.pink .v{color:#ff69b4}
+.pill.gold .v{color:#ffd166}
+.pill.red .v{color:#ff6b6b}
+.actions .btn{min-width:140px}
+.tabbar{display:flex;gap:8px;border-bottom:1px solid #2a2f36;padding:8px}
+.tab{padding:8px 12px;border:0;background:transparent;border-bottom:2px solid transparent}
+.tab.active{border-color:#4062ff}
+.subtabs{display:flex;gap:8px;border-bottom:1px dashed #2a2f36;padding:8px 16px}
+.sub{padding:6px 10px;border:0;background:transparent;border-bottom:2px solid transparent}
+.sub.active{border-color:#4062ff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+/* === ToH additions (already added earlier; ensure present) === */
+.container.narrow { max-width: 720px; margin: 0 auto; padding: 16px; }
+.card { background:#1b1e23; border:1px solid #2a2f36; border-radius:14px; }
+.p0{padding:0} .p12{padding:12px} .p16{padding:16px}
+.mt6{margin-top:6px} .mt8{margin-top:8px} .mt12{margin-top:12px} .mt16{margin-top:16px}
+.row{display:flex;gap:12px;align-items:center}
+.col{display:flex;flex-direction:column}
+.center{display:flex;justify-content:center;align-items:center}
+.title{font-weight:600}
+.text-dim{opacity:.7}
+.btn{padding:10px 14px;border-radius:10px;border:1px solid #39414b;background:#2a3140}
+.btn.primary{background:#4062ff;border-color:#4062ff} .btn.large{padding:12px 18px;font-weight:600}
+.btn.ghost{background:transparent;border-color:#39414b}
+.icon-btn{border:1px solid #39414b;background:#2a3140;padding:6px 10px;border-radius:10px}
+.icon-btn.heart{border-radius:50%}
+.input,.textarea{width:100%;border-radius:10px;border:1px solid #39414b;background:#0f1216;color:#ddd;padding:10px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{padding:6px 10px;border-radius:999px;border:1px solid #39414b;background:#151922}
+.chip.active{background:#4062ff;border-color:#4062ff}
+.thumb.sq{width:64px;height:64px;border-radius:12px;background:#101318}
+.avatar-wrap{position:relative;width:144px;height:144px;border-radius:16px;overflow:hidden}
+.avatar-wrap img{width:100%;height:100%;object-fit:cover}
+.avatar-wrap img.noimg{background:#0f1216}
+.stats4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.pill{display:inline-flex;gap:6px;align-items:center;padding:6px 10px;border-radius:10px;background:#141922;border:1px solid #2b313a}
+.pill.white .v{color:#fff}
+.pill.pink .v{color:#ff69b4}
+.pill.gold .v{color:#ffd166}
+.pill.red .v{color:#ff6b6b}
+.actions .btn{min-width:140px}
+.tabbar{display:flex;gap:8px;border-bottom:1px solid #2a2f36;padding:8px}
+.tab{padding:8px 12px;border:0;background:transparent;border-bottom:2px solid transparent}
+.tab.active{border-color:#4062ff}
+.subtabs{display:flex;gap:8px;border-bottom:1px dashed #2a2f36;padding:8px 16px}
+.sub{padding:6px 10px;border:0;background:transparent;border-bottom:2px solid transparent}
+.sub.active{border-color:#4062ff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+
+/* 랭킹 */
+.rank-grid{display:grid;grid-template-columns:1fr;gap:10px}
+.rank-card{display:grid;grid-template-columns:auto 64px 1fr auto;gap:10px;align-items:center;background:#151922;border:1px solid #2a2f36;border-radius:12px;padding:10px}
+.rank-no{opacity:.6;width:36px;text-align:center}
+.rank-thumb{width:64px;height:64px;border-radius:10px;background:#0f1216;object-fit:cover}
+.rank-name{font-weight:600}
+.rank-stat{font-weight:700}
+
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.skill input{margin-right:8px}
+
+/* ===== ToH Fangame: Char Detail UI (rev2) ===== */
+
+/* 공통 색/라운드 */
+:root{
+  --bg-elev: rgba(255,255,255,0.04);
+  --bd: rgba(255,255,255,0.12);
+  --dim: rgba(255,255,255,0.55);
+  --accent: #5b7cff;
+  --accent-weak: rgba(91,124,255,.13);
+  --chip-bd: rgba(91,124,255,.35);
+  --radius-xl: 24px;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
+}
+
+/* 카드 */
+.char-card{ border-radius: var(--radius-xl); }
+
+/* 헤더: 세로 스택 */
+.char-header{
+  display:flex; flex-direction:column; align-items:center; gap:10px;
+}
+
+/* 아바타: 1:1 고정 + 꽉 채우기 */
+.avatar-wrap{
+  position:relative;
+  width: min(60vw, 320px);
+  height: min(60vw, 320px);           /* aspect-ratio 미지원 브라우저용 폴백 */
+  aspect-ratio: 1 / 1;
+  overflow:hidden;
+  border-radius: 18px;
+  background:#111;
+  border:3px solid transparent;
+}
+.avatar-wrap img{
+  width:100%; height:100%;
+  object-fit: cover;                   /* 꽉 채움 */
+  display:block;
+}
+
+/* 상단 아이콘들 (좋아요/업로드) */
+.top-actions{
+  position:absolute; right:16px; top:16px; display:flex; gap:8px;
+}
+.fab-circle{
+  width:40px; height:40px; border-radius:50%;
+  border:1px solid var(--bd); background:#1a1a1a;
+  display:grid; place-items:center; cursor:pointer; transition:transform .08s ease;
+}
+.fab-circle:hover{ transform:scale(1.05); }
+
+/* 이름/라벨 */
+.char-name{ font-size:1.4rem; font-weight:800; text-align:center; margin-top:4px; color:#fff; }
+.chips-row{ display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+.chip{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; border:1px solid var(--chip-bd); background:var(--accent-weak); }
+.tier-chip{ padding:6px 10px; border-radius:999px; font-weight:700; border:1px solid var(--bd); }
+
+/* 2x2 스탯 배치 (1 2 / 3 4) */
+.char-stats4{
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px; width:100%; margin-top:8px;
+}
+.stat-box{
+  border:1px solid var(--bd); border-radius:var(--radius-md);
+  padding:12px; background:var(--bg-elev);
+}
+.stat-box .k{ font-size:12px; color:var(--dim); }
+.stat-box .v{ font-weight:800; font-size:18px; }
+.stat-win .v{ color:#ffffff; }                 /* 승률 */
+.stat-like .v{ color:#ff66a1; }                /* 누적 좋아요 */
+.stat-elo  .v{ color:#f4c84a; }                /* Elo */
+.stat-week .v{ color:#ff6a6a; filter:saturate(.85); } /* 주간 좋아요 (눈 아프지 않게) */
+
+.char-counters{ color:var(--dim); font-size:.95rem; margin-top:2px; }
+
+/* 책갈피 탭 */
+.book-card{ border-radius:var(--radius-lg); border:1px solid var(--bd); background:#0f1012; overflow:hidden; }
+.bookmarks{ display:flex; gap:12px; padding:10px 14px; border-bottom:1px dashed var(--bd); }
+.bookmark{ color:#fff; background:#141518; border:1px solid var(--bd); border-bottom:none; top:1px; position:relative; padding:8px 14px 9px; border-top-left-radius:12px; border-top-right-radius:12px; cursor:pointer; }
+.bookmark.active{ background:#1b1f2d; color:#fff; outline:2px solid var(--accent); }
+.bookview{ padding:14px; }
+
+/* 서브탭 (선택 시 파란색) */
+.subtabs{ display:flex; gap:10px; border-bottom:1px dashed var(--bd); padding-bottom:8px; }
+.subtabs .sub{ padding:6px 10px; border-radius:10px; border:1px solid var(--bd); background:#121317; color:#fff; cursor:pointer; }
+.subtabs .sub.active{ background:#1d2436; outline:2px solid var(--accent); }
+
+/* 키/값 카드 */
+.kv-label{ margin:6px 0 6px; color:var(--dim); font-size:.92rem; }
+.kv-card{ border:1px solid var(--bd); border-radius:var(--radius-md); padding:12px; background:#121317; color:#fff; }
+
+/* 스킬/아이템 */
+.grid2{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.grid3{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+@media(max-width:760px){ .grid3{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.skill{ border:1px solid var(--bd); border-radius:var(--radius-md); background:#121317; padding:12px; display:flex; gap:10px; align-items:flex-start; }
+.skill input{ margin-top:2px; }
+.skill .name{ font-weight:700; margin-bottom:4px; color:#fff; }
+.skill .desc{ color:var(--dim); font-size:.92rem; }
+
+/* 아이템 등급 */
+.slot{ border:1px dashed var(--bd); border-radius:var(--radius-md); padding:12px; background:#0f1012; min-height:60px; color:#fff; }
+.item{ border:1px solid var(--bd); border-radius:var(--radius-md); padding:10px; background:#15171b; display:flex; flex-direction:column; gap:4px; color:#fff; }
+.item .meta{ font-size:.86rem; color:var(--dim); display:flex; gap:8px; }
+.item .name{ font-weight:700; }
+.rarity-common{ background:rgba(255,255,255,.03); }
+.rarity-rare{ background:rgba(91,124,255,.12); }
+.rarity-epic{ background:rgba(157,91,255,.12); }
+.rarity-legend{ background:rgba(255,191,73,.12); }
+
+/* 하단 고정 액션바 (배틀/조우) */
+.fixed-actions{
+  position:fixed;
+  left:50%; transform:translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 88px); /* ↓ 기존 16px → 72px로 올림 */
+  z-index:50;
+  display:flex; gap:12px; padding:8px 10px;
+  border-radius:999px;
+  background:rgba(15,16,18,.9);
+  border:1px solid var(--bd);
+  backdrop-filter:saturate(140%) blur(6px);
+}
+@media (max-width: 640px){
+  .fixed-actions{ bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); }
+}
+.fixed-actions .btn{ padding:10px 16px; }
+
+/* 토스트 레이어 최상단 */
+.toast, .toast-wrap, .toast-host, #toast, #toast-root {
+  z-index: 9999 !important;
+  position: fixed; /* 해당 컴포넌트가 fixed면 유지, 아니라면 무시됨 */
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* === Me/Friends styles === */
+.avatar{width:48px;height:48px;border-radius:10px;overflow:hidden;border:1px solid var(--bd);background:#0003;display:inline-flex;align-items:center;justify-content:center}
+.avatar img{width:100%;height:100%;object-fit:cover}
+.avatar-sm{width:36px;height:36px}
+.avatar-xl{width:128px;height:128px;border-radius:16px}
+.label{display:block;margin-bottom:4px;color:var(--muted)}
+.row{display:flex;align-items:center;gap:6px}
+.row.between{justify-content:space-between}
+.gap8{gap:8px}
+.flex1{flex:1}
+.w100{width:100%}
+.mt4{margin-top:4px}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}
+.text-dim{color:var(--muted)}
+.list .item{padding:8px;border:1px solid var(--bd);border-radius:10px;margin-bottom:8px;background:rgba(255,255,255,.02)}
+button{background:var(--pri1);color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
+button:disabled{opacity:.6;cursor:not-allowed}
+input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10px;padding:8px 10px}
+
+/* Cropper modal */
+.cropper-modal{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.65);z-index:1000}
+.cropper{background:#0f141b;border:1px solid var(--bd);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+#cropCanvas{width:320px;height:320px;background:#111;border-radius:8px;border:1px solid var(--bd)}
+.cropper .ctrls{display:flex;flex-direction:column;gap:8px}
+
+
+
+
