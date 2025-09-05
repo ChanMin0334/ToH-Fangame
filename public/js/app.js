@@ -16,13 +16,20 @@ async function boot() {
   await fetchWorlds();
 
   const { onAuthStateChanged } = await ensureAuth();
-  onAuthStateChanged(auth, (u) => {
+    onAuthStateChanged(auth, async (u) => {
     App.state.user = u || null;
     toggleAuthButton(!!u);
-    if (u) await ensureUserDoc(); // 로그인 시 유저 문서 생성/병합 보장
+    if (u) {
+      try {
+        await ensureUserDoc(); // 로그인 시 유저 문서 생성/병합 보장
+      } catch (e) {
+        console.warn('[ensureUserDoc] 실패', e);
+      }
+    }
     routeOnce();
     highlightTab();
   });
+
 
   window.addEventListener('hashchange', () => { routeOnce(); highlightTab(); });
 
