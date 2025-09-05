@@ -2,6 +2,23 @@
 import { db, auth, fx, storage, sx } from './firebase.js';
 import { showToast } from '../ui/toast.js';
 
+import { getMyCharCount } from '../api/store.js';
+
+async function renderHome(){
+  const cnt = await getMyCharCount();
+  const canCreate = cnt < 4;
+  // 새 캐릭터 카드
+  const newCardHtml = canCreate
+    ? `<button class="card create" id="btnNew">+ 새 캐릭터</button>`
+    : `<div class="card create disabled">캐릭터는 최대 4개</div>`;
+
+  // ...
+  if (canCreate) {
+    document.getElementById('btnNew')?.addEventListener('click', openCreateDialog);
+  }
+}
+
+
 export const App = {
   state: {
     user: null,
