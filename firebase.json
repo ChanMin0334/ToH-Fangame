@@ -1,0 +1,17 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "headers": [
+      { "source": "**/*.html", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+      { "source": "**/*.js",   "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+      { "source": "**/*.css",  "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+      { "source": "**/*.json", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+      { "source": "**/*.map",  "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+      { "source": "**/*.{woff,woff2,ttf,otf}", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+
+      { "source": "**/*.{png,jpg,jpeg,webp,avif,gif,svg}",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] }
+    ]
+  }
+}
