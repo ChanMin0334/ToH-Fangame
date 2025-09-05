@@ -1,32 +1,33 @@
 // /public/js/tabs/home.js
 import { auth, db, fx } from '../api/firebase.js';
-import { fetchMyChars } from '../api/store.js';
+import { fetchMyChars, getMyCharCount, tierOf } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 
-// === 쿨타임(초) ===
+// ====== 설정 ======
+const MAX_CHAR_COUNT = 4;
 const CREATE_COOLDOWN_SEC = 30;
 const LS_KEY_CREATE_LAST_AT = 'charCreateLastAt';
 
-// 남은 시간 문자열
+// ====== 유틸 ======
 function fmtRemain(ms){
   const s = Math.max(0, Math.ceil(ms/1000));
   const mm = String(Math.floor(s/60)).padStart(2,'0');
   const ss = String(s%60).padStart(2,'0');
   return `${mm}:${ss}`;
 }
-
-// 쿨타임 남았는지 계산
 function getCooldownRemainMs(){
   const last = +(localStorage.getItem(LS_KEY_CREATE_LAST_AT) || 0);
   if(!last) return 0;
-  const passed = Date.now() - last;
-  const remain = CREATE_COOLDOWN_SEC*1000 - passed;
+  const remain = CREATE_COOLDOWN_SEC*1000 - (Date.now() - last);
   return Math.max(0, remain);
 }
-
-// 버튼에 타이머 적용
-function mountCooldown(btn){
-  const tick = ()=>{
+function mountCooldown(btn, lockedByCount){
+  const tick = async ()=>{
+    if (lockedByCount()) {
+      btn.disabled = true;
+      btn.textContent = `캐릭터는 최대 ${MAX_CHAR_COUNT}개`;
+      return;
+    }
     const remain = getCooldownRemainMs();
     if(remain>0){
       btn.disabled = true;
@@ -39,37 +40,31 @@ function mountCooldown(btn){
   tick();
   const id = setInterval(()=>{
     tick();
-    if(getCooldownRemainMs()<=0) clearInterval(id);
+    if(getCooldownRemainMs()<=0 && !lockedByCount()) clearInterval(id);
   }, 500);
 }
 
-// 확인 팝업(HTML 오버레이) — true/false 반환
+// ====== 확인 팝업(HTML 오버레이) ======
 function confirmPopup(message){
   return new Promise(resolve=>{
-    // 오버레이
     const wrap = document.createElement('div');
     wrap.style.cssText = `
       position:fixed; inset:0; z-index:9999;
       display:flex; align-items:center; justify-content:center;
       background:rgba(0,0,0,.45);
     `;
-
-    // 카드
     const card = document.createElement('div');
     card.style.cssText = `
-      width:min(92vw, 420px);
-      background:#111;
-      color:#fff;
+      width:min(92vw, 480px);
+      background:#111; color:#fff;
       border:1px solid rgba(255,255,255,.12);
-      border-radius:16px;
-      box-shadow:0 10px 30px rgba(0,0,0,.4);
-      position:relative;
-      overflow:hidden;
+      border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.4);
+      position:relative; overflow:hidden;
     `;
     card.innerHTML = `
-      <div style="padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; align-items:center; justify-content:space-between; gap:8px;">
+      <div style="padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; align-items:center; justify-content:space-between;">
         <div style="font-weight:800">확인</div>
-        <button id="ppClose" class="icon-btn" title="닫기" style="width:34px;height:34px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:#18181b;display:grid;place-items:center;">✕</button>
+        <button id="ppClose" class="icon-btn" style="width:34px;height:34px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:#18181b;display:grid;place-items:center;">✕</button>
       </div>
       <div style="padding:18px 16px; white-space:pre-wrap; line-height:1.5;">${message}</div>
       <div style="display:flex; gap:10px; justify-content:flex-end; padding:12px 16px; background:#0f1115; border-top:1px solid rgba(255,255,255,.08);">
@@ -77,58 +72,99 @@ function confirmPopup(message){
         <button id="ppYes" class="btn danger" style="padding:8px 14px;">예</button>
       </div>
     `;
-
     wrap.appendChild(card);
     document.body.appendChild(wrap);
-
     const cleanup = (v)=>{ wrap.remove(); resolve(v); };
     card.querySelector('#ppClose').onclick = ()=> cleanup(false);
     card.querySelector('#ppNo').onclick    = ()=> cleanup(false);
     card.querySelector('#ppYes').onclick   = ()=> cleanup(true);
-    wrap.addEventListener('click', (e)=>{ if(e.target===wrap) cleanup(false); }); // 바깥 클릭 닫기
+    wrap.addEventListener('click', (e)=>{ if(e.target===wrap) cleanup(false); });
   });
 }
 
-// 휴지통 아이콘 (SVG)
-function trashSvg(){
-  return `
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <path fill="currentColor" d="M9 3h6a1 1 0 0 1 1 1v1h4v2H4V5h4V4a1 1 0 0 1 1-1zm1 5h2v10h-2V8zm4 0h2v10h-2V8zM8 8h2v10H8V8z"/>
-    </svg>
-  `;
-}
-
-// 삭제 실행
+// ====== 삭제 ======
 async function deleteChar(id){
   try{
     const { deleteDoc } = await import('https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js');
     await deleteDoc(fx.doc(db,'chars',id));
     showToast('캐릭터를 삭제했어');
-    // 삭제 후 목록 갱신
     await showHome(true);
   }catch(e){
     console.error('[deleteChar]', e);
     const msg = (e?.code==='permission-denied')
-      ? '삭제 권한이 없어. Firestore 규칙을 확인해줘(소유자만 삭제).'
+      ? '삭제 권한이 없어(소유자만 삭제 가능).'
       : '삭제에 실패했어';
     showToast(msg);
   }
 }
 
-// New 버튼 클릭 — 쿨타임 체크 및 이동
-function onClickNew(){
+// ====== 새 캐릭터 버튼 클릭 ======
+async function onClickNew(){
+  // 1) 서버/DB 기준 현재 개수 재확인(우회 방지)
+  const countNow = await getMyCharCount();
+  if(countNow >= MAX_CHAR_COUNT){
+    showToast(`캐릭터는 최대 ${MAX_CHAR_COUNT}개까지야`);
+    return;
+  }
+  // 2) 쿨타임 확인
   const remain = getCooldownRemainMs();
   if(remain>0){
     showToast(`쿨타임 남아있어: ${fmtRemain(remain)}`);
     return;
   }
-  // 여기서 쿨타임 시작(※ 실제 “성공 생성” 시점에만 시작하고 싶다면
-  // 캐릭터 생성 성공 로직에서 localStorage.setItem(LS_KEY_CREATE_LAST_AT, Date.now().toString()) 호출해줘)
+  // 3) 생성 화면으로 진입 + 쿨타임 시작(※ 실제 생성 성공 시점에 시작하려면 그 로직에서 setItem 호출)
   localStorage.setItem(LS_KEY_CREATE_LAST_AT, Date.now().toString());
   location.hash = '#/create';
 }
 
-// 메인 렌더
+// ====== 카드 템플릿(왼쪽 이미지, 오른쪽 정보 블록) ======
+function cardHtml(c){
+  const t = tierOf(c.elo||1000);
+  const img = c.image_url
+    ? `<img src="${c.image_url}" alt="${c.name}" style="width:92px;height:92px;border-radius:12px;object-fit:cover;background:#0e0f12;">`
+    : `<div style="width:92px;height:92px;border-radius:12px;background:#0e0f12;"></div>`;
+
+  return `
+  <div class="card clickable" data-id="${c.id}" style="position:relative; padding:12px;">
+    <!-- 삭제 버튼 -->
+    <button class="icon-btn" data-del="${c.id}"
+      title="캐릭터 삭제"
+      style="position:absolute; right:10px; top:10px; width:32px;height:32px;border-radius:8px;
+             border:1px solid rgba(255,255,255,.14); background:#1a1b1f; color:#ff6767; display:grid; place-items:center;">
+      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M9 3h6a1 1 0 0 1 1 1v1h4v2H4V5h4V4a1 1 0 0 1 1-1zm1 5h2v10h-2V8zm4 0h2v10h-2V8zM8 8h2v10H8V8z"/></svg>
+    </button>
+
+    <div class="row" style="gap:12px; align-items:center;">
+      <!-- 왼쪽: 이미지 -->
+      <div class="thumb sq">
+        ${img}
+      </div>
+
+      <!-- 오른쪽: 정보 -->
+      <div class="col" style="gap:6px; flex:1;">
+        <!-- 이름 (오른쪽 위 정렬 느낌으로, 상단에 크게) -->
+        <div class="row" style="justify-content:space-between; align-items:flex-start;">
+          <div class="title" style="font-size:18px; font-weight:800;">${c.name}</div>
+        </div>
+
+        <!-- 지역 / 티어 라벨 -->
+        <div class="chips" style="display:flex; gap:6px; flex-wrap:wrap;">
+          <span class="chip">${c.world_id}</span>
+          <span class="chip" style="background:${t.color}; color:#121316; font-weight:700;">${t.name}</span>
+        </div>
+
+        <!-- 주간 / 누적 / Elo -->
+        <div class="row gap8 mt6" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <span class="pill">주간 ${c.likes_weekly||0}</span>
+          <span class="pill">누적 ${c.likes_total||0}</span>
+          <span class="pill">Elo ${c.elo||1000}</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ====== 메인 렌더 ======
 export async function showHome(force=false){
   const root = document.getElementById('view');
   const u = auth.currentUser;
@@ -137,35 +173,14 @@ export async function showHome(force=false){
     return;
   }
 
-  const list = await fetchMyChars(u.uid, force);
+  // 목록 로드
+  const list = await fetchMyChars(u.uid);
+  const count = await getMyCharCount();
+  const lockedByCount = () => count >= MAX_CHAR_COUNT;
 
   root.innerHTML = `
   <section class="container narrow">
-    ${list.map(c=>`
-      <div class="card row clickable" data-id="${c.id}" style="position:relative;">
-        <!-- 삭제 버튼 (우상단) -->
-        <button class="icon-btn" data-del="${c.id}"
-          title="캐릭터 삭제"
-          style="
-            position:absolute; right:10px; top:10px;
-            width:32px; height:32px; border-radius:8px;
-            border:1px solid rgba(255,255,255,.14);
-            background:#1a1b1f; color:#ff6767; display:grid; place-items:center;
-          ">
-          ${trashSvg()}
-        </button>
-
-        <div class="thumb sq" style="background:#0e0f12;border-radius:12px;"></div>
-        <div class="col">
-          <div class="title">${c.name}</div>
-          <div class="chips"><span class="chip">${c.world_id}</span></div>
-          <div class="row gap8 mt6">
-            <span class="pill">주간 ${c.likes_weekly||0}</span>
-            <span class="pill">누적 ${c.likes_total||0}</span>
-            <span class="pill">Elo ${c.elo||1000}</span>
-          </div>
-        </div>
-      </div>`).join('')}
+    ${list.map(c => cardHtml(c)).join('')}
 
     <div class="card center mt16">
       <button id="btnNew" class="btn primary">새 캐릭터 만들기</button>
@@ -193,10 +208,10 @@ export async function showHome(force=false){
     });
   });
 
-  // 새 캐릭터 쿨타임 + 클릭
+  // 새 캐릭터 버튼: 쿨타임 + 4개 제한 적용
   const newBtn = root.querySelector('#btnNew');
   if(newBtn){
-    mountCooldown(newBtn);
+    mountCooldown(newBtn, lockedByCount);
     newBtn.onclick = onClickNew;
   }
 }
