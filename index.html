@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>ToH · Encounter</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+<div id="app" class="wrap">
+<header class="topbar">
+<div class="l"> <b>ToH · Encounter</b> <span id="worldChip" class="chip">세계관: -</span></div>
+<div class="r">
+<button id="btnExport" class="btn ghost pill">내보내기</button>
+<label class="btn ghost pill" for="importFile">불러오기</label>
+<input id="importFile" type="file" accept="application/json" hidden />
+<button id="btnLogin" class="btn pill pri">구글 로그인</button>
+<button id="btnLogout" class="btn pill" style="display:none">로그아웃</button>
+</div>
+</header>
+<main id="view" class="view"></main>
+</div>
+
+
+<nav class="bottombar">
+<a href="#/home" data-tab="home">🏠<span>홈</span></a>
+<a href="#/adventure" data-tab="adventure">🗺️<span>모험</span></a>
+<a href="#/rankings" data-tab="rankings">🏆<span>랭킹</span></a>
+<a href="#/friends" data-tab="friends">👥<span>친구</span></a>
+<a href="#/me" data-tab="me">🙋‍♀️<span>내정보</span></a>
+</nav>
+
+
+<div id="toast" class="toast"></div>
+
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
