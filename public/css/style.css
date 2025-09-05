@@ -162,3 +162,172 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui, -a
 
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .skill input{margin-right:8px}
+
+/* ===== ToH Fangame: Char Detail UI (2025-09-05) ===== */
+
+/* 공통 */
+:root{
+  --bg-elev: rgba(255,255,255,0.04);
+  --bd: rgba(255,255,255,0.12);
+  --dim: rgba(255,255,255,0.55);
+  --accent: #5b7cff;
+  --chip-bg: rgba(91,124,255,.13);
+  --chip-bd: rgba(91,124,255,.35);
+  --radius-lg: 14px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
+}
+
+/* 상단 헤더: 세로 레이아웃 */
+.char-card {
+  position: relative;
+  border-radius: 24px;
+}
+.char-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.char-header .avatar-wrap{
+  position: relative;
+  width: 240px;
+  max-width: 70vw;
+  aspect-ratio: 1/1;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #111;
+  border: 3px solid transparent;
+}
+.char-header .avatar-wrap img{
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.char-header .name{
+  font-size: 1.4rem;
+  font-weight: 700;
+  text-align: center;
+  margin-top: 4px;
+}
+.char-header .world-chip{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--chip-bd);
+  background: var(--chip-bg);
+}
+.char-header .heart-fab{
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--bd);
+  background: #1a1a1a;
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: transform .08s ease;
+}
+.char-header .heart-fab:hover{ transform: scale(1.05); }
+
+/* 4 스탯 박스 */
+.char-stats4{
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 10px;
+  width: 100%;
+  margin-top: 8px;
+}
+@media (max-width: 720px){
+  .char-stats4{ grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+.stat-box{
+  border: 1px solid var(--bd);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--bg-elev);
+}
+.stat-box .k{ font-size: 12px; color: var(--dim); }
+.stat-box .v{ font-weight: 800; font-size: 18px; }
+.stat-win .v{ color: #ffffff; }                  /* 승률 */
+.stat-like .v{ color: #ff66a1; }                 /* 누적 좋아요(분홍) */
+.stat-elo  .v{ color: #f4c84a; }                 /* Elo(노랑) */
+.stat-week .v{ color: #ff6a6a; filter: saturate(.85); } /* 주간 좋아요(빨강, 채도 약간 낮춤) */
+
+.char-counters{ color: var(--dim); font-size: 0.95rem; margin-top: 2px; }
+
+/* 책갈피 탭 컨테이너 */
+.book-card{
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--bd);
+  background: #0f1012;
+  overflow: hidden;
+}
+.bookmarks{
+  display: flex; gap: 12px; padding: 10px 14px;
+  border-bottom: 1px dashed var(--bd);
+  position: relative;
+}
+.bookmark{
+  position: relative;
+  padding: 8px 14px 9px 14px;
+  border: 1px solid var(--bd);
+  background: #141518;
+  border-bottom: none;
+  top: 1px;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.bookmark.active{
+  background: #191b20;
+  color: #fff;
+  border-color: var(--bd);
+}
+.bookview{ padding: 14px; }
+
+/* 서브탭(서사/미니에피소드/관계) */
+.subtabs{ display:flex; gap:10px; border-bottom:1px dashed var(--bd); padding-bottom:8px; }
+.subtabs .sub{
+  padding:6px 10px; border-radius: 10px; border:1px solid var(--bd); background:#121317; cursor:pointer;
+}
+.subtabs .sub.active{ background:#1a1c23; }
+
+/* 카드/폼 */
+.kv-label{ margin:6px 0 6px; color: var(--dim); font-size:.92rem; }
+.kv-card{ border:1px solid var(--bd); border-radius:var(--radius-md); padding:12px; background:#121317; }
+
+/* 스킬/아이템 */
+.grid2{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.grid3{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+@media(max-width:720px){ .grid3{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.skill{
+  border:1px solid var(--bd); border-radius:var(--radius-md); background:#121317; padding:12px;
+  display:flex; gap:10px; align-items:flex-start;
+}
+.skill input{ margin-top:2px; }
+.skill .name{ font-weight:700; margin-bottom:4px; }
+.skill .desc{ color: var(--dim); font-size:.92rem; }
+
+/* 아이템 슬롯/등급 */
+.slot{
+  border:1px dashed var(--bd); border-radius:var(--radius-md); padding:12px; background:#0f1012; min-height:60px;
+}
+.item{
+  border:1px solid var(--bd); border-radius:var(--radius-md); padding:10px; background:#15171b;
+  display:flex; flex-direction:column; gap:4px;
+}
+.item .meta{ font-size:.86rem; color: var(--dim); display:flex; gap:8px; }
+.item .name{ font-weight:700; }
+.rarity-common  { background: rgba(255,255,255,.03); }
+.rarity-rare    { background: rgba(91,124,255,.12); }
+.rarity-epic    { background: rgba(157,91,255,.12); }
+.rarity-legend  { background: rgba(255,191,73,.12); }
+
+/* 액션 버튼 묶음 */
+.action-row{
+  margin-top: 14px; display:flex; gap:12px; flex-wrap:wrap; justify-content:center;
+}
