@@ -12,9 +12,11 @@ function normalizeChar(c){
   out.abilities_all = Array.isArray(out.abilities_all)? out.abilities_all : (Array.isArray(out.abilities)? out.abilities: []);
   out.abilities_equipped = Array.isArray(out.abilities_equipped)? out.abilities_equipped.slice(0,2): [];
   out.items_equipped = Array.isArray(out.items_equipped)? out.items_equipped.slice(0,3): [];
-  // 서사 항목(배열) 호환: narrative_items가 있으면 사용, 없으면 narrative 단일 텍스트를 1개 항목으로 노출
+  // 이미지: Firestore(base64) 우선, 없으면 기존 URL
+  out.image_url = out.image_b64 || out.image_url || '';
+  // 서사 항목(배열) 호환
   out.narrative_items = Array.isArray(out.narrative_items) ? out.narrative_items
-                      : (out.narrative ? [{ title:'서사', body: out.narrative }] : []);
+  : (out.narrative ? [{ title:'서사', body: out.narrative }] : []);
   return out;
 }
 async function fetchInventory(charId){
@@ -63,7 +65,7 @@ function render(c){
     <div class="card p16 char-card">
       <div class="char-header">
         <div class="avatar-wrap" style="border-color:${tier.color}">
-          <img src="${c.image_url||''}" alt="" onerror="this.src=''; this.classList.add('noimg')"/>
+          <img src="${c.image_b64||c.image_url||''}" alt="" onerror="this.src=''; this.classList.add('noimg')"/>
           <div class="top-actions">
             <button class="fab-circle" id="btnLike" title="좋아요">♥</button>
             ${isOwner? `<button class="fab-circle" id="btnUpload" title="이미지 업로드">⤴</button>`:''}
@@ -101,8 +103,8 @@ function render(c){
   </section>
   `;
 
-  // 하단 고정 액션바
-  mountFixedActions(c);
+  // 하단 고정 액션바 (소유자만)
+  mountFixedActions(c, isOwner);
 
   // 액션(업로드/좋아요)
   if(isOwner){
@@ -133,18 +135,27 @@ function render(c){
 }
 
 // 고정 액션바 (스크롤과 무관)
-function mountFixedActions(c){
-  // 기존 바 제거
-  document.querySelector('.fixed-actions')?.remove();
-  const bar = document.createElement('div');
-  bar.className = 'fixed-actions';
-  bar.innerHTML = `
-    <button class="btn large" id="fabBattle">배틀 시작</button>
-    <button class="btn large ghost" id="fabEncounter">조우 시작</button>
-  `;
-  document.body.appendChild(bar);
-  bar.querySelector('#fabBattle').onclick = ()=> showToast('배틀 매칭은 다음 패치!');
-  bar.querySelector('#fabEncounter').onclick = ()=> showToast('조우 매칭은 다음 패치!');
+function mountFixedActions(c, isOwner){
+// 항상 기존 바 제거
+document.querySelector('.fixed-actions')?.remove();
+
+
+// 로그인 안 되었거나, 소유자가 아니면 노출하지 않음
+if (!auth.currentUser || !isOwner) return;
+
+
+const bar = document.createElement('div');
+bar.className = 'fixed-actions';
+bar.innerHTML = `
+<button class="btn large" id="fabBattle">배틀 시작</button>
+<button class="btn large ghost" id="fabEncounter">조우 시작</button>
+`;
+document.body.appendChild(bar);
+
+
+// TODO: 실제 매칭 로직 연결 예정 — 현재는 가드만 유지
+bar.querySelector('#fabBattle').onclick = ()=> showToast('배틀 매칭은 다음 패치!');
+bar.querySelector('#fabEncounter').onclick = ()=> showToast('조우 매칭은 다음 패치!');
 }
 
 // ---------- views ----------
