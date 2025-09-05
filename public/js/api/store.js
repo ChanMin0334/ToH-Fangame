@@ -1,3 +1,6 @@
+import { uploadCharAvatar } from './storage.js';
+
+
 // /public/js/api/store.js
 import { db, auth, fx, storage, sx } from './firebase.js';
 import { showToast } from '../ui/toast.js';
