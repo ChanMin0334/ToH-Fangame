@@ -2,6 +2,7 @@ import { App, saveLocal } from '../api/store.js';
 import { el } from '../ui/components.js';
 import { storage, sx } from '../api/firebase.js';
 import { auth } from '../api/auth.js';
+import { likeCharacter } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 
 function makeFileInput(onChange){
