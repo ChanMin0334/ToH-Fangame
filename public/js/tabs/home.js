@@ -33,5 +33,5 @@ v.replaceChildren(el('div',{}, el('div',{className:'title'},'홈'), grid));
 }
 
 
-window.addEventListener('route', e=>{ if(e.detail.path==='home' || e.detail.path==='char'){ render(); } });
+window.addEventListener('route', e=>{ if(e.detail.path==='home'){ render(); } });
 render();
