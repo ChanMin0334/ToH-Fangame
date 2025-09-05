@@ -132,7 +132,7 @@ async function renderLoadout(c, view){
         ${c.abilities_all.map((ab,i)=>`
           <label class="card p12 skill">
             <input type="checkbox" data-i="${i}" ${c.abilities_equipped?.includes(i)?'checked':''} ${!isOwner?'disabled':''}/>
-            <div class="name">${ab?.name||\`능력 \${i+1}\`}</div>
+            <div class="name">${ab?.name || ('능력 ' + (i+1))}</div>
             <div class="desc">${ab?.desc_soft||'-'}</div>
           </label>`).join('')}
       </div>
