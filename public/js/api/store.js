@@ -9,6 +9,9 @@ export const App = {
     myChars: [],        // 항상 서버→메모리
   }
 };
+// 랭킹 캐시(메모리)
+export let rankingsLoadedAt = 0;
+App.rankings = null;
 
 // ----- 유틸 -----
 export function tierOf(elo=1000){
@@ -19,6 +22,55 @@ export function tierOf(elo=1000){
   if (elo < 1700) return {name:'Diamond', color:'#7ec2ff'};
   return {name:'Master', color:'#b678ff'};
 }
+
+// ---- Rankings: Firestore에서 상위 N명 로딩 + 로컬 캐시 ----
+export async function loadRankingsFromServer(topN = 50){
+  const col = fx.collection(db, 'chars');
+
+  const take = (field) =>
+    fx.getDocs(fx.query(col, fx.orderBy(field, 'desc'), fx.limit(topN)));
+
+  // likes_weekly / likes_total / elo 각각 단일 정렬이므로 인덱스 추가 필요 없음
+  const [wSnap, tSnap, eSnap] = await Promise.all([
+    take('likes_weekly'),
+    take('likes_total'),
+    take('elo'),
+  ]);
+
+  const toArr = (snap) => {
+    const arr = [];
+    snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+    return arr;
+  };
+
+  App.rankings = {
+    weekly: toArr(wSnap),
+    total:  toArr(tSnap),
+    elo:    toArr(eSnap),
+    fetchedAt: Date.now(),
+  };
+  rankingsLoadedAt = App.rankings.fetchedAt;
+
+  // 로컬 캐시(선택)
+  try { localStorage.setItem('toh_rankings', JSON.stringify(App.rankings)); } catch {}
+  return App.rankings;
+}
+
+export function restoreRankingCache(){
+  try{
+    const raw = localStorage.getItem('toh_rankings');
+    if(!raw) return null;
+    const obj = JSON.parse(raw);
+    // 형식 간단 검증
+    if(obj && obj.weekly && obj.total && obj.elo){
+      App.rankings = obj;
+      rankingsLoadedAt = obj.fetchedAt || 0;
+      return obj;
+    }
+  }catch{}
+  return null;
+}
+
 
 export async function fetchWorlds(){
   if (App.state.worlds) return App.state.worlds;
