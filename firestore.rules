@@ -27,5 +27,47 @@ service cloud.firestore {
     match /relations/{docId} {
       allow read, write: if request.auth != null;
     }
+
+        // --- users: 내 정보 ---
+    match /users/{uid} {
+      allow read: if request.auth != null; // 로그인 사용자 열람 허용
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null && request.auth.uid == uid
+        && (
+          // 닉네임은 20자 이하
+          (!('nickname' in request.resource.data) || (request.resource.data.nickname.size() <= 20))
+        )
+        && (
+          // 닉네임 변경 쿨다운: 7일
+          !('nickname' in request.resource.data) ||
+          !( 'lastNicknameChangeAt' in resource.data ) ||
+          (request.time - resource.data.lastNicknameChangeAt > duration.value(7, 'd'))
+        );
+    }
+
+    // --- 친구 요청 ---
+    match /friendRequests/{reqId} {
+      allow read: if request.auth != null
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.from;
+      allow update: if request.auth != null
+        // 수락/거절은 수신자(to)만 가능
+        && request.auth.uid == resource.data.to;
+      allow delete: if request.auth != null
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+    }
+
+    // --- 친구 관계 ---
+    match /friendships/{pairId} {
+      allow read, delete: if request.auth != null
+        && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
+      allow create: if request.auth != null
+        && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
+    }
+
+    
+
+
+
   }
 }
