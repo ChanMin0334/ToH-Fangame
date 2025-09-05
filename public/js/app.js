@@ -1,6 +1,7 @@
 // /public/js/app.js  (로그인/로그아웃 고정판)
 import { auth } from './api/firebase.js';
 import { fetchWorlds, App } from './api/store.js';
+import { ensureUserDoc } from './api/user.js';
 import { routeOnce, highlightTab } from './router.js';
 import { showToast } from './ui/toast.js';
 
@@ -18,6 +19,7 @@ async function boot() {
   onAuthStateChanged(auth, (u) => {
     App.state.user = u || null;
     toggleAuthButton(!!u);
+    if (u) await ensureUserDoc(); // 로그인 시 유저 문서 생성/병합 보장
     routeOnce();
     highlightTab();
   });
