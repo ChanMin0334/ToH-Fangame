@@ -30,19 +30,6 @@ export async function fetchWorlds(){
   return w;
 }
 
-// ===== 내 캐릭 수 (최대 4개 제한 UX용) =====
-export async function getMyCharCount(){
-  const uid = auth.currentUser?.uid;
-  if(!uid) return 0;
-  const q = fx.query(
-    fx.collection(db,'chars'),
-    fx.where('owner_uid','==', uid),
-    fx.limit(4)
-  );
-  const s = await fx.getDocs(q);
-  return s.size;
-}
-
 // ===== 내 캐릭 목록 =====
 export async function fetchMyChars(uid){
   const q = fx.query(fx.collection(db,'chars'), fx.where('owner_uid','==', uid));
