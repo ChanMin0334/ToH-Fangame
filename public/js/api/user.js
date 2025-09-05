@@ -1,7 +1,6 @@
 
 
 // /public/js/api/user.js
-import { uploadUserAvatar } from './storage.js';
 
 import { db, auth, fx, storage, sx } from './firebase.js';
 
