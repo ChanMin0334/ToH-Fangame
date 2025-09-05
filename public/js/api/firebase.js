@@ -11,13 +11,12 @@ import {
   getStorage, ref, uploadBytes, getDownloadURL
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';
 
-// ✅ Firebase 프로젝트 설정 (웹 설정에서 복사한 값 사용)
-//  * storageBucket은 보통 '<projectId>.appspot.com' 형식이 권장
+// ✅ Firebase 프로젝트 설정
 const firebaseConfig = {
   apiKey: "AIzaSyA4ilV6tRpqZrkgXRTKdFP_YjAl3CmfYWo",
   authDomain: "tale-of-heros---fangame.firebaseapp.com",
   projectId: "tale-of-heros---fangame",
-  storageBucket: "tale-of-heros---fangame.appspot.com", // ← 여기 수정
+  storageBucket: "tale-of-heros---fangame.appspot.com", // 꼭 appspot.com 형식
   messagingSenderId: "648588906865",
   appId: "1:648588906865:web:eb4baf1c0ed9cdbc7ba6d0"
 };
