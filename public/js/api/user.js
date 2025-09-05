@@ -93,12 +93,26 @@ export async function updateNickname(newName){
   return name;
 }
 
+// Storage 없이 Firestore users 문서에 data URL로 저장
+import { db, auth, fx } from './firebase.js'; // 맨 위 import에 이 라인이 있어야 함(중복되면 OK)
+
 export async function uploadAvatarBlob(blob){
-  const u=auth.currentUser; if(!u) throw new Error('로그인이 필요해');
-  const path=`users/${u.uid}/avatar_${Date.now()}.jpg`;
-  const ref=sx.ref(storage, path);
-  await sx.uploadBytes(ref, blob, { contentType:'image/jpeg' });
-  const url = await uploadUserAvatar(blob);
-  await fx.updateDoc(userRef(u.uid), { avatarURL:url, updatedAt:Date.now() });
-  return url;
+  const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
+
+  // 이미 512x512로 잘린 blob이 오므로, 그대로 data URL 변환만 하면 됨
+  const dataUrl = await new Promise((resolve, reject)=>{
+    const fr = new FileReader();
+    fr.onload = ()=> resolve(fr.result);
+    fr.onerror = reject;
+    fr.readAsDataURL(blob);
+  });
+
+  // users/{uid} 문서에 저장(avatarURL 필드). 필요 없으면 이 줄만 주석 처리 가능
+  await fx.setDoc(fx.doc(db,'users', u.uid), {
+    avatarURL: dataUrl,
+    updatedAt: Date.now()
+  }, { merge: true });
+
+  return dataUrl;
 }
+
