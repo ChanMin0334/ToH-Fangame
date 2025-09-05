@@ -63,14 +63,20 @@ function render(charId){
   const btnUpload = el('button',{ className:'btn pri', onclick:()=>handleUpload(c) },
     c.image_url ? '이미지 변경' : '이미지 업로드'
   );
+  const btnLike = el('button', { className:'btn',
+  onclick: ()=> likeCharacter(c.char_id || c.id, auth.currentUser)
+  }, '좋아요');
+
 
   v.replaceChildren(
-    el('div',{ className:'col', style:'gap:12px' },
-      img, btnUpload, info,
-      el('div',{}, el('button',{ className:'btn', onclick:()=>history.back() }, '← 돌아가기'))
+    el('div',{className:'col',style:'gap:12px'},
+      img,
+      el('div',{className:'row',style:'gap:8px'}, btnUpload, btnLike), // ← 여기에 추가
+      info,
+      el('div',{}, el('button',{className:'btn', onclick:()=>history.back()}, '← 돌아가기'))
     )
   );
-}
+
 
 window.addEventListener('route', e => {
   if(e.detail.path === 'char' && e.detail.id) render(e.detail.id);
