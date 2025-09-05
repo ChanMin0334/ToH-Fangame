@@ -82,6 +82,15 @@ export async function createCharMinimal({ world_id, name, input_info }){
   return ref.id;
 }
 
+// ===== 내 캐릭 개수 =====
+export async function getMyCharCount(){
+  const u = auth.currentUser; if(!u) return 0;
+  const q = fx.query(fx.collection(db,'chars'), fx.where('owner_uid','==', u.uid));
+  const s = await fx.getDocs(q);
+  return s.size || 0;
+}
+
+
 // ===== 스킬 2개 장착 =====
 export async function updateAbilitiesEquipped(charId, indices){
   const u = auth.currentUser; if(!u) return;
