@@ -4,7 +4,6 @@ import { showAdventure } from './tabs/adventure.js';
 import { showRankings } from './tabs/rankings.js';
 import { showFriends } from './tabs/friends.js';
 import { showMe } from './tabs/me.js';
-import { showRelations } from './tabs/relations.js';
 import { showCreate } from './tabs/create.js';
 
 export const routes = {
@@ -13,30 +12,25 @@ export const routes = {
   '#/rankings': showRankings,
   '#/friends': showFriends,
   '#/me': showMe,
-  '#/relations': showRelations,   // #/relations/:id
-  // #/char/:id — 동적 import + 폴백
+  '#/create': showCreate,
+  // 동적 라우트: #/char/:id
   '#/char': () => import('./tabs/char.js')
     .then(m => (m.showCharDetail ?? m.default ?? m.showChar)?.()
-      ?? console.warn('[router] char.js: export가 없어 실행 못함')),
-  '#/create': showCreate
+      ?? console.warn('[router] char.js export를 찾지 못했어'))
 };
+
+export function routeOnce(){
+  const hash = location.hash || '#/home';
+  const [_, path, id] = hash.split('/');
+  if(path==='char' && id){ routes['#/char'](); return; }
+  const fn = routes[`#/${path||'home'}`] || routes['#/home'];
+  fn?.();
+}
 
 export function highlightTab(){
   const hash = location.hash || '#/home';
   const tab = hash.split('/')[1];
   document.querySelectorAll('.bottombar a').forEach(a=>{
-    a.classList.toggle('active', a.dataset.tab===tab);
+    a.classList.toggle('active', a.dataset.t === tab);
   });
 }
-
-export function router(){
-  // 고정 액션바가 남아있으면 제거 (다른 화면 가릴 수 있음)
-  document.querySelector('.fixed-actions')?.remove();
-  const hash = location.hash || '#/home';
-  // 상세 페이지는 :id 필요
-  if(hash.startsWith('#/char/')) return routes['#/char']();
-  if(hash.startsWith('#/relations/')) return routes['#/relations']();
-  (routes[hash] || routes['#/home'])();
-}
-
-export function routeOnce(){ router(); }
