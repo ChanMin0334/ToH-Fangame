@@ -1,0 +1,26 @@
+service cloud.firestore {
+match /databases/{database}/documents {
+function isSignedIn() { return request.auth != null; }
+function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+
+
+match /chars/{charId} {
+allow read: if true; // 공개 프로필(필요 시 제한)
+allow create: if isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
+allow update, delete: if isOwner(resource.data.owner_uid);
+}
+
+
+match /encounters/{encId} {
+allow read: if true;
+allow create: if isSignedIn(); // 서버 타임스탬프 검증 권장
+allow update, delete: if isOwner(resource.data.created_by);
+}
+
+
+match /profiles/{uid} {
+allow read: if true;
+allow write: if isOwner(uid);
+}
+}
+}
