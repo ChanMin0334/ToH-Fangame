@@ -88,10 +88,23 @@ async function boot(){
     // Gemini Key (local)
     const key = getLocalGeminiKey();
     const inp = document.getElementById('gemKey'); inp.value = key;
-    document.getElementById('btnGemSave').onclick = ()=>{ setLocalGeminiKey(inp.value); showToast('이 기기에 저장했어'); };
-    document.getElementById('btnGemToggle').onclick = ()=>{
-      inp.type = inp.type==='password' ? 'text' : 'password';
+    document.getElementById('btnGemSave').onclick = ()=>{
+      const v = inp.value.trim();
+      // 간단한 형식 검사(경고만, 저장은 진행)
+      if (!/^AIza[0-9A-Za-z_\-]{10,}$/.test(v)) {
+        showToast('키 형식이 이상해 보여. 그래도 저장할게!');
+      }
+      setLocalGeminiKey(v);
+      showToast('이 기기에 저장했어');
     };
+
+    const tgl = document.getElementById('btnGemToggle');
+    tgl.onclick = ()=>{
+      const isPwd = inp.type === 'password';
+      inp.type = isPwd ? 'text' : 'password';
+      tgl.textContent = isPwd ? '숨기기' : '표시';
+    };
+
     document.getElementById('btnGemClear').onclick = ()=>{ inp.value=''; setLocalGeminiKey(''); showToast('삭제했어'); };
   }catch(e){
     showToast('로그인이 필요해');
@@ -115,30 +128,62 @@ function onPickAvatar(e){
   rawImg = new Image();
   rawImg.onload = ()=>{
     URL.revokeObjectURL(url);
-    // 초기 배치: 짧은 변이 512에 맞도록
-    const short = Math.min(rawImg.width, rawImg.height);
-    scale = 512/short;
-    offset = { x:(512 - rawImg.width*scale)/2, y:(512 - rawImg.height*scale)/2 };
+    const cvsSize = 512;
+    // 캔버스를 덮기 위한 최소 배율
+    minScale = Math.max(cvsSize/rawImg.width, cvsSize/rawImg.height);
+    scale = Math.max(minScale, 1); // 보통 minScale이 1보다 클 수도 있음
+    // 가운데 정렬
+    const w = rawImg.width * scale;
+    const h = rawImg.height * scale;
+    offset = { x:(cvsSize - w)/2, y:(cvsSize - h)/2 };
     openCropModal();
   };
+
   rawImg.src=url;
 }
+
+let minScale = 1;
+function clampOffset(){
+  const cvs = document.getElementById('cropCanvas');
+  const w = rawImg.width * scale;
+  const h = rawImg.height * scale;
+  // 이미지가 항상 캔버스를 덮도록(빈공간 방지)
+  if (w <= cvs.width)  { offset.x = (cvs.width - w)/2; }
+  else {
+    if (offset.x > 0) offset.x = 0;
+    if (offset.x + w < cvs.width) offset.x = cvs.width - w;
+  }
+  if (h <= cvs.height) { offset.y = (cvs.height - h)/2; }
+  else {
+    if (offset.y > 0) offset.y = 0;
+    if (offset.y + h < cvs.height) offset.y = cvs.height - h;
+  }
+}
+
 
 function openCropModal(){
   const modal = document.getElementById('cropModal');
   const cvs = document.getElementById('cropCanvas');
   cropCtx = cvs.getContext('2d');
-  document.getElementById('zoomRange').value = String(scale);
+  const zr = document.getElementById('zoomRange');
+  zr.min = String(minScale);
+  zr.max = '4';
+  zr.step = '0.01';
+  zr.value = String(scale);
+  clampOffset();
   redraw();
   modal.style.display='grid';
 
   // 드래그
   cvs.onpointerdown = (ev)=>{ dragging=true; last={x:ev.clientX,y:ev.clientY}; cvs.setPointerCapture(ev.pointerId); };
-  cvs.onpointermove = (ev)=>{ if(!dragging) return; const dx=ev.clientX-last.x, dy=ev.clientY-last.y; last={x:ev.clientX,y:ev.clientY}; offset.x+=dx; offset.y+=dy; redraw(); };
+  cvs.onpointermove = (ev)=>{ if(!dragging) return; const dx=ev.clientX-last.x, dy=ev.clientY-last.y; last={x:ev.clientX,y:ev.clientY}; offset.x+=dx; offset.y+=dy; clampOffset(); redraw(); };
   cvs.onpointerup   = ()=>{ dragging=false; };
   cvs.onpointercancel=()=>{ dragging=false; };
 
-  document.getElementById('zoomRange').oninput = (ev)=>{ scale = parseFloat(ev.target.value); redraw(); };
+  document.getElementById('zoomRange').oninput = (ev)=>{ scale = Math.max(minScale, parseFloat(ev.target.value) || minScale);
+  clampOffset();
+  redraw();
+ };
   document.getElementById('btnCropCancel').onclick=()=>{ modal.style.display='none'; };
   document.getElementById('btnCropSave').onclick = async ()=>{
     try{
