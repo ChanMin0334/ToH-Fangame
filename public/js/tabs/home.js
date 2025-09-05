@@ -8,12 +8,20 @@ const btn=el('button',{className:'btn pri', onclick:()=>location.hash='#/adventu
 return el('div',{className:'card'}, el('div',{className:'title'},'새 캐릭터'), el('div',{className:'muted'},'캐릭터 생성은 곧 탭으로 분리 예정(MVP는 시드 사용).'), btn);
 }
 function cardChar(c){
-const open=()=>location.hash=`#/char/${c.char_id}`;
-return el('div',{className:'card', onclick:open, style:'cursor:pointer'},
-el('div',{className:'row'}, el('div',{className:'title'}, c.name), el('span',{className:'pill'}, c.world_id)),
-el('div',{className:'row'}, el('span',{className:'pill'}, '주간 '+(c.likes_weekly||0)), el('span',{className:'pill'}, '누적 '+(c.likes_total||0)), el('span',{className:'pill'}, 'Elo '+(c.elo|0)))
-);
+  const open=()=>location.hash = `#/char/${c.char_id}`; // ← 상세로
+  return el('div',{className:'card', onclick:open, style:'cursor:pointer'},
+    el('div',{className:'row'},
+      el('div',{className:'title'}, c.name),
+      el('span',{className:'pill'}, c.world_id)
+    ),
+    el('div',{className:'row'},
+      el('span',{className:'pill'}, '주간 '+(c.likes_weekly||0)),
+      el('span',{className:'pill'}, '누적 '+(c.likes_total||0)),
+      el('span',{className:'pill'}, 'Elo '+(c.elo|0))
+    )
+  );
 }
+
 
 
 function render(){
