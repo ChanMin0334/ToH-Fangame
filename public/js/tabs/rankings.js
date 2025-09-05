@@ -7,7 +7,7 @@ restoreRankingCache();
 
 function tabs(){
   const make=(id,label)=> el('button',{
-    className:'btn tab'+(State.tab===id?' active':''), onclick:()=>{ State.tab=id; render(); }
+    className:'btn tab'+(State.tab===id?' active':''), onclick:()=>{ State.tab=id; showRankings(); }
   }, label);
   return el('div',{className:'row', style:'gap:8px;margin-bottom:10px'},
     make('weekly','주간 좋아요'),
