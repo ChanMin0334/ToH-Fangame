@@ -1,3 +1,4 @@
+// /public/js/router.js
 import { showHome } from './tabs/home.js';
 import { showAdventure } from './tabs/adventure.js';
 import { showRankings } from './tabs/rankings.js';
@@ -13,8 +14,8 @@ export const routes = {
   '#/rankings': showRankings,
   '#/friends': showFriends,
   '#/me': showMe,
-  '#/relations': showRelations,
-  '#/char': showCharDetail,   // 사용법: #/char/:id
+  '#/relations': showRelations,   // #/relations/:id
+  '#/char': showCharDetail,       // #/char/:id
   '#/create': showCreate
 };
 
@@ -28,11 +29,10 @@ export function highlightTab(){
 
 export function router(){
   const hash = location.hash || '#/home';
-  if(hash.startsWith('#/char/')){
-    routes['#/char']();
-  }else if(routes[hash]){
-    routes[hash]();
-  }else{
-    routes['#/home']();
-  }
+  // 상세 페이지는 :id 필요
+  if(hash.startsWith('#/char/')) return routes['#/char']();
+  if(hash.startsWith('#/relations/')) return routes['#/relations']();
+  (routes[hash] || routes['#/home'])();
 }
+
+export function routeOnce(){ router(); }
