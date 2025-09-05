@@ -29,41 +29,56 @@ service cloud.firestore {
     }
 
         // --- users: 내 정보 ---
+        // ----- 내 정보(users) -----
     match /users/{uid} {
-      allow read: if request.auth != null; // 로그인 사용자 열람 허용
-      allow create: if request.auth != null && request.auth.uid == uid;
-      allow update: if request.auth != null && request.auth.uid == uid
+      // 로그인 사용자만 열람 가능 (친구 검색용)
+      allow read: if isSignedIn();
+
+      // 생성: 본인만
+      allow create: if isSignedIn() && request.auth.uid == uid;
+
+      // 수정: 본인만 + 닉네임 제한 + 7일 쿨타임
+      allow update: if isSignedIn() && request.auth.uid == uid
+        // 닉네임 길이 20자 제한
+        && (!('nickname' in request.resource.data) || request.resource.data.nickname.size() <= 20)
+        // 닉네임 변경 시 7일 쿨타임 (lastNicknameChangeAt: 클라이언트 millis 숫자)
         && (
-          // 닉네임은 20자 이하
-          (!('nickname' in request.resource.data) || (request.resource.data.nickname.size() <= 20))
-        )
-        && (
-          // 닉네임 변경 쿨다운: 7일
-          !('nickname' in request.resource.data) ||
-          !( 'lastNicknameChangeAt' in resource.data ) ||
-          (request.time - resource.data.lastNicknameChangeAt > duration.value(7, 'd'))
+          !('nickname' in request.resource.data)
+          || !('lastNicknameChangeAt' in resource.data)
+          || (request.time.toMillis() - resource.data.lastNicknameChangeAt > 7 * 24 * 60 * 60 * 1000)
         );
     }
 
-    // --- 친구 요청 ---
+    // ----- 친구 요청(friendRequests) -----
     match /friendRequests/{reqId} {
-      allow read: if request.auth != null
+      // 본인과 관련된 문서만 읽기 가능
+      allow read: if isSignedIn()
         && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.from;
-      allow update: if request.auth != null
-        // 수락/거절은 수신자(to)만 가능
+
+      // 생성: 보낸 사람(from)만 가능
+      allow create: if isSignedIn()
+        && request.auth.uid == request.resource.data.from;
+
+      // 업데이트(수락/거절): 수신자(to)만 가능
+      allow update: if isSignedIn()
         && request.auth.uid == resource.data.to;
-      allow delete: if request.auth != null
+
+      // 삭제: 양쪽 모두 허용
+      allow delete: if isSignedIn()
         && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
     }
 
-    // --- 친구 관계 ---
+    // ----- 친구 관계(friendships) -----
     match /friendships/{pairId} {
-      allow read, delete: if request.auth != null
+      // 서로만 읽기/삭제 가능
+      allow read, delete: if isSignedIn()
         && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
-      allow create: if request.auth != null
+
+      // 생성: 쌍 중 한 명이면 허용 (수락 시 생성)
+      allow create: if isSignedIn()
         && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
     }
+
 
     
 
