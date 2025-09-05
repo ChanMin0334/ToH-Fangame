@@ -5,7 +5,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui, -a
 .wrap{min-height:100%;padding-bottom:72px}
 .topbar{position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;background:rgba(12,15,20,.7);backdrop-filter:blur(8px);border-bottom:1px solid var(--bd)}
 .view{padding:12px}
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.grid{display:grid;grid-template-columnㄹs:repeat(2,1fr);gap:12px}
 .card{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px}
 .row{display:flex;gap:8px;align-items:center}
 .col{display:flex;flex-direction:column;gap:10px}
@@ -276,9 +276,17 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui, -a
 
 /* 하단 고정 액션바 (배틀/조우) */
 .fixed-actions{
-  position:fixed; left:50%; transform:translateX(-50%);
-  bottom:16px; z-index:50; display:flex; gap:12px; padding:8px;
-  border-radius:999px; background:rgba(15,16,18,.9); border:1px solid var(--bd);
+  position:fixed;
+  left:50%; transform:translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 88px); /* ↓ 기존 16px → 72px로 올림 */
+  z-index:50;
+  display:flex; gap:12px; padding:8px 10px;
+  border-radius:999px;
+  background:rgba(15,16,18,.9);
+  border:1px solid var(--bd);
   backdrop-filter:saturate(140%) blur(6px);
+}
+@media (max-width: 640px){
+  .fixed-actions{ bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); }
 }
 .fixed-actions .btn{ padding:10px 16px; }
