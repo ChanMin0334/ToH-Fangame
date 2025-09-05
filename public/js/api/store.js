@@ -1,6 +1,3 @@
-import { uploadCharAvatar } from './storage.js';
-
-
 // /public/js/api/store.js
 import { db, auth, fx, storage, sx } from './firebase.js';
 import { showToast } from '../ui/toast.js';
@@ -17,10 +14,10 @@ export const App = {
 
 // ===== 티어 계산 =====
 export function tierOf(elo = 1000){
-  if (elo < 900)   return { name:'Bronze',   color:'#7a5a3a' };
-  if (elo < 1100)  return { name:'Silver',   color:'#8aa0b8' };
-  if (elo < 1300)  return { name:'Gold',     color:'#d1a43f' };
-  if (elo < 1500)  return { name:'Platinum', color:'#69c0c6' };
+  if (elo < 1100)   return { name:'Bronze',   color:'#7a5a3a' };
+  if (elo < 1250)  return { name:'Silver',   color:'#8aa0b8' };
+  if (elo < 1400)  return { name:'Gold',     color:'#d1a43f' };
+  if (elo < 1550)  return { name:'Platinum', color:'#69c0c6' };
   if (elo < 1700)  return { name:'Diamond',  color:'#7ec2ff' };
   return { name:'Master', color:'#b678ff' };
 }
@@ -28,12 +25,12 @@ export function tierOf(elo = 1000){
 // ===== 세계관 로딩 =====
 export async function fetchWorlds(){
   if (App.state.worlds) return App.state.worlds;
-  const w = await fetch('/assets/worlds.json').then(r=>r.json());
+  const w = await fetch('/assets/worlds.json').then(r=>r.json()).catch(()=>({worlds:[]}));
   App.state.worlds = w;
   return w;
 }
 
-// ===== 내 캐릭 목록 =====
+// ===== 내 캐릭 목록/개수 =====
 export async function fetchMyChars(uid){
   const q = fx.query(fx.collection(db,'chars'), fx.where('owner_uid','==', uid));
   const s = await fx.getDocs(q);
@@ -41,16 +38,24 @@ export async function fetchMyChars(uid){
   App.state.myChars = arr;
   return arr;
 }
+export async function getMyCharCount(){
+  const u=auth.currentUser; if(!u) return 0;
+  const q = fx.query(fx.collection(db,'chars'), fx.where('owner_uid','==', u.uid));
+  const s = await fx.getDocs(q);
+  return s.size||0;
+}
 
-// ===== 최소 생성 (직접 Firestore 생성 사용 시) =====
-//  ※ Functions로 생성 제한을 두는 경우에는 이 함수 대신 callable을 쓰세요.
+// ===== 캐릭 최소 생성 =====
 export async function createCharMinimal({ world_id, name, input_info }){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
+
   const now = Date.now();
   const ref = await fx.addDoc(fx.collection(db,'chars'), {
     owner_uid: u.uid,
-    world_id, name, input_info,
+    world_id: String(world_id||'default'),
+    name: String(name||'이름없음').slice(0,20),
+    input_info: String(input_info||'').slice(0,500),
     image_url: '',
     abilities_all: [
       {name:'',desc_raw:'',desc_soft:''},
@@ -68,18 +73,23 @@ export async function createCharMinimal({ world_id, name, input_info }){
     battle_count:0, explore_count:0,
     createdAt: now, updatedAt: now
   });
+  // ✅ 쿨타임은 "성공 후"에만 찍는다
+  try{ localStorage.setItem('charCreateLastAt', String(now)); }catch{}
   showToast('캐릭터가 생성되었어!');
   return ref.id;
 }
 
-// ===== 내 캐릭 개수 =====
-export async function getMyCharCount(){
-  const u = auth.currentUser; if(!u) return 0;
-  const q = fx.query(fx.collection(db,'chars'), fx.where('owner_uid','==', u.uid));
-  const s = await fx.getDocs(q);
-  return s.size || 0;
+// ===== 캐릭 삭제(소유자만) =====
+export async function deleteChar(charId){
+  const u=auth.currentUser; if(!u) throw new Error('로그인이 필요해');
+  // 보안은 Firestore rules로 이미 2중 보호, 클라에서도 최소 체크
+  const snap = await fx.getDoc(fx.doc(db,'chars',charId));
+  if(!snap.exists()) throw new Error('이미 삭제됐어');
+  if(snap.data().owner_uid !== u.uid) throw new Error('삭제 권한이 없어');
+  await (await import('https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js'))
+    .deleteDoc(fx.doc(db,'chars',charId));
+  showToast('삭제했어');
 }
-
 
 // ===== 스킬 2개 장착 =====
 export async function updateAbilitiesEquipped(charId, indices){
@@ -97,7 +107,7 @@ export async function updateItemsEquipped(charId, ids){
   showToast('아이템 장착 변경');
 }
 
-// ===== 1:1 아바타 업로드(512px) =====
+// ===== 1:1 아바타 업로드(512px) — 같은 경로로 덮어쓰기 =====
 export async function uploadAvatarSquare(charId, file){
   const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
 
@@ -109,14 +119,13 @@ export async function uploadAvatarSquare(charId, file){
   const canvas = document.createElement('canvas'); canvas.width=512; canvas.height=512;
   const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled=true;
   ctx.drawImage(bmp, sx0, sy0, side, side, 0, 0, 512, 512);
-  const blob = await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.85));
+  const blob = await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.9));
 
-  const path = `char_avatars/${u.uid}/${charId}/v${Date.now()}.jpg`;
+  const path = `char_avatars/${u.uid}/${charId}/avatar.jpg`; // ← 고정 경로 = 덮어쓰기
   const r = sx.ref(storage, path);
-  await sx.uploadBytes(r, blob, { contentType:'image/jpeg', cacheControl:'public,max-age=31536000,immutable' });
-  const url = await uploadCharAvatar(charId, blob); // ← 교체 업로드
-  await fx.updateDoc(fx.doc(db,'chars',charId), { image_url: url, updatedAt: Date.now() });
-
+  await sx.uploadBytes(r, blob, { contentType:'image/jpeg', cacheControl:'no-cache' });
+  let url = await sx.getDownloadURL(r);
+  url += (url.includes('?')?'&':'?') + 't=' + Date.now(); // 캐시버스터
 
   await fx.updateDoc(fx.doc(db,'chars',charId), { image_url: url, updatedAt: Date.now() });
   showToast('아바타 업로드 완료');
@@ -148,5 +157,5 @@ export function restoreRankingCache(){
   return null;
 }
 
-// === 레거시 호환: saveLocal 참조하는 오래된 파일 대비 (no-op) ===
+// === 레거시 호환(no-op) ===
 export function saveLocal(){ /* noop */ }
