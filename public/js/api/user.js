@@ -10,29 +10,51 @@ function userRef(uid){ return fx.doc(db,'users', uid); }
 export async function ensureUserDoc(){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
-  const ref = userRef(u.uid);
+  const ref = fx.doc(db,'users', u.uid);
   const snap = await fx.getDoc(ref);
-  const nickname = (u.displayName||'모험가').slice(0,20);
-  const base = {
-    uid: u.uid,
-    nickname,
-    nickname_lower: nickname.toLowerCase(),
-    avatarURL: u.photoURL || '',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    lastNicknameChangeAt: 0
-  };
+
+  const fallbackNick = (u.displayName || '모험가').slice(0,20);
+  const now = Date.now();
+
   if(!snap.exists()){
+    const base = {
+      uid: u.uid,
+      nickname: fallbackNick,
+      nickname_lower: fallbackNick.toLowerCase(),
+      avatarURL: u.photoURL || '',
+      createdAt: now,
+      updatedAt: now,
+      lastNicknameChangeAt: 0
+    };
     await fx.setDoc(ref, base, { merge:true });
     return base;
-  }else{
-    // 최소 필드 보강
-    const cur = snap.data();
-    const merged = { ...base, ...cur, uid:u.uid, updatedAt: Date.now() };
-    await fx.setDoc(ref, merged, { merge:true });
-    return merged;
+    }else{
+    const cur = snap.data() || {};
+    const patch = { updatedAt: now };
+
+    // uid/createdAt 보강
+    if(cur.uid !== u.uid) patch.uid = u.uid;
+    if(typeof cur.createdAt !== 'number') patch.createdAt = now;
+
+    // 아바타 없으면 구글 프로필 채워넣기 (있으면 건드리지 않음)
+    if((!cur.avatarURL || cur.avatarURL==='') && u.photoURL) patch.avatarURL = u.photoURL;
+
+    // 닉네임/쿨타임: 문서에 nickname이 "없을 때만" 초기 세팅.
+    if(!cur.nickname){
+      patch.nickname = fallbackNick;
+      patch.nickname_lower = fallbackNick.toLowerCase();
+      if(typeof cur.lastNicknameChangeAt !== 'number') patch.lastNicknameChangeAt = 0;
+    }
+    // 중요: 닉네임이 이미 있으면 여기서는 절대 nickname/nickname_lower를 보내지 않음
+    // (쿨타임 규칙 충돌 방지; 실제 변경은 updateNickname()에서만)
+
+    if(Object.keys(patch).length > 0){
+      await fx.setDoc(ref, patch, { merge:true });
+    }
+    return { ...cur, ...patch };
   }
 }
+
 
 export async function loadUserProfile(){
   const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
