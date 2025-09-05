@@ -112,8 +112,6 @@ async function onClickNew(){
     showToast(`쿨타임 남아있어: ${fmtRemain(remain)}`);
     return;
   }
-  // 3) 생성 화면으로 진입 + 쿨타임 시작(※ 실제 생성 성공 시점에 시작하려면 그 로직에서 setItem 호출)
-  localStorage.setItem(LS_KEY_CREATE_LAST_AT, Date.now().toString());
   location.hash = '#/create';
 }
 
