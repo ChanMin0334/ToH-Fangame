@@ -135,7 +135,7 @@ function cardHtml(c){
       <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M9 3h6a1 1 0 0 1 1 1v1h4v2H4V5h4V4a1 1 0 0 1 1-1zm1 5h2v10h-2V8zm4 0h2v10h-2V8zM8 8h2v10H8V8z"/></svg>
     </button>
 
-    <div class="row" style="gap:20px; align-items:center;">
+    <div class="row" style="gap:60px; align-items:center;">
       <!-- 왼쪽: 이미지 -->
       <div class="thumb sq">
         ${img}
