@@ -2,23 +2,7 @@
 import { db, auth, fx, storage, sx } from './firebase.js';
 import { showToast } from '../ui/toast.js';
 
-import { getMyCharCount } from '../api/store.js';
-
-async function renderHome(){
-  const cnt = await getMyCharCount();
-  const canCreate = cnt < 4;
-  // 새 캐릭터 카드
-  const newCardHtml = canCreate
-    ? `<button class="card create" id="btnNew">+ 새 캐릭터</button>`
-    : `<div class="card create disabled">캐릭터는 최대 4개</div>`;
-
-  // ...
-  if (canCreate) {
-    document.getElementById('btnNew')?.addEventListener('click', openCreateDialog);
-  }
-}
-
-
+// ===== 전역 앱 상태 =====
 export const App = {
   state: {
     user: null,
@@ -29,13 +13,13 @@ export const App = {
 };
 
 // ===== 티어 계산 =====
-export function tierOf(elo=1000){
-  if (elo < 900) return {name:'Bronze',  color:'#7a5a3a'};
-  if (elo < 1100) return {name:'Silver',  color:'#8aa0b8'};
-  if (elo < 1300) return {name:'Gold',    color:'#d1a43f'};
-  if (elo < 1500) return {name:'Platinum',color:'#69c0c6'};
-  if (elo < 1700) return {name:'Diamond', color:'#7ec2ff'};
-  return {name:'Master', color:'#b678ff'};
+export function tierOf(elo = 1000){
+  if (elo < 900)   return { name:'Bronze',   color:'#7a5a3a' };
+  if (elo < 1100)  return { name:'Silver',   color:'#8aa0b8' };
+  if (elo < 1300)  return { name:'Gold',     color:'#d1a43f' };
+  if (elo < 1500)  return { name:'Platinum', color:'#69c0c6' };
+  if (elo < 1700)  return { name:'Diamond',  color:'#7ec2ff' };
+  return { name:'Master', color:'#b678ff' };
 }
 
 // ===== 세계관 로딩 =====
@@ -44,6 +28,19 @@ export async function fetchWorlds(){
   const w = await fetch('/assets/worlds.json').then(r=>r.json());
   App.state.worlds = w;
   return w;
+}
+
+// ===== 내 캐릭 수 (최대 4개 제한 UX용) =====
+export async function getMyCharCount(){
+  const uid = auth.currentUser?.uid;
+  if(!uid) return 0;
+  const q = fx.query(
+    fx.collection(db,'chars'),
+    fx.where('owner_uid','==', uid),
+    fx.limit(4)
+  );
+  const s = await fx.getDocs(q);
+  return s.size;
 }
 
 // ===== 내 캐릭 목록 =====
@@ -55,7 +52,8 @@ export async function fetchMyChars(uid){
   return arr;
 }
 
-// ===== 최소 생성 =====
+// ===== 최소 생성 (직접 Firestore 생성 사용 시) =====
+//  ※ Functions로 생성 제한을 두는 경우에는 이 함수 대신 callable을 쓰세요.
 export async function createCharMinimal({ world_id, name, input_info }){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
