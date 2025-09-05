@@ -1,21 +1,23 @@
-// --- char.js: renderLoadout 안전 가드 추가 ---
+// --- renderLoadout (안전 가드 적용본) ---
 async function renderLoadout(c, view){
   const isOwner = auth.currentUser && c.owner_uid === auth.currentUser.uid;
 
   // 1) 스키마 호환 & 기본값 가드
   const abilitiesAll = Array.isArray(c.abilities_all)
     ? c.abilities_all
-    : (Array.isArray(c.abilities) ? c.abilities : []); // 구 스키마 호환
+    : (Array.isArray(c.abilities) ? c.abilities : []);
 
   const equippedAb = Array.isArray(c.abilities_equipped)
-    ? c.abilities_equipped.filter(i => Number.isInteger(i) && i >= 0 && i < abilitiesAll.length).slice(0, 2)
+    ? c.abilities_equipped
+        .filter(i => Number.isInteger(i) && i >= 0 && i < abilitiesAll.length)
+        .slice(0, 2)
     : [];
 
   const equippedItems = Array.isArray(c.items_equipped)
     ? c.items_equipped.slice(0, 3)
-    : []; // 최대 3칸
+    : [];
 
-  // 2) UI 생성 (능력 없을 때 안내)
+  // 2) UI 생성
   let html = `
     <div class="p16">
       <h4>스킬 (4개 중 2개 선택)</h4>
@@ -62,7 +64,7 @@ async function renderLoadout(c, view){
     return `<div class="card p12">${label}</div>`;
   }).join('');
 
-  // 5) 더미 선택(임시) → 실제 선택 다이얼로그로 교체 예정
+  // 5) 더미 선택(임시)
   if(isOwner){
     view.querySelector('#btnEquip')?.addEventListener('click', ()=>{
       const selected = inv.slice(0,3).map(x=>x.id);
