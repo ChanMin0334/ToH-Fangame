@@ -1,0 +1,34 @@
+:root{ --bg:#0c0f14; --panel:#11151c; --muted:#9aa4b2; --text:#eef1f6; --bd:#212a36; --chip:#161b23; --pri1:#3b82f6; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; }
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Noto Sans KR, sans-serif}
+.wrap{min-height:100%;padding-bottom:72px}
+.topbar{position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;background:rgba(12,15,20,.7);backdrop-filter:blur(8px);border-bottom:1px solid var(--bd)}
+.view{padding:12px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.row{display:flex;gap:8px;align-items:center}
+.col{display:flex;flex-direction:column;gap:10px}
+.muted{color:var(--muted)}
+.title{font-weight:800}
+.btn{appearance:none;border:1px solid var(--bd);background:#0e131a;color:var(--text);padding:9px 12px;border-radius:10px;cursor:pointer}
+.btn.ghost{background:transparent}
+.btn.pri{background:linear-gradient(180deg,#4f8efc,#2a63d4);border-color:#204eac}
+.btn.ok{background:linear-gradient(180deg,#2fbf74,#198a54);border-color:#0f6b41}
+.pill{padding:4px 10px;border-radius:999px;border:1px solid var(--bd);background:#0e131a;color:var(--muted);font-size:12px}
+.chip{background:var(--chip);border:1px solid var(--bd);border-radius:999px;padding:4px 10px;color:var(--muted)}
+.input,textarea,select{width:100%;padding:10px;border-radius:10px;border:1px solid var(--bd);background:#0c1117;color:var(--text)}
+.hint{font-size:12px;color:var(--muted)}
+.hr{height:1px;background:var(--bd);margin:10px 0}
+
+
+.bottombar{position:fixed;left:0;right:0;bottom:0;height:72px;padding-bottom:env(safe-area-inset-bottom);display:flex;justify-content:space-around;align-items:center;background:#0e131a;border-top:1px solid var(--bd);z-index:10}
+.bottombar a{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--muted);text-decoration:none;font-size:12px;padding:6px 8px}
+.bottombar a.active{color:#fff}
+
+
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#0e131a;border:1px solid var(--bd);padding:10px 14px;border-radius:10px;z-index:50;opacity:0;transition:opacity .25s}
+.toast.show{opacity:1}
+
+
+@media (min-width: 720px){ .grid{grid-template-columns:repeat(3,1fr)} }
