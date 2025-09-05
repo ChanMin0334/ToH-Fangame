@@ -5,7 +5,6 @@ import { showRankings } from './tabs/rankings.js';
 import { showFriends } from './tabs/friends.js';
 import { showMe } from './tabs/me.js';
 import { showRelations } from './tabs/relations.js';
-import { showCharDetail } from './tabs/char.js';
 import { showCreate } from './tabs/create.js';
 
 export const routes = {
