@@ -1,0 +1,9 @@
+service firebase.storage {
+match /b/{bucket}/o {
+function isSignedIn() { return request.auth != null; }
+match /uploads/{uid}/{allPaths=**} {
+allow read: if true; // 썸네일/이미지 공개 가정
+allow write: if isSignedIn() && request.auth.uid == uid && request.resource.size < 10 * 1024 * 1024; // 10MB 제한
+}
+}
+}
