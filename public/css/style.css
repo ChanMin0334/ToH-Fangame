@@ -32,3 +32,46 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui, -a
 
 
 @media (min-width: 720px){ .grid{grid-template-columns:repeat(3,1fr)} }
+/* ===== UI revamp: stack layout & cards ===== */
+.view { max-width: 720px; margin: 0 auto; padding: 16px 12px 96px; }
+
+.stack {
+  display: flex; flex-direction: column; gap: 12px; align-items: center;
+}
+.stack > * { width: 100%; max-width: 640px; }
+
+.card.char {
+  display: grid; grid-template-columns: 112px 1fr; gap: 12px; align-items: center;
+}
+.char-thumb {
+  width: 112px; height: 112px; border-radius: 12px; object-fit: cover;
+  border: 1px solid #223; background: #111;
+}
+.char-thumb.blank {
+  display:flex; align-items:center; justify-content:center; color:#8a93a0; font-size:12px;
+}
+.meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+
+.btn.tab { border-radius: 999px; padding: 6px 12px; }
+.btn.tab.active { background: #2f6df6; color: #fff; }
+
+.rank-grid { display: flex; flex-direction: column; gap: 8px; }
+.rank-card {
+  display:grid; grid-template-columns: 40px 72px 1fr auto; gap:10px; align-items:center;
+  padding:10px; border:1px solid #223; border-radius:12px; background:#0b0f16;
+}
+.rank-no { font-weight:700; text-align:center; }
+.rank-thumb { width:72px; height:72px; object-fit:cover; border-radius:8px; border:1px solid #223; background:#0e131b; }
+.rank-name { font-weight:600; }
+.rank-stat { font-variant-numeric: tabular-nums; opacity:.9; }
+
+.stepper { display:flex; gap:8px; margin-bottom:12px; }
+.step { padding:6px 10px; border-radius:999px; border:1px solid #223; }
+.step.active { background:#1a2230; }
+
+.chips { display:flex; gap:8px; flex-wrap:wrap; }
+.chip.sel { background:#1a2230; border:1px solid #2a3a52; }
+
+.site-list { display:flex; flex-direction:column; gap:8px; }
+.site-item { border:1px solid #223; border-radius:12px; padding:10px; cursor:pointer; }
+.site-item.sel { outline:2px solid #2f6df6; }

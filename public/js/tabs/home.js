@@ -1,38 +1,45 @@
 import { App } from '../api/store.js';
 import { el } from '../ui/components.js';
 
-function cardNew(){
-  const btn = el('button',{ className:'btn pri', onclick:()=>location.hash='#/adventure' }, '모험 시작');
-  return el('div',{ className:'card' },
-    el('div',{ className:'title' }, '새 캐릭터'),
-    el('div',{ className:'muted' }, '캐릭터 생성은 곧 탭으로 분리 예정(MVP는 시드 사용).'),
-    btn
+function charCard(c){
+  const open = () => location.hash = `#/char/${c.char_id || c.id}`;
+  const thumb = c.image_url
+    ? el('img',{ className:'char-thumb', src:c.image_url, alt:c.name })
+    : el('div',{ className:'char-thumb blank' }, '이미지 없음');
+
+  return el('div',{ className:'card char', onclick:open, style:'cursor:pointer' },
+    thumb,
+    el('div',{},
+      el('div',{ className:'title' }, c.name),
+      el('div',{ className:'muted' }, `세계관: ${c.world_id || '-'}`),
+      el('div',{ className:'meta' },
+        el('span',{ className:'pill' }, `주간 ${c.likes_weekly||0}`),
+        el('span',{ className:'pill' }, `누적 ${c.likes_total||0}`),
+        el('span',{ className:'pill' }, `Elo ${c.elo||0}`)
+      )
+    )
   );
 }
 
-function cardChar(c){
-  const open = () => location.hash = `#/char/${c.char_id}`;
-  return el('div',{ className:'card', onclick:open, style:'cursor:pointer' },
-    el('div',{ className:'row' },
-      el('div',{ className:'title' }, c.name),
-      el('span',{ className:'pill' }, c.world_id)
-    ),
-    el('div',{ className:'row' },
-      el('span',{ className:'pill' }, '주간 ' + (c.likes_weekly||0)),
-      el('span',{ className:'pill' }, '누적 ' + (c.likes_total||0)),
-      el('span',{ className:'pill' }, 'Elo ' + (c.elo|0))
-    )
+function createCard(){
+  const go = ()=> location.hash = '#/adventure';
+  return el('div',{ className:'card', onclick:go, style:'cursor:pointer;text-align:center' },
+    el('div',{ className:'title' }, '새 캐릭터 만들기'),
+    el('div',{ className:'muted' }, '세계관과 장소를 선택해 시작할 수 있어.')
   );
 }
 
 function render(){
   const v = document.getElementById('view');
-  const grid = el('div',{ className:'grid' });
-  grid.appendChild(cardNew());
-  App.state.chars.forEach(c => grid.appendChild(cardChar(c)));
-  v.replaceChildren(el('div',{}, el('div',{ className:'title' }, '홈'), grid));
+  const list = (App.state.chars||[]).map(charCard);
+  // 생성 카드를 "맨 아래" 배치
+  v.replaceChildren(
+    el('div',{ className:'stack' },
+      ...list,
+      createCard()
+    )
+  );
 }
 
-// ✅ 홈 라우트에서만 렌더! (char 라우트일 때 덮어쓰지 않도록)
 window.addEventListener('route', e => { if (e.detail.path === 'home') render(); });
 render();

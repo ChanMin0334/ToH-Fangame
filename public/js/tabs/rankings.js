@@ -1,54 +1,61 @@
 import { App, loadRankingsFromServer, restoreRankingCache } from '../api/store.js';
 import { el } from '../ui/components.js';
-import { showToast } from '../ui/toast.js';
 
-restoreRankingCache(); // 캐시 있으면 먼저 보여주기
+const State = { tab: 'weekly' }; // 'weekly' | 'total' | 'elo'
+restoreRankingCache();
 
-function section(title, list, fmt){
-  const items = (list||[]).slice(0,50).map((c,i)=>
-    el('div',{className:'row',style:'gap:8px;align-items:center'},
-      el('span',{className:'pill'}, `#${i+1}`),
-      el('span',{}, fmt(c))
-    )
+function tabs(){
+  const make = (id, label)=> el('button',{
+    className: 'btn tab' + (State.tab===id?' active':''),
+    onclick: ()=>{ State.tab=id; render(); }
+  }, label);
+  return el('div',{ className:'row', style:'gap:8px;margin-bottom:10px' },
+    make('weekly','주간 좋아요'),
+    make('total','누적 좋아요'),
+    make('elo','Elo')
   );
-  return el('div',{}, el('div',{className:'title'}, title), ...items);
+}
+
+function rankCard(c, i){
+  const open = ()=> location.hash = `#/char/${c.char_id || c.id}`;
+  const thumb = c.image_url
+    ? el('img',{ className:'rank-thumb', src:c.image_url, alt:c.name })
+    : el('div',{ className:'rank-thumb' });
+  const stat = (State.tab==='weekly') ? (c.likes_weekly||0)
+            : (State.tab==='total')  ? (c.likes_total||0)
+            : (c.elo||0);
+  const statLabel = (State.tab==='elo') ? 'Elo' : '❤';
+
+  return el('div',{ className:'rank-card', onclick:open, style:'cursor:pointer' },
+    el('div',{ className:'rank-no' }, `#${i+1}`),
+    thumb,
+    el('div',{},
+      el('div',{ className:'rank-name' }, c.name),
+      el('div',{ className:'muted' }, c.world_id || '-')
+    ),
+    el('div',{ className:'rank-stat' }, `${statLabel} ${stat}`)
+  );
 }
 
 async function render(){
   const v = document.getElementById('view');
-  v.replaceChildren(el('div',{className:'muted'}, '랭킹 불러오는 중…'));
-
-  try{
-    const r = await loadRankingsFromServer(50);
-    v.replaceChildren(
-      el('div',{},
-        el('div',{className:'title'}, '랭킹'),
-        section('주간 좋아요', r.weekly, c=> `${c.likes_weekly ?? 0} · ${c.name}`),
-        el('div',{className:'hr'}),
-        section('누적 좋아요', r.total,  c=> `${c.likes_total  ?? 0} · ${c.name}`),
-        el('div',{className:'hr'}),
-        section('Elo',        r.elo,    c=> `${c.elo         ?? 0} · ${c.name}`)
-      )
-    );
-  }catch(e){
-    console.error(e);
-    showToast && showToast('랭킹 불러오기 실패. 잠시 후 다시 시도해줘.');
-    const r = App.rankings;
-    if(r){
-      v.replaceChildren(
-        el('div',{},
-          el('div',{className:'title'}, '랭킹(캐시)'),
-          section('주간 좋아요', r.weekly, c=> `${c.likes_weekly ?? 0} · ${c.name}`),
-          el('div',{className:'hr'}),
-          section('누적 좋아요', r.total,  c=> `${c.likes_total  ?? 0} · ${c.name}`),
-          el('div',{className:'hr'}),
-          section('Elo',        r.elo,    c=> `${c.elo         ?? 0} · ${c.name}`)
-        )
-      );
-    } else {
-      v.replaceChildren(el('div',{className:'muted'}, '표시할 랭킹이 없어.'));
-    }
+  if(!App.rankings){
+    v.replaceChildren(el('div',{className:'muted'}, '랭킹 불러오는 중…'));
+    try { await loadRankingsFromServer(50); } catch {}
   }
+  const src = App.rankings || { weekly:[], total:[], elo:[] };
+  const list = State.tab==='weekly' ? src.weekly
+            : State.tab==='total'  ? src.total
+            : src.elo;
+
+  v.replaceChildren(
+    el('div',{ className:'stack' },
+      el('div',{ className:'title' }, '랭킹'),
+      tabs(),
+      el('div',{ className:'rank-grid' }, ...(list||[]).map((c,i)=>rankCard(c,i)))
+    )
+  );
 }
 
 window.addEventListener('route', e=>{ if(e.detail.path==='rankings') render(); });
+render();
