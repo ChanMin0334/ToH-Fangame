@@ -63,3 +63,7 @@ function render(){
 
 window.addEventListener('route', e=>{ if(e.detail.path==='adventure') render(); });
 render();
+
+export function showAdventure() {
+  render();
+}
