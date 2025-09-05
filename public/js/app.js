@@ -9,6 +9,7 @@ import './tabs/friends.js';
 import './tabs/me.js';
 import './tabs/relations.js';
 import './tabs/char.js';   // ← 따옴표와 세미콜론 필수!
+import './tabs/create.js';
 
 window.addEventListener('hashchange', ()=>{ highlightTab(); router(); });
 

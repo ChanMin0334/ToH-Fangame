@@ -22,10 +22,10 @@ function charCard(c){
 }
 
 function createCard(){
-  const go = ()=> location.hash = '#/adventure';
+  const go = ()=> location.hash = '#/create';
   return el('div',{ className:'card', onclick:go, style:'cursor:pointer;text-align:center' },
     el('div',{ className:'title' }, '새 캐릭터 만들기'),
-    el('div',{ className:'muted' }, '세계관과 장소를 선택해 시작할 수 있어.')
+    el('div',{ className:'muted' }, '세계관을 고르고 정보를 입력해 생성해보자.')
   );
 }
 

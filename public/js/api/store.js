@@ -2,6 +2,21 @@
 import { db, fx } from './firebase.js';
 import { showToast } from '../ui/toast.js';
 
+// 생성 잠금 & 리롤 쿨다운 상태
+export let creationLock = false;
+export function lockCreation(b){ creationLock = !!b; }
+
+export function canRerollToday(char){
+  const d = new Date(); const today = d.toISOString().slice(0,10);
+  const last = char._lastRerollDay || '';
+  return last !== today && (char._rerollsToday||0) < (char._rerollLimit||1);
+}
+export function markReroll(char){
+  const d = new Date(); const today = d.toISOString().slice(0,10);
+  if(char._lastRerollDay !== today){ char._lastRerollDay = today; char._rerollsToday = 0; }
+  char._rerollsToday = (char._rerollsToday||0) + 1;
+}
+
 const KEY = {
   chars: 'toh_chars',
   worlds: 'toh_worlds',
@@ -213,4 +228,13 @@ export async function applyBattleResult(charAId, charBId, verdict, K=32){
       draws:(B.draws||0)+(verdict==='draw'?1:0)
     },{merge:true});
   });
+}
+
+// 서버에 캐릭터 정보 업서트 (옵션)
+export async function upsertCharToServer(c){
+  // 서버 연동이 준비되지 않았다면 아무 것도 하지 않음
+  try {
+    const ref = fx.doc(db, 'chars', c.char_id || c.id);
+    await fx.setDoc(ref, c, { merge: true });
+  } catch {}
 }
