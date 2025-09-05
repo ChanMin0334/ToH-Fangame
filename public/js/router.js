@@ -15,7 +15,10 @@ export const routes = {
   '#/friends': showFriends,
   '#/me': showMe,
   '#/relations': showRelations,   // #/relations/:id
-  '#/char': showCharDetail,       // #/char/:id
+  // #/char/:id — 동적 import + 폴백
+  '#/char': () => import('./tabs/char.js')
+    .then(m => (m.showCharDetail ?? m.default ?? m.showChar)?.()
+      ?? console.warn('[router] char.js: export가 없어 실행 못함')),
   '#/create': showCreate
 };
 
