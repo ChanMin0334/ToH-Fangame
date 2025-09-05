@@ -30,6 +30,8 @@ export function highlightTab(){
 }
 
 export function router(){
+  // 고정 액션바가 남아있으면 제거 (다른 화면 가릴 수 있음)
+  document.querySelector('.fixed-actions')?.remove();
   const hash = location.hash || '#/home';
   // 상세 페이지는 :id 필요
   if(hash.startsWith('#/char/')) return routes['#/char']();
