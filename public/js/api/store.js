@@ -107,30 +107,30 @@ export async function updateItemsEquipped(charId, ids){
   showToast('아이템 장착 변경');
 }
 
-// ===== 1:1 아바타 업로드(512px) — 같은 경로로 덮어쓰기 =====
+// 1:1 아바타 업로드(512px) — Storage 없이 Firestore에 data URL로 저장
 export async function uploadAvatarSquare(charId, file){
   const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
 
+  // 원본 이미지에서 512x512 정사각 자르기
   const buf = await file.arrayBuffer();
   const bmp = await createImageBitmap(new Blob([buf]));
   const side = Math.min(bmp.width, bmp.height);
-  const sx0 = (bmp.width-side)/2, sy0=(bmp.height-side)/2;
+  const sx0 = (bmp.width - side)/2, sy0 = (bmp.height - side)/2;
 
-  const canvas = document.createElement('canvas'); canvas.width=512; canvas.height=512;
-  const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled=true;
+  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 512;
+  const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = true;
   ctx.drawImage(bmp, sx0, sy0, side, side, 0, 0, 512, 512);
-  const blob = await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.9));
 
-  const path = `char_avatars/${u.uid}/${charId}/avatar.jpg`; // ← 고정 경로 = 덮어쓰기
-  const r = sx.ref(storage, path);
-  await sx.uploadBytes(r, blob, { contentType:'image/jpeg', cacheControl:'no-cache' });
-  let url = await sx.getDownloadURL(r);
-  url += (url.includes('?')?'&':'?') + 't=' + Date.now(); // 캐시버스터
+  // JPEG로 압축해서 data URL 만들기 (대략 60~150KB → Firestore 문서 1MB 제한 여유 충분)
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
 
-  await fx.updateDoc(fx.doc(db,'chars',charId), { image_url: url, updatedAt: Date.now() });
+  // Firestore chars 문서에 바로 저장 (image_url 필드에 data URL로 저장)
+  await fx.updateDoc(fx.doc(db,'chars',charId), { image_url: dataUrl, updatedAt: Date.now() });
+
   showToast('아바타 업로드 완료');
-  return url;
+  return dataUrl;
 }
+
 
 // ===== 랭킹 로딩/캐시 =====
 export let rankingsLoadedAt = 0;
