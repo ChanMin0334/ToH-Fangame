@@ -1,0 +1,5 @@
+{
+"worlds":[
+{"id":"gionkir","name":"기온키르","intro":"검과 성벽의 땅.","detail":{"lore":"성벽 아래 통로와 검의 요새.","sites":[{"id":"wall-tunnel","name":"성벽 아래 통로","description":"낮은 물소리와 비밀.","type":"dungeon","tags":["어둠","비밀"]},{"id":"fortress","name":"검의 요새","description":"의전과 수련의 회랑.","type":"stronghold","tags":["의전","훈련"]}]}}
+]
+}
