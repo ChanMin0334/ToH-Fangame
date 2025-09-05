@@ -1,67 +1,38 @@
-// /public/js/app.js
-import { auth, ax } from './api/firebase.js';
-import { fetchWorlds, App } from './api/store.js';
-import { routeOnce, highlightTab } from './router.js';
-import { showToast } from './ui/toast.js';
+// /public/js/api/firebase.js  (정상화: Firebase 초기화 전용)
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js';
+import {
+  getFirestore,
+  doc, getDoc, getDocs, setDoc, updateDoc, addDoc, collection, query, where, orderBy, limit
+} from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
+import {
+  getAuth
+} from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
+import {
+  getStorage, ref as sRef, uploadBytes, getDownloadURL
+} from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-storage.js';
 
-async function boot(){
-  await fetchWorlds();
+// ★★ 여기에 "router.js", "toast.js", "api/..." 같은 프로젝트 파일 import 금지 ★★
+// 이 파일은 Firebase SDK만 import 해야 함
 
-  // 로그인 상태 변화에 맞춰 UI/라우팅 반영
-  ax.onAuthStateChanged(auth, (u)=>{
-    App.state.user = u || null;
-    toggleAuthButton(u);
-    routeOnce();
-    highlightTab();
-  });
+// >>> 네 Firebase 설정으로 교체 (이미 쓰던 값)
+const firebaseConfig = {
+  apiKey:        "YOUR_API_KEY",
+  authDomain:    "YOUR_PROJECT.firebaseapp.com",
+  projectId:     "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:         "YOUR_APP_ID"
+};
 
-  // 라우팅
-  window.addEventListener('hashchange', ()=>{ routeOnce(); highlightTab(); });
+// init
+export const app     = initializeApp(firebaseConfig);
+export const db      = getFirestore(app);
+export const auth    = getAuth(app);
+export const storage = getStorage(app);
 
-  // 헤더의 단일 버튼: 로그인이면 로그아웃, 아니면 로그인
-  const btn = document.getElementById('btnAuth');
-  if (btn) {
-    btn.addEventListener('click', onClickAuthButton);
-  }
-}
-boot();
+// 편의를 위한 네임스페이스 export (기존 코드 호환)
+export const fx = { doc, getDoc, getDocs, setDoc, updateDoc, addDoc, collection, query, where, orderBy, limit };
+export const sx = { ref: sRef, uploadBytes, getDownloadURL };
 
-// ================= helpers =================
-async function onClickAuthButton(){
-  try{
-    if (auth.currentUser) {
-      // 이미 로그인 → 즉시 로그아웃
-      await ax.signOut(auth);
-      showToast('로그아웃 완료');
-      return;
-    }
-    // 로그인 시도 (필수: provider 인스턴스 필요)
-    const provider = new ax.GoogleAuthProvider();
-    try{
-      await ax.signInWithPopup(auth, provider);
-    }catch(e){
-      // 팝업 차단 등 → 리다이렉트로 폴백
-      if (String(e?.code||'').includes('popup')) {
-        await ax.signInWithRedirect(auth, provider);
-      } else {
-        throw e;
-      }
-    }
-    showToast('로그인 완료');
-  }catch(e){
-    console.error('[auth] error', e);
-    showToast(auth.currentUser ? '로그아웃 실패' : '로그인 실패');
-  }
-}
-
-function toggleAuthButton(user){
-  const btn = document.getElementById('btnAuth');
-  if (!btn) return;
-  if (user) {
-    btn.textContent = '로그아웃';
-    btn.title = '현재 로그인됨';
-  } else {
-    btn.textContent = '구글 로그인';
-    btn.title = '로그인이 필요해';
-  }
-}
+// auth 모듈 전역 네임스페이스가 필요하면 이렇게 묶어서 재export (app.js에서 ax.* 호출용)
+export * as ax from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
