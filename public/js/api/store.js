@@ -100,26 +100,50 @@ export async function updateItemsEquipped(charId, ids){
 
 // ===== 1:1 아바타 업로드(512px) =====
 export async function uploadAvatarSquare(charId, file){
-  const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
+const u = auth.currentUser;
+if (!u) throw new Error('로그인이 필요해');
+if (!charId) throw new Error('charId가 필요해');
+if (!file) throw new Error('파일이 필요해');
 
-  const buf = await file.arrayBuffer();
-  const bmp = await createImageBitmap(new Blob([buf]));
-  const side = Math.min(bmp.width, bmp.height);
-  const sx0 = (bmp.width-side)/2, sy0=(bmp.height-side)/2;
 
-  const canvas = document.createElement('canvas'); canvas.width=512; canvas.height=512;
-  const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled=true;
-  ctx.drawImage(bmp, sx0, sy0, side, side, 0, 0, 512, 512);
-  const blob = await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.85));
+// 1) 이미지 정사각형 리사이즈(512x512) + JPEG 압축 → dataURL
+const buf = await file.arrayBuffer();
+const bmp = await createImageBitmap(new Blob([buf]));
+const side = Math.min(bmp.width, bmp.height);
+const sx0 = (bmp.width - side) / 2;
+const sy0 = (bmp.height - side) / 2;
 
-  const path = `char_avatars/${u.uid}/${charId}/v${Date.now()}.jpg`;
-  const r = sx.ref(storage, path);
-  await sx.uploadBytes(r, blob, { contentType:'image/jpeg', cacheControl:'public,max-age=31536000,immutable' });
-  const url = await sx.getDownloadURL(r);
 
-  await fx.updateDoc(fx.doc(db,'chars',charId), { image_url: url, updatedAt: Date.now() });
-  showToast('아바타 업로드 완료');
-  return url;
+const canvas = document.createElement('canvas');
+canvas.width = 512;
+canvas.height = 512;
+const ctx = canvas.getContext('2d', { willReadFrequently: false });
+ctx.imageSmoothingEnabled = true;
+ctx.drawImage(bmp, sx0, sy0, side, side, 0, 0, 512, 512);
+
+
+const toDataUrl = (quality)=> new Promise((resolve)=>{
+canvas.toBlob((blob)=>{
+const fr = new FileReader();
+fr.onload = ()=> resolve(fr.result);
+fr.readAsDataURL(blob);
+}, 'image/jpeg', quality);
+});
+
+
+// 2) Firestore 1MB 문서 제한 고려하여 품질 자동 조정 (목표: ≤ 900KB)
+let q = 0.9, dataUrl = await toDataUrl(q);
+while ((dataUrl?.length || 0) > 900_000 && q > 0.4){
+q -= 0.1;
+dataUrl = await toDataUrl(q);
+}
+
+
+// 3) Firestore 문서에 base64로 저장 (호환 위해 image_url도 동일 값으로 갱신)
+const ref = fx.doc(db, 'chars', charId);
+await fx.updateDoc(ref, { image_b64: dataUrl, image_url: dataUrl, updatedAt: Date.now() });
+showToast('아바타 업로드 완료');
+return dataUrl;
 }
 
 // ===== 랭킹 로딩/캐시 =====
