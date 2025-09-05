@@ -91,11 +91,39 @@ export async function updateNickname(newName){
 }
 
 export async function uploadAvatarBlob(blob){
-  const u=auth.currentUser; if(!u) throw new Error('로그인이 필요해');
-  const path=`users/${u.uid}/avatar_${Date.now()}.jpg`;
-  const ref=sx.ref(storage, path);
-  await sx.uploadBytes(ref, blob, { contentType:'image/jpeg' });
-  const url=await sx.getDownloadURL(ref);
-  await fx.updateDoc(userRef(u.uid), { avatarURL:url, updatedAt:Date.now() });
-  return url;
+const u = auth.currentUser;
+if(!u) throw new Error('로그인이 필요해');
+
+
+// 1) 256x256 썸네일로 축소 (프로필용)
+const bmp = await createImageBitmap(blob);
+const side = Math.min(bmp.width, bmp.height);
+const sx0 = (bmp.width - side) / 2;
+const sy0 = (bmp.height - side) / 2;
+const canvas = document.createElement('canvas');
+canvas.width = 256;
+canvas.height = 256;
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = true;
+ctx.drawImage(bmp, sx0, sy0, side, side, 0, 0, 256, 256);
+
+
+const toDataUrl = (quality)=> new Promise((resolve)=>{
+canvas.toBlob((b)=>{
+const fr = new FileReader();
+fr.onload = ()=> resolve(fr.result);
+fr.readAsDataURL(b);
+}, 'image/jpeg', quality);
+});
+
+
+let q = 0.9, dataUrl = await toDataUrl(q);
+while((dataUrl?.length || 0) > 900_000 && q > 0.4){
+q -= 0.1;
+dataUrl = await toDataUrl(q);
+}
+
+
+await fx.setDoc(userRef(u.uid), { avatar_b64: dataUrl, updatedAt: Date.now() }, { merge:true });
+return dataUrl;
 }
