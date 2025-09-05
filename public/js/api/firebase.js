@@ -8,8 +8,9 @@ import {
   query, where, orderBy, limit, serverTimestamp, runTransaction, increment
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {
-  getStorage, ref, uploadBytes, getDownloadURL
+  getStorage, ref, uploadBytes, getDownloadURL, updateMetadata
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';
+
 
 // ✅ Firebase 프로젝트 설정
 const firebaseConfig = {
@@ -37,4 +38,4 @@ export const fx = {
 
 // Storage
 export const storage = getStorage(app);
-export const sx = { ref, uploadBytes, getDownloadURL };
+export const sx = { ref, uploadBytes, getDownloadURL, updateMetadata };
