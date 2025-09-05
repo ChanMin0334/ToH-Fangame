@@ -290,3 +290,10 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui, -a
   .fixed-actions{ bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); }
 }
 .fixed-actions .btn{ padding:10px 16px; }
+
+/* 토스트 레이어 최상단 */
+.toast, .toast-wrap, .toast-host, #toast, #toast-root {
+  z-index: 9999 !important;
+  position: fixed; /* 해당 컴포넌트가 fixed면 유지, 아니라면 무시됨 */
+}
+
