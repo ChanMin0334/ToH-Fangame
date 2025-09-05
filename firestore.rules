@@ -1,88 +1,192 @@
+// ToH Fangame — Firestore Rules (merged: 소유자 가드 + 친구/랭킹/설정 + 관계/에피소드 + char_items 참조 검증)
+// 2025-09-06
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    match /chars/{charId} {
-      allow read: if true;
-      allow create: if request.auth != null
-        && request.resource.data.owner_uid == request.auth.uid;
-      allow update, delete: if request.auth != null
-        && request.auth.uid == resource.data.owner_uid;
+    // ─────────────────────────────
+    // 공통 헬퍼
+    // ─────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(data) {
+      return isSignedIn() && data.owner_uid == request.auth.uid;
     }
 
-    match /char_items/{docId} {
-      allow read: if true;
-      allow write: if request.auth != null;
-    }
-
-    match /items/{itemId} {
-      allow read: if true;
-      allow write: if false; // 전역 마스터는 수동 관리
-    }
-
-    match /encounters/{encId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /relations/{docId} {
-      allow read, write: if request.auth != null;
-    }
-
-        // --- users: 내 정보 ---
-        // ----- 내 정보(users) -----
+    // ─────────────────────────────
+    // users (프로필)
+    // - 읽기: 로그인한 사용자만(친구 검색용)
+    // - 닉네임: 20자 제한, 바뀔 때만 7일 쿨타임 (lastNicknameChangeAt: Timestamp 권장)
+    // ─────────────────────────────
     match /users/{uid} {
-      // 로그인 사용자만 열람 가능 (친구 검색용)
       allow read: if isSignedIn();
 
-      // 생성: 본인만
-      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn()
+        && request.auth.uid == uid;
 
-      // 수정: 본인만 + 닉네임 제한 + 7일 쿨타임
-      allow update: if isSignedIn() && request.auth.uid == uid
-        // 닉네임 길이 20자 제한
-        && (!('nickname' in request.resource.data) || request.resource.data.nickname.size() <= 20)
-        // 닉네임 변경 시 7일 쿨타임 (lastNicknameChangeAt: 클라이언트 millis 숫자)
+      allow update: if isSignedIn()
+        && request.auth.uid == uid
+        // 닉네임 길이 제한
         && (
           !('nickname' in request.resource.data)
-          || !('lastNicknameChangeAt' in resource.data)
-          || (request.time.toMillis() - resource.data.lastNicknameChangeAt > 7 * 24 * 60 * 60 * 1000)
+          || request.resource.data.nickname is string
+          && request.resource.data.nickname.size() <= 20
+        )
+        // 닉네임 변경 쿨타임 (값이 실제로 바뀔 때만)
+        && (
+          !('nickname' in request.resource.data)                                  // 닉 변경 없으면 통과
+          || !('nickname' in resource.data)                                       // 기존 닉 없으면 통과
+          || request.resource.data.nickname == resource.data.nickname             // 값 동일이면 통과
+          || !('lastNicknameChangeAt' in resource.data)                           // 기록 없으면 통과
+          || (
+               resource.data.lastNicknameChangeAt is timestamp
+               && (request.time - resource.data.lastNicknameChangeAt)
+                  > duration.value(7, 'd')                                        // 7일
+             )
         );
     }
 
-    // ----- 친구 요청(friendRequests) -----
-    match /friendRequests/{reqId} {
-      // 본인과 관련된 문서만 읽기 가능
-      allow read: if isSignedIn()
-        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+    // ─────────────────────────────
+    // chars (캐릭터)
+    // - 열람: 모두
+    // - 생성: owner_uid == 본인
+    // - 수정/삭제: 기존 문서의 소유자만 (owner_uid 하이재킹 방지)
+    // ─────────────────────────────
+    match /chars/{charId} {
+      allow read: if true;
 
-      // 생성: 보낸 사람(from)만 가능
       allow create: if isSignedIn()
-        && request.auth.uid == request.resource.data.from;
+        && request.resource.data.owner_uid == request.auth.uid;
 
-      // 업데이트(수락/거절): 수신자(to)만 가능
+      allow update, delete: if isSignedIn()
+        && resource.data.owner_uid == request.auth.uid;
+    }
+
+    // ─────────────────────────────
+    // char_items (캐릭터 인벤토리)
+    // - 문서에 char_id가 있고, 해당 char의 소유자만 쓰기 가능
+    // ─────────────────────────────
+    match /char_items/{itemId} {
+      allow read: if true;
+
+      allow create: if isSignedIn()
+        && ('char_id' in request.resource.data)
+        && get(/databases/$(database)/documents/chars/$(request.resource.data.char_id)).data.owner_uid
+           == request.auth.uid;
+
+      allow update, delete: if isSignedIn()
+        && ('char_id' in resource.data)
+        && get(/databases/$(database)/documents/chars/$(resource.data.char_id)).data.owner_uid
+           == request.auth.uid;
+    }
+
+    // ─────────────────────────────
+    // relations (관계)
+    // - 읽기: 모두 (프로필/상세 공개용) — 필요 시 로그인 제한으로 바꿔도 됨
+    // - 쓰기: 양 당사자(a, b) 중 본인만
+    // ─────────────────────────────
+    match /relations/{relId} {
+      allow read: if true;
+
+      // 새 작성 시 본인이 a 또는 b에 포함되어야 함
+      allow create: if isSignedIn()
+        && (
+          request.auth.uid == (request.resource.data.a)
+          || request.auth.uid == (request.resource.data.b)
+        );
+
+      // 수정/삭제는 기존 문서 기준 당사자만
+      allow update, delete: if isSignedIn()
+        && (
+          request.auth.uid == (resource.data.a)
+          || request.auth.uid == (resource.data.b)
+        );
+    }
+
+    // ─────────────────────────────
+    // episodes (에피소드)
+    // - 읽기: 모두
+    // - 쓰기: 소유자만
+    // ─────────────────────────────
+    match /episodes/{epId} {
+      allow read: if true;
+
+      allow create: if isSignedIn()
+        && request.resource.data.owner_uid == request.auth.uid;
+
+      allow update, delete: if isSignedIn()
+        && resource.data.owner_uid == request.auth.uid;
+    }
+
+    // ─────────────────────────────
+    // friendRequests (친구 요청)
+    // - 읽기: 본인과 관련된 요청(from/to)만
+    // - 생성: 본인이 from
+    // - 업데이트(수락/거절 등): to만
+    // - 삭제: 양쪽 모두 가능
+    // - 자기 자신에게는 생성 금지
+    // ─────────────────────────────
+    match /friendRequests/{reqId} {
+      allow read: if isSignedIn()
+        && (
+          request.auth.uid == resource.data.from
+          || request.auth.uid == resource.data.to
+        );
+
+      allow create: if isSignedIn()
+        && request.auth.uid == request.resource.data.from
+        && request.resource.data.from != request.resource.data.to;
+
       allow update: if isSignedIn()
         && request.auth.uid == resource.data.to;
 
-      // 삭제: 양쪽 모두 허용
       allow delete: if isSignedIn()
-        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+        && (
+          request.auth.uid == resource.data.from
+          || request.auth.uid == resource.data.to
+        );
     }
 
-    // ----- 친구 관계(friendships) -----
+    // ─────────────────────────────
+    // friendships (친구 쌍)
+    // - 읽기/삭제: 두 당사자만
+    // - 생성: 두 당사자 중 한쪽이면 가능(요청 수락 시)
+    // ─────────────────────────────
     match /friendships/{pairId} {
-      // 서로만 읽기/삭제 가능
       allow read, delete: if isSignedIn()
-        && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
+        && (
+          request.auth.uid == resource.data.a
+          || request.auth.uid == resource.data.b
+        );
 
-      // 생성: 쌍 중 한 명이면 허용 (수락 시 생성)
       allow create: if isSignedIn()
-        && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
+        && (
+          request.auth.uid == request.resource.data.a
+          || request.auth.uid == request.resource.data.b
+        );
     }
 
+    // ─────────────────────────────
+    // rankings / configs
+    // - rankings: 읽기 전용 (서버 파이프라인이 쓰기)
+    // - configs: 프론트 읽기 전용
+    // ─────────────────────────────
+    match /rankings/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /configs/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
 
-    
-
-
-
+    // ─────────────────────────────
+    // 기본 차단
+    // ─────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
