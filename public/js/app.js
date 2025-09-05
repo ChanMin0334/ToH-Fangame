@@ -14,7 +14,7 @@ async function boot(){
   });
 
   // 상단/하단 로그인 버튼(있을 경우)
-  document.getElementById('btnLogin')?.addEventListener('click', async ()=>{
+  document.getElementById('btnAuth')?.addEventListener('click', async ()=>{
     try{ await ax.signInWithPopup(auth); }catch{ showToast('로그인 실패'); }
   });
   document.getElementById('btnLogout')?.addEventListener('click', async ()=>{
