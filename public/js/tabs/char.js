@@ -7,7 +7,14 @@ import {
 import { showToast } from '../ui/toast.js';
 
 // ---------- utils ----------
-function parseId(){ const m=(location.hash||'').match(/^#\/char\/(.+)$/); return m? m[1]:null; }
+function parseId(){
+  const h = location.hash || '';
+  // #/char/{cid} 또는 #/char/{cid}/narrative/{nid}
+  const m = h.match(/^#\/char\/([^/]+)(?:\/narrative\/([^/]+))?$/);
+  return m ? { charId: m[1], narrId: m[2] || null } : { charId:null, narrId:null };
+}
+
+
 function rateText(w,l){ const W=+w||0, L=+l||0, T=W+L; return T? Math.round(W*100/T)+'%':'0%'; }
 function normalizeChar(c){
   const out={...c};
@@ -35,31 +42,50 @@ async function fetchInventory(charId){
   }
 }
 function rarityClass(r){ return r==='legend'?'rarity-legend': r==='epic'?'rarity-epic': r==='rare'?'rarity-rare':'rarity-common'; }
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
 
 // ---------- entry ----------
 export async function showCharDetail(){
-  const id = parseId();
+  const { charId, narrId } = parseId();
   const root = document.getElementById('view');
   if(!root){ console.warn('[char] #view not found'); return; }
-  if(!id){ root.innerHTML='<section class="container narrow"><p>잘못된 경로</p></section>'; return; }
+  if(!charId){
+    root.innerHTML='<section class="container narrow"><p>잘못된 경로</p></section>';
+    return;
+  }
 
   try{
-    const snap = await fx.getDoc(fx.doc(db,'chars',id));
-    if(!snap.exists()){ root.innerHTML='<section class="container narrow"><p>캐릭터가 없네</p></section>'; return; }
+    const snap = await fx.getDoc(fx.doc(db,'chars', charId));
+    if(!snap.exists()){
+      root.innerHTML='<section class="container narrow"><p>캐릭터가 없네</p></section>';
+      return;
+    }
     const c = normalizeChar({ id:snap.id, ...snap.data() });
-    render(c);
+    // 서사 상세 라우팅이면 전용 페이지 렌더
+    if (narrId) { renderNarrativePage(c, narrId); return; }
+
+    else{ render(c); }
   }catch(e){
     console.error('[char] load error', e);
-    const msg = e?.code==='permission-denied' ? '권한이 없어 캐릭터를 불러올 수 없어. 먼저 로그인해줘!' : '캐릭터 로딩 중 오류가 났어.';
+    const msg = e?.code==='permission-denied'
+      ? '권한이 없어 캐릭터를 불러올 수 없어. 먼저 로그인해줘!'
+      : '캐릭터 로딩 중 오류가 났어.';
     root.innerHTML = `<section class="container narrow"><p>${msg}</p><pre class="text-dim" style="white-space:pre-wrap">${e?.message || e}</pre></section>`;
+    
   }
 }
+
 
 // ---------- render ----------
 function render(c){
   const root = document.getElementById('view');
   const tier = tierOf(c.elo||1000);
   const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
+  const expVal = Number.isFinite(c.exp) ? c.exp : 0;
+  // exp_progress(0~100)가 있으면 사용, 없으면 exp % 100
+  const expPct = Math.max(0, Math.min(100, (c.exp_progress ?? ((expVal)%100)) ));
+
 
   root.innerHTML = `
   <section class="container narrow">
@@ -81,6 +107,18 @@ function render(c){
           </span>
           <span class="chip">${c.world_id || 'world:default'}</span>
         </div>
+
+                <!-- EXP bar -->
+        <div class="expbar" aria-label="EXP"
+             style="position:relative;width:100%;max-width:760px;height:10px;border-radius:999px;background:#0d1420;border:1px solid #273247;overflow:hidden;margin-top:8px;">
+          <div style="position:absolute;inset:0 auto 0 0;width:${expPct}%;
+                      background:linear-gradient(90deg,#4ac1ff,#7a9bff,#c2b5ff);
+                      box-shadow:0 0 12px #7ab8ff77 inset;"></div>
+          <div style="position:absolute;top:-22px;right:0;font-size:12px;color:#9aa5b1;">
+            EXP ${expVal}
+          </div>
+        </div>
+
 
         <!-- 2x2 스탯 -->
         <div class="char-stats4">
@@ -187,16 +225,42 @@ function renderBioSub(which, c, sv){
       <div class="kv-card">${c.summary||'-'}</div>
     `;
   }else if(which==='narr'){
-    if((c.narrative_items||[]).length===0){
-      sv.innerHTML = `<div class="kv-card text-dim">아직 등록된 서사가 없어.</div>`;
-      return;
-    }
-    sv.innerHTML = c.narrative_items.map((it,idx)=>`
-      <div class="kv-card" style="margin-bottom:10px">
-        <div style="font-weight:700; margin-bottom:6px">${idx+1}. ${it.title || '서사'}</div>
-        <div>${it.body || '-'}</div>
-      </div>
-    `).join('');
+  // 표준 narratives 우선, 없으면 legacy narrative_items를 긴 본문으로 취급
+  const list = normalizeNarratives(c);
+  if(list.length === 0){
+    sv.innerHTML = `<div class="kv-card text-dim">아직 등록된 서사가 없어.</div>`;
+    return;
+  }
+
+  // 모든 카드 동일 구성: 제목 + 긴 본문 일부(줄임표). short(요약)는 여기서 노출하지 않음.
+  sv.innerHTML = `
+    <div class="kv-label">서사 목록</div>
+    <div class="list">
+      ${list.map(n => `
+        <button class="kv-card" data-nid="${n.id}" style="text-align:left; cursor:pointer">
+          <div style="font-weight:800; margin-bottom:6px">${esc(n.title || '서사')}</div>
+          <div style="
+            color:#9aa5b1;
+            display:-webkit-box;
+            -webkit-line-clamp:2;
+            -webkit-box-orient:vertical;
+            overflow:hidden;
+          ">
+            ${esc((n.long || '').replace(/\s+/g,' ').trim())}
+          </div>
+        </button>
+      `).join('')}
+    </div>
+  `;
+
+  // 카드 클릭 → 서사 전용 페이지로 리디렉션
+  sv.querySelectorAll('[data-nid]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const nid = btn.getAttribute('data-nid');
+      location.hash = `#/char/${c.id}/narrative/${nid}`;
+    });
+  });
+
   }else if(which==='epis'){
     sv.innerHTML = `
       <div class="kv-label">미니 에피소드</div>
@@ -301,6 +365,64 @@ async function renderLoadout(c, view){
     });
   }
 }
+
+// 표준 narratives → {id,title,long,short} 배열, 없으면 legacy narrative_items 변환
+function normalizeNarratives(c){
+  if (Array.isArray(c.narratives) && c.narratives.length){
+    return c.narratives.map(n => ({
+      id: n.id || ('n'+Math.random().toString(36).slice(2)),
+      title: n.title || '서사',
+      long: n.long || '',
+      short: n.short || ''
+    }));
+  }
+  if (Array.isArray(c.narrative_items) && c.narrative_items.length){
+    // 레거시: body를 long으로만 사용(요약은 상세 페이지에서만 필요)
+    return c.narrative_items.map((it, i) => ({
+      id: 'legacy-'+i,
+      title: it.title || '서사',
+      long: it.body || '',
+      short: ''
+    }));
+  }
+  return [];
+}
+
+// 서사 전용 페이지: 제목 → long → short (short는 여기에서만 노출)
+function renderNarrativePage(c, narrId){
+  const root = document.getElementById('view');
+  const list = normalizeNarratives(c);
+  const n = list.find(x=>x.id===narrId) || list[0];
+  if(!n){
+    root.innerHTML = `<section class="container narrow"><div class="kv-card text-dim">해당 서사를 찾을 수 없어.</div></section>`;
+    return;
+  }
+
+  root.innerHTML = `
+  <section class="container narrow">
+    <div class="book-card mt16">
+      <div class="bookmarks">
+        <button class="bookmark" onclick="location.hash='#/char/${c.id}'">← 캐릭터로 돌아가기</button>
+      </div>
+      <div class="bookview" id="nView">
+        <div class="kv-card">
+          <div style="font-weight:900; font-size:18px; margin-bottom:8px">${esc(n.title || '서사')}</div>
+          <div class="kv-label">긴 본문</div>
+          <div style="margin-bottom:10px">${esc(n.long || '-')}</div>
+          <div class="kv-label">요약</div>
+          <div>${esc(n.short || '(요약이 아직 없어요)')}</div>
+        </div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
 
 function renderHistory(c, view){
   view.innerHTML = `
