@@ -80,6 +80,7 @@ function renderError(msg){
 }
 
 // ---------- 간단 리치 텍스트 렌더 ----------
+// 라인 기반 리치 렌더 (#, ##, >, * )
 function renderRich(text){
   const lines = String(text||'').split(/\r?\n/);
   const out = [];
@@ -87,19 +88,20 @@ function renderRich(text){
   const flushList = ()=>{ if(inList){ out.push('</ul>'); inList=false; } };
 
   for(const raw of lines){
-    const line = raw.replace(/\s+$/,'');
+    const line = raw.replace(/\s+$/,''); // trimRight
     const esc = escapeHtml(line);
 
     if(/^###\s+/.test(line)){ flushList(); out.push(`<h4 class="h h4">${esc.replace(/^###\s+/,'')}</h4>`); continue; }
-    if/^##\s+/.test(line){   flushList(); out.push(`<h3 class="h h3">${esc.replace(/^##\s+/,'')}</h3>`); continue; }
-    if(/^#\s+/.test(line)){  flushList(); out.push(`<h2 class="h h2">${esc.replace(/^#\s+/,'')}</h2>`);  continue; }
-    if(/^>\s+/.test(line)){  flushList(); out.push(`<blockquote class="quote">${esc.replace(/^>\s+/,'')}</blockquote>`); continue; }
+    if(/^##\s+/.test(line)){  flushList(); out.push(`<h3 class="h h3">${esc.replace(/^##\s+/,'')}</h3>`);  continue; } // ← 괄호 추가됨
+    if(/^#\s+/.test(line)){   flushList(); out.push(`<h2 class="h h2">${esc.replace(/^#\s+/,'')}</h2>`);   continue; }
+    if(/^>\s+/.test(line)){   flushList(); out.push(`<blockquote class="quote">${esc.replace(/^>\s+/,'')}</blockquote>`); continue; }
     if(/^\*\s+/.test(line)){
       if(!inList){ out.push('<ul class="ul">'); inList=true; }
       out.push(`<li>${esc.replace(/^\*\s+/,'')}</li>`); continue;
     }
     if(line.trim()===''){ flushList(); out.push('<div class="sp"></div>'); continue; }
     flushList();
+    // 굵게/기울임 간단 처리
     const inline = esc
       .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
       .replace(/\*([^*]+)\*/g, '<i>$1</i>');
@@ -108,6 +110,7 @@ function renderRich(text){
   flushList();
   return out.join('\n');
 }
+
 
 // ---------- 데이터 로드/저장 ----------
 async function loadChar(id){
