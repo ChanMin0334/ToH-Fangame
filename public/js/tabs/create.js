@@ -195,12 +195,12 @@ export async function showCreate(){
         if(DEBUG){
           const info = window.__ai_debug || {};
           debugPrint('raw.len='+(info.raw_len||0)+', parsed='+info.parsed_ok);
-          debugPrint('out=' + JSON.stringify(out, null, 2).slice(0, 1200) + (JSON.stringify(out).length>1200?'…':''));
+          debugPrint('out=' + JSON.stringify(out, null, 2).slice(0, 4000) + (JSON.stringify(out).length>4000?'…':''));
         }
 
         const payload = buildCharPayloadFromAi(out, w, name, desc);
         if(DEBUG){
-          debugPrint('payload=' + JSON.stringify(payload, null, 2).slice(0, 1200) + (JSON.stringify(payload).length>1200?'…':''));
+          debugPrint('payload=' + JSON.stringify(payload, null, 2).slice(0, 4000) + (JSON.stringify(payload).length>4000?'…':''));
         }
 
         const res = await tryCreateChar(payload);
