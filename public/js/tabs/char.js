@@ -6,102 +6,21 @@ import {
 } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 
-/* ============== THEME (두 번째 스샷 무드) ============== */
-const STYLE_ID = 'char-v2-style';
-(function injectStyle(){
-  if (document.getElementById(STYLE_ID)) return;
-  const s = document.createElement('style');
-  s.id = STYLE_ID;
-  s.textContent = `
-  :root{
-    --bg:#0c1016;
-    --card:#131923;
-    --card-2:#0f141d;
-    --border:#273247;
-    --border-soft:#1f2838;
-    --text:#e6edf3;
-    --muted:#9aa5b1;
-    --primary:#2b6cff;
-    --primary-2:#1f56d1;
-    --glow:#69a1ff55;
-    --elo:#ffd24a;
-  }
-  .container.narrow{ max-width:960px; margin:0 auto; padding:22px 16px; color:var(--text); }
-  .card{ background:var(--card); border:1px solid var(--border); border-radius:18px; }
-  .p16{ padding:16px; } .p12{ padding:12px; }
-  .mt8{ margin-top:8px; } .mt12{ margin-top:12px; } .mt16{ margin-top:16px; }
-  .text-dim{ color:var(--muted); }
-
-  /* 헤더 */
-  .char-card{ display:block; }
-  .char-header{ display:grid; justify-items:center; gap:12px; }
-  .avatar-wrap{ width:min(360px,80vw); aspect-ratio:1/1; border-radius:16px; border:3px solid #87b6ff; box-shadow:0 0 0 6px var(--glow); background:#0b0f15; position:relative; overflow:hidden; }
-  .avatar-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
-  .avatar-wrap img.noimg{ background:linear-gradient(180deg,#0f1320,#0b0e12); }
-  .top-actions{ position:absolute; top:10px; right:10px; display:flex; gap:8px; }
-  .fab-circle{ width:38px; height:38px; border-radius:999px; display:grid; place-items:center; background:#0c1322cc; border:1px solid #2d4570; color:#cfe1ff; cursor:pointer; }
-  .fab-circle:hover{ background:#0f1930; }
-  .char-name{ font-size:26px; font-weight:900; text-align:center; }
-  .chips-row{ display:flex; gap:8px; }
-  .chip{ background:#192235; border:1px solid #2b3a55; color:#cfe1ff; border-radius:999px; padding:4px 10px; font-size:12px; }
-  .tier-chip{ padding:4px 10px; border-radius:999px; font-weight:800; border:1px solid transparent; }
-
-  /* 스탯 2x2 */
-  .char-stats4{ display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:12px; width:100%; max-width:760px; }
-  .stat-box{ background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
-  .stat-box .k{ font-size:12px; color:var(--muted); }
-  .stat-box .v{ font-size:18px; font-weight:900; }
-  .stat-elo .v{ color:var(--elo); }
-  .char-counters{ font-size:12px; color:var(--muted); }
-
-  /* 탭 책 */
-  .book-card{ background:var(--card); border:1px solid var(--border); border-radius:18px; }
-  .bookmarks{ display:flex; gap:12px; padding:10px 12px; border-bottom:1px solid var(--border); }
-  .bookmark{ background:none; border:none; color:var(--muted); padding:10px 16px; border-radius:12px; cursor:pointer; }
-  .bookmark.active{ color:white; background:#0f1522; box-shadow:inset 0 0 0 2px var(--primary); }
-  .bookview{ padding:14px; }
-
-  /* 서브탭 */
-  .subtabs{ display:flex; gap:8px; margin:12px 0; }
-  .sub{ border:1px solid var(--border); background:var(--card-2); color:#cfe1ff; padding:8px 12px; border-radius:10px; cursor:pointer; }
-  .sub.active{ background:var(--primary); border-color:var(--primary); color:white; }
-
-  /* 콘텐트 카드 */
-  .kv-label{ font-size:12px; color:var(--muted); margin-bottom:6px; }
-  .kv-card{ background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
-  .grid2{ display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:12px; }
-  .grid3{ display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:12px; }
-
-  /* 스킬/아이템 */
-  .skill{ display:flex; gap:10px; align-items:flex-start; background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
-  .skill .name{ font-weight:800; margin-bottom:6px; }
-  .slot{ background:var(--card-2); border:1px dashed var(--border); border-radius:12px; padding:12px; color:var(--muted); display:grid; place-items:center; height:88px; }
-  .item{ background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
-  .item .name{ font-weight:800; } .item .meta{ font-size:12px; color:var(--muted); display:flex; gap:8px; }
-
-  /* 버튼 / 액션바 */
-  .btn{ border:1px solid var(--border); background:var(--card-2); color:var(--text); padding:10px 14px; border-radius:12px; cursor:pointer; }
-  .btn.large{ padding:12px 18px; font-weight:800; }
-  .btn.ghost{ background:#0d121a; }
-  .fixed-actions{ position:fixed; left:0; right:0; bottom:14px; display:flex; justify-content:center; gap:10px; z-index:40; }
-  `;
-  document.head.appendChild(s);
-})();
-
-/* ================== utils ================== */
+// ---------- utils ----------
 function parseId(){ const m=(location.hash||'').match(/^#\/char\/(.+)$/); return m? m[1]:null; }
 function rateText(w,l){ const W=+w||0, L=+l||0, T=W+L; return T? Math.round(W*100/T)+'%':'0%'; }
 function normalizeChar(c){
   const out={...c};
   out.elo = out.elo ?? 1000;
-  out.exp = out.exp ?? 0;
   out.abilities_all = Array.isArray(out.abilities_all)? out.abilities_all : (Array.isArray(out.abilities)? out.abilities: []);
   out.abilities_equipped = Array.isArray(out.abilities_equipped)? out.abilities_equipped.slice(0,2): [];
   out.items_equipped = Array.isArray(out.items_equipped)? out.items_equipped.slice(0,3): [];
+  // 이미지 경로: KV 썸네일 우선 → 레거시 b64 → 레거시 url
   out.thumb_url = out.thumb_url || '';
   out.image_url = out.thumb_url || out.image_b64 || out.image_url || '';
+  // 서사 항목(배열) 호환
   out.narrative_items = Array.isArray(out.narrative_items) ? out.narrative_items
-    : (out.narrative ? [{ title:'서사', body: out.narrative }] : []);
+  : (out.narrative ? [{ title:'서사', body: out.narrative }] : []);
   return out;
 }
 async function fetchInventory(charId){
@@ -117,7 +36,7 @@ async function fetchInventory(charId){
 }
 function rarityClass(r){ return r==='legend'?'rarity-legend': r==='epic'?'rarity-epic': r==='rare'?'rarity-rare':'rarity-common'; }
 
-/* ================== entry ================== */
+// ---------- entry ----------
 export async function showCharDetail(){
   const id = parseId();
   const root = document.getElementById('view');
@@ -136,7 +55,7 @@ export async function showCharDetail(){
   }
 }
 
-/* ================== render ================== */
+// ---------- render ----------
 function render(c){
   const root = document.getElementById('view');
   const tier = tierOf(c.elo||1000);
@@ -163,14 +82,15 @@ function render(c){
           <span class="chip">${c.world_id || 'world:default'}</span>
         </div>
 
-        <div class="char-stats4 mt8">
+        <!-- 2x2 스탯 -->
+        <div class="char-stats4">
           <div class="stat-box stat-win"><div class="k">승률</div><div class="v">${rateText(c.wins,c.losses)}</div></div>
           <div class="stat-box stat-like"><div class="k">누적 좋아요</div><div class="v">${c.likes_total||0}</div></div>
           <div class="stat-box stat-elo"><div class="k">Elo</div><div class="v">${c.elo||1000}</div></div>
           <div class="stat-box stat-week"><div class="k">주간 좋아요</div><div class="v">${c.likes_weekly||0}</div></div>
         </div>
 
-        <div class="char-counters mt8">전투 ${c.battle_count||0} · 탐험 ${c.explore_count||0}</div>
+        <div class="char-counters">전투 ${c.battle_count||0} · 탐험 ${c.explore_count||0}</div>
       </div>
     </div>
 
@@ -185,12 +105,15 @@ function render(c){
   </section>
   `;
 
+  // 원본 이미지(1024)로 교체 — 상세에서만 네트워크 사용
   getCharMainImageUrl(c.id, {cacheFirst:true}).then(url=>{
     if(url){ const img=document.getElementById('charAvatar'); if(img) img.src=url; }
-  }).catch(()=>{});
+  }).catch(()=>{ /* 썸네일 유지 */ });
 
+  // 하단 고정 액션바 (소유자만)
   mountFixedActions(c, isOwner);
 
+  // 업로드/좋아요
   if(isOwner){
     root.querySelector('#btnUpload')?.addEventListener('click', ()=>{
       const i=document.createElement('input'); i.type='file'; i.accept='image/*';
@@ -205,6 +128,7 @@ function render(c){
   }
   root.querySelector('#btnLike')?.addEventListener('click', ()=> showToast('좋아요는 다음 패치!'));
 
+  // 탭
   const bv = root.querySelector('#bookview');
   const tabs = root.querySelectorAll('.bookmark');
   tabs.forEach(b=>b.onclick=()=>{
@@ -218,10 +142,11 @@ function render(c){
   renderBio(c, bv);
 }
 
-/* 하단 고정 액션바 (소유자 전용) */
+// 고정 액션바 — 로그인+소유자만 (버튼 노출 가드)
 function mountFixedActions(c, isOwner){
   document.querySelector('.fixed-actions')?.remove();
   if (!auth.currentUser || !isOwner) return;
+
   const bar = document.createElement('div');
   bar.className = 'fixed-actions';
   bar.innerHTML = `
@@ -229,11 +154,13 @@ function mountFixedActions(c, isOwner){
     <button class="btn large ghost" id="fabEncounter">조우 시작</button>
   `;
   document.body.appendChild(bar);
+
+  // TODO: 실제 매칭 로직 연결 예정 — 현재는 가드만 유지
   bar.querySelector('#fabBattle').onclick = ()=> showToast('배틀 매칭은 다음 패치!');
   bar.querySelector('#fabEncounter').onclick = ()=> showToast('조우 매칭은 다음 패치!');
 }
 
-/* ================== views ================== */
+// ---------- views ----------
 function renderBio(c, view){
   view.innerHTML = `
     <div class="subtabs">
@@ -278,23 +205,32 @@ function renderBioSub(which, c, sv){
   }
 }
 
+// 스킬/아이템 탭
 async function renderLoadout(c, view){
   const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
+
+  // 스키마 가드
   const abilitiesAll = Array.isArray(c.abilities_all) ? c.abilities_all : [];
   const equippedAb = Array.isArray(c.abilities_equipped)
     ? c.abilities_equipped.filter(i=>Number.isInteger(i)&&i>=0&&i<abilitiesAll.length).slice(0,2)
     : [];
   const equippedItems = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
 
+  // 인벤토리
   let inv = [];
-  try{ inv = await fetchInventory(c.id); }
-  catch(e){
+  try{
+    inv = await fetchInventory(c.id);
+  } catch(e){
     console.error('[char] fetchInventory error', e);
-    if (e?.code === 'permission-denied') showToast('인벤토리 조회 권한이 없어.');
-    else showToast('인벤토리 로딩 중 오류가 났어.');
+    if (e?.code === 'permission-denied') {
+      showToast('인벤토리 조회 권한이 없어. 로그인하거나 규칙을 확인해줘!');
+    } else {
+      showToast('인벤토리 로딩 중 오류가 났어.');
+    }
     inv = [];
   }
 
+  // UI
   view.innerHTML = `
     <div class="p12">
       <h4>스킬 (4개 중 <b>반드시 2개</b> 선택)</h4>
@@ -308,7 +244,7 @@ async function renderLoadout(c, view){
                   : `<input type="checkbox" disabled ${equippedAb.includes(i)?'checked':''}/>`}
                 <div>
                   <div class="name">${ab?.name || ('스킬 ' + (i+1))}</div>
-                  <div class="desc text-dim">${ab?.desc_soft || '-'}</div>
+                  <div class="desc">${ab?.desc_soft || '-'}</div>
                 </div>
               </label>`).join('')}
           </div>`}
@@ -318,10 +254,11 @@ async function renderLoadout(c, view){
       <h4 class="mt12">아이템 장착 (최대 3개)</h4>
       <div class="grid3 mt8" id="slots"></div>
       ${isOwner ? `<button id="btnEquip" class="btn mt8">인벤토리에서 선택/교체</button>` : ''}
-      <div class="kv-label">※ 등급/남은 사용횟수 표시.</div>
+      <div class="kv-label">※ 등급별 배경색 / 남은 사용횟수(uses_remaining) 표시.</div>
     </div>
   `;
 
+  // 스킬 정확히 2개 유지
   if(isOwner && abilitiesAll.length>0){
     const boxes = Array.from(view.querySelectorAll('.skill input[type=checkbox]'));
     boxes.forEach(b=>{
@@ -333,6 +270,7 @@ async function renderLoadout(c, view){
     });
   }
 
+  // 슬롯 렌더
   const slotBox = view.querySelector('#slots');
   const renderSlots = ()=>{
     slotBox.innerHTML = [0,1,2].map(slot=>{
@@ -340,17 +278,19 @@ async function renderLoadout(c, view){
       if(!docId) return `<div class="slot">(비어 있음)</div>`;
       const it = inv.find(i=>i.id===docId);
       if(!it) return `<div class="slot">(인벤토리에 없음)</div>`;
+      const rcls = rarityClass(it.rarity);
       const uses = (it.uses_remaining ?? '-');
       return `
-        <div class="item">
+        <div class="item ${rcls}">
           <div class="name">${it.item_name || it.item_id || '아이템'}</div>
           <div class="meta"><span>등급: ${it.rarity || 'common'}</span><span>남은 사용: ${uses}</span></div>
-          <div class="desc text-dim">${it.desc_short || '-'}</div>
+          <div class="desc">${it.desc_short || '-'}</div>
         </div>`;
     }).join('');
   };
   renderSlots();
 
+  // 간단 교체(임시)
   if(isOwner){
     view.querySelector('#btnEquip')?.addEventListener('click', ()=>{
       const selected = inv.slice(0,3).map(x=>x.id);
@@ -376,5 +316,5 @@ function renderHistory(c, view){
   `;
 }
 
-/* 라우터 호환 */
+// 라우터 호환
 export default showCharDetail;
