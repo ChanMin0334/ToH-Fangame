@@ -68,6 +68,32 @@ function wire(){
   document.getElementById('friendModal').addEventListener('click', (e)=>{
     if(e.target.id==='friendModal') closeFriendWin();
   });
+
+  // 친구 리스트(리렌더되어도 한 번만 걸리게) - 이벤트 위임
+  const frBox = document.getElementById('friends');
+  frBox.addEventListener('click', async (e)=>{
+    const bUnf = e.target.closest('.btnUnf');
+    if(bUnf){
+      if(!confirm('정말 삭제할까?')) return;
+      try{
+        bUnf.disabled = true;
+        await unfriend(bUnf.dataset.uid);
+        showToast('삭제했어');
+        FRIEND_SET.delete(bUnf.dataset.uid);
+        await refreshAll();
+      }catch(err){
+        showToast('삭제 실패: ' + (err?.message||err));
+      }finally{
+        bUnf.disabled = false;
+      }
+      return;
+    }
+    const bOpen = e.target.closest('.btnOpen');
+    if(bOpen){
+      openFriendWin(bOpen.dataset.uid, bOpen.dataset.nick, bOpen.dataset.ava);
+    }
+  });
+
 }
 
 async function onSearch(){
@@ -185,22 +211,15 @@ async function refreshFriends(){
           <div class="fr-uid">UID #${u.uid.slice(0,12)}</div>
           <div class="fr-name"><b>${escapeHtml(u.nickname||'(이름없음)')}</b></div>
           <div class="fr-actions">
-            <button data-uid="${u.uid}" class="btnOpen">열기</button>
+            <button data-uid="${u.uid}" data-nick="${escapeHtml(u.nickname||'(이름없음)')}" data-ava="${u.avatarURL||''}" class="btnOpen">열기</button>
             <button data-uid="${u.uid}" class="btnUnf">삭제</button>
           </div>
+
         </div>
         <div class="fr-photo"><img src="${u.avatarURL||''}" alt=""/></div>
       </div>
     `).join('') || '<div class="text-dim">없음</div>';
 
-
-    box.querySelectorAll('.btnUnf').forEach(b=>{
-      b.onclick=async ()=>{ try{ await unfriend(b.dataset.uid); showToast('삭제했어'); FRIEND_SET.delete(b.dataset.uid); await refreshAll(); }catch(e){ showToast('실패'); } };
-    });
-    box.querySelectorAll('.btnOpen').forEach(b=>{
-      b.onclick=()=> openFriendWin(b.dataset.uid, b.dataset.nick, b.dataset.ava);
-    });
-  }catch{ box.textContent='오류'; }
 }
 
 function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
