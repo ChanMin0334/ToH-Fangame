@@ -25,14 +25,31 @@ function el(tag, attrs={}, inner=''){
   if(inner!==undefined) d.innerHTML = inner;
   return d;
 }
-function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
-function nowSec(){ return Math.floor(Date.now()/1000); }
+function readCooldownStartSec(){
+  // legacy: ms 로 저장된 값도 들어올 수 있음 → 항상 sec 로 정규화
+  let raw = localStorage.getItem(LS_KEY_CREATE_LAST_AT);
+  if (!raw) return 0;
+  let n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+
+  // ms로 저장되어 있던 구버전 값이면 sec로 변환
+  if (n > 1e11) n = Math.floor(n / 1000);
+
+  // 미래 시각(시계 오차 등) 방지: 현재 초보다 크면 현재로 클램프
+  const now = nowSec();
+  if (n > now) n = now;
+  return n;
+}
 function leftCooldown(){
-  const last = parseInt(localStorage.getItem(LS_KEY_CREATE_LAST_AT)||'0',10);
+  const last = readCooldownStartSec();
   const left = CREATE_COOLDOWN_SEC - (nowSec() - last);
   return Math.max(0, left);
 }
-function startCooldown(){ localStorage.setItem(LS_KEY_CREATE_LAST_AT, String(nowSec())); }
+function startCooldown(){
+  // 항상 초(sec)로 저장
+  localStorage.setItem(LS_KEY_CREATE_LAST_AT, String(nowSec()));
+}
+
 function debugPrint(t){ if(DEBUG) console.log('[create]', t); }
 
 // --- 세계관 데이터 정규화: 무엇을 받아도 Array<{id,name,summary,detail,image}>로 ---
