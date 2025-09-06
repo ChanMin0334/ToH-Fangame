@@ -1,14 +1,7 @@
 // /public/js/api/ai.js
-// Firestore의 configs/prompts 문서에서 프롬프트를 읽어
-// Gemini Flash 2.0(실패시 1.5)으로 호출하고 결과를 표준 스키마로 반환.
-//
-// 입력 조립 순서(본문에 차례대로 포함):
-// 1) WORLD           — 세계관 상세(요약/장문/원본 JSON)
-// 2) INJECTION_GUARD — 인젝션 방지 지시문
-// 3) USER_INPUT      — 사용자 입력(이름/설정)
-//
-// 출력(표준 스키마; create.js가 이 값을 받아 전처리/저장):
-// { intro, narrative_long, narrative_short, skills:[{name,effect} x4] }
+// Firestore configs/prompts에서 프롬프트를 읽어
+// Gemini Flash 2.0(실패 시 1.5) 호출 → 표준 스키마로 반환.
+// 출력 스키마: { intro, narrative_long, narrative_short, skills:[{name,effect} x4] }
 
 import { db, fx } from './firebase.js';
 
@@ -18,11 +11,6 @@ const FALLBACK_FLASH = 'gemini-1.5-flash';
 
 const DEBUG = !!localStorage.getItem('toh_debug_ai');
 function dbg(...args){ if(DEBUG) console.log('[AI]', ...args); }
-function group(title, fn){
-  if(!DEBUG){ fn(); return; }
-  console.groupCollapsed('[AI]', title);
-  try{ fn(); } finally{ console.groupEnd(); }
-}
 
 // ===== BYOK =====
 export function getByok(){
@@ -35,14 +23,6 @@ export function setByok(k){
   localStorage.setItem('toh_byok', v);
   localStorage.setItem('toh_gemini_key', v);
 }
-
-// 최대 토큰 수(로컬에서 쉽게 조절)
-// 예) 콘솔에서 localStorage.setItem('toh_ai_max_tokens','3000')
-function getMaxTokens(){
-  const v = parseInt(localStorage.getItem('toh_ai_max_tokens') || '', 10);
-  return Number.isFinite(v) && v > 0 ? v : 3000; // 기본 3000
-}
-
 
 // ===== 유틸 =====
 function sanitizeJsonLike(text){
@@ -66,12 +46,18 @@ function fill(tpl='', vars){
     .replaceAll('{{world_detail}}', vars.world_detail ?? '')
     .replaceAll('{{world_json}}', vars.world_json ?? '');
 }
-function limit(str, n){
-  const s = String(str ?? '');
-  return s.length > n ? s.slice(0, n) : s;
+function limit(str, n){ const s=String(str??''); return s.length>n ? s.slice(0,n) : s; }
+
+// 토큰 상한(로컬 설정 가능): localStorage.setItem('toh_ai_max_tokens','3500')
+function getMaxTokens(){
+  const v = parseInt(localStorage.getItem('toh_ai_max_tokens')||'',10);
+  return Number.isFinite(v)&&v>0 ? v : 3000;
 }
 
 // ===== 프롬프트 로드 =====
+// 문서: configs/prompts
+// 필수: char_create_system, char_create_inject
+// 선택: char_create_world, char_create_user
 async function fetchCreatePrompts(id='char_create'){
   const snap = await fx.getDoc(fx.doc(db, 'configs', 'prompts'));
   if(!snap.exists()) throw new Error('프롬프트 문서(configs/prompts)가 없어');
@@ -93,19 +79,13 @@ async function callGeminiOnce(model, systemText, userText, temperature=0.85){
   const url = `${GEM_ENDPOINT}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
   const body = {
     contents: [{ role:'user', parts:[{ text: `# SYSTEM\n${systemText}\n\n# INPUT\n${userText}` }]}],
-    generationConfig: {
-      temperature,
-      maxOutputTokens: getMaxTokens()  // ★ 여기서 토큰 크게
-    },
-    // systemInstruction 지원 모델에서 우선 적용(본문에도 중복 포함해 호환성 확보)
+    generationConfig: { temperature, maxOutputTokens: getMaxTokens() },
     systemInstruction: { role:'system', parts:[{ text: systemText }] }
   };
 
   if(DEBUG){
     console.groupCollapsed('[AI] fetch', model);
-    console.log('url', url);
-    console.log('maxOutputTokens', getMaxTokens());
-    console.log('system.len', systemText.length, 'user.len', userText.length);
+    console.log('maxTokens', getMaxTokens(), 'system.len', systemText.length, 'user.len', userText.length);
     console.groupEnd();
   }
 
@@ -128,7 +108,6 @@ async function callGeminiOnce(model, systemText, userText, temperature=0.85){
     return sanitizeJsonLike(raw);
   }
 }
-
 async function callGemini(modelPrefer, systemText, userText, temperature){
   try{
     return await callGeminiOnce(modelPrefer, systemText, userText, temperature);
@@ -172,17 +151,15 @@ function normalizeOutput(parsed, fallbackDesc=''){
     window.__ai_debug = window.__ai_debug || {};
     window.__ai_debug.out_parsed = src;
     window.__ai_debug.out_norm   = norm;
-    dbg('normalized', norm);
+    window.__ai_debug.raw_head && (window.__ai_debug.raw_head = window.__ai_debug.raw_head.slice(0,2000));
   }
   return norm;
 }
 
 // ===== 공개 API =====
 export async function genCharacterFlash2({ promptId='char_create', world={}, name='', desc='' }){
-  // 1) DB에서 프롬프트 읽기
   const { system, inject, worldT, userT } = await fetchCreatePrompts(promptId);
 
-  // 2) 세계관 텍스트 구성
   const world_name   = world?.name ?? world?.id ?? 'world';
   const world_intro  = world?.intro ?? world?.summary ?? '';
   const world_detail = [world?.detail?.lore, world?.detail?.lore_long].filter(Boolean).join('\n\n');
@@ -197,14 +174,12 @@ ${world_detail || '(미입력)'}
 (원본 JSON)
 ${world_json}`;
 
-  // 3) 사용자 입력 텍스트
   const userTextPart = userT
     ? fill(userT, { name, desc, world_name, world_intro })
     : `이름: ${name}
 설정:
 ${desc}`;
 
-  // 4) 조립 (WORLD → INJECTION_GUARD → USER_INPUT)
   const userCombined = `## WORLD
 ${worldText}
 
@@ -214,24 +189,13 @@ ${inject}
 ## USER_INPUT
 ${userTextPart}`;
 
-  if(DEBUG){
-    window.__ai_debug = {
-      system,
-      inject,
-      userCombined_len: userCombined.length,
-      world_name, world_intro_len: world_intro.length, world_detail_len: world_detail.length
-    };
-    dbg('request prepared', window.__ai_debug);
-  }
-
-  // 5) 호출
   const raw    = await callGemini(DEFAULT_FLASH2, system, userCombined, 0.85);
   const parsed = tryParseJson(raw);
   if(DEBUG){
-    window.__ai_debug.raw_len = raw.length;
-    window.__ai_debug.raw_head = raw.slice(0, 3500);
+    window.__ai_debug = window.__ai_debug || {};
+    window.__ai_debug.raw_len  = raw.length;
+    window.__ai_debug.raw_head = raw.slice(0, 2000);
     window.__ai_debug.parsed_ok = !!parsed;
-    dbg('raw.head', window.__ai_debug.raw_head);
   }
   const norm   = normalizeOutput(parsed, desc);
   return norm;
