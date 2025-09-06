@@ -1,7 +1,4 @@
 // /public/js/tabs/char.js
-// 두 번째 스샷 무드로 전체 리디자인(색/여백/알약 탭/큰 정사각 아바타)
-// narratives(신규)·narrative_items(레거시) 모두 표시 지원
-
 import { db, auth, fx } from '../api/firebase.js';
 import {
   tierOf, uploadAvatarSquare, updateAbilitiesEquipped, updateItemsEquipped,
@@ -9,7 +6,7 @@ import {
 } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 
-/* =======================  THEME  ======================= */
+/* ============== THEME (두 번째 스샷 무드) ============== */
 const STYLE_ID = 'char-v2-style';
 (function injectStyle(){
   if (document.getElementById(STYLE_ID)) return;
@@ -24,92 +21,76 @@ const STYLE_ID = 'char-v2-style';
     --border-soft:#1f2838;
     --text:#e6edf3;
     --muted:#9aa5b1;
-    --dim:#90a0b4;
     --primary:#2b6cff;
     --primary-2:#1f56d1;
-    --accent:#6aa8ff;
-    --chip:#192235;
-    --chip-bd:#2b3a55;
     --glow:#69a1ff55;
     --elo:#ffd24a;
-    --danger:#ff5d5d;
   }
-  .char-v2{ color:var(--text); }
-  .container.narrow{ max-width:960px; margin:0 auto; padding:22px 16px; }
+  .container.narrow{ max-width:960px; margin:0 auto; padding:22px 16px; color:var(--text); }
   .card{ background:var(--card); border:1px solid var(--border); border-radius:18px; }
-  .section{ padding:18px; }
-  .row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  .h1{ font-size:24px; font-weight:900; }
-  .h2{ font-size:18px; font-weight:800; }
-  .h3{ font-size:15px; font-weight:800; }
-  .muted{ color:var(--muted); }
-  .chip{ background:var(--chip); border:1px solid var(--chip-bd); color:#cfe1ff; border-radius:999px; padding:4px 10px; font-size:12px; }
-  .pill{ border:1px solid var(--border); background:var(--card-2); color:var(--text); padding:10px 14px; border-radius:12px; cursor:pointer; }
-  .pill.primary{ background:var(--primary); border-color:var(--primary); color:white; }
-  .tabs{ display:flex; gap:12px; padding:10px 12px; border-bottom:1px solid var(--border); }
-  .tab{ background:none; border:none; color:var(--muted); padding:10px 16px; border-radius:12px; cursor:pointer; }
-  .tab.active{ color:white; background:#0f1522; box-shadow:inset 0 0 0 2px var(--primary); }
+  .p16{ padding:16px; } .p12{ padding:12px; }
+  .mt8{ margin-top:8px; } .mt12{ margin-top:12px; } .mt16{ margin-top:16px; }
+  .text-dim{ color:var(--muted); }
+
+  /* 헤더 */
+  .char-card{ display:block; }
+  .char-header{ display:grid; justify-items:center; gap:12px; }
+  .avatar-wrap{ width:min(360px,80vw); aspect-ratio:1/1; border-radius:16px; border:3px solid #87b6ff; box-shadow:0 0 0 6px var(--glow); background:#0b0f15; position:relative; overflow:hidden; }
+  .avatar-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .avatar-wrap img.noimg{ background:linear-gradient(180deg,#0f1320,#0b0e12); }
+  .top-actions{ position:absolute; top:10px; right:10px; display:flex; gap:8px; }
+  .fab-circle{ width:38px; height:38px; border-radius:999px; display:grid; place-items:center; background:#0c1322cc; border:1px solid #2d4570; color:#cfe1ff; cursor:pointer; }
+  .fab-circle:hover{ background:#0f1930; }
+  .char-name{ font-size:26px; font-weight:900; text-align:center; }
+  .chips-row{ display:flex; gap:8px; }
+  .chip{ background:#192235; border:1px solid #2b3a55; color:#cfe1ff; border-radius:999px; padding:4px 10px; font-size:12px; }
+  .tier-chip{ padding:4px 10px; border-radius:999px; font-weight:800; border:1px solid transparent; }
+
+  /* 스탯 2x2 */
+  .char-stats4{ display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:12px; width:100%; max-width:760px; }
+  .stat-box{ background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
+  .stat-box .k{ font-size:12px; color:var(--muted); }
+  .stat-box .v{ font-size:18px; font-weight:900; }
+  .stat-elo .v{ color:var(--elo); }
+  .char-counters{ font-size:12px; color:var(--muted); }
+
+  /* 탭 책 */
+  .book-card{ background:var(--card); border:1px solid var(--border); border-radius:18px; }
+  .bookmarks{ display:flex; gap:12px; padding:10px 12px; border-bottom:1px solid var(--border); }
+  .bookmark{ background:none; border:none; color:var(--muted); padding:10px 16px; border-radius:12px; cursor:pointer; }
+  .bookmark.active{ color:white; background:#0f1522; box-shadow:inset 0 0 0 2px var(--primary); }
+  .bookview{ padding:14px; }
+
+  /* 서브탭 */
   .subtabs{ display:flex; gap:8px; margin:12px 0; }
   .sub{ border:1px solid var(--border); background:var(--card-2); color:#cfe1ff; padding:8px 12px; border-radius:10px; cursor:pointer; }
   .sub.active{ background:var(--primary); border-color:var(--primary); color:white; }
-  .hr{ border-top:1px solid var(--border); margin:10px 0; }
-  .kv{ background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
-  .grid2{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-  .grid3{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-  .stats{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-  .stat{ background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
-  .stat .k{ font-size:12px; color:var(--muted); }
-  .stat .v{ font-size:18px; font-weight:900; }
-  .stat.elo .v{ color:var(--elo); text-shadow:0 0 8px #000; }
-  .head{ display:grid; justify-items:center; gap:12px; padding:18px; }
-  .avatar-outer{ width:min(360px,80vw); aspect-ratio:1/1; border-radius:16px; border:3px solid #87b6ff; box-shadow:0 0 0 6px var(--glow); background:#0b0f15; position:relative; overflow:hidden; }
-  .avatar-outer img{ width:100%; height:100%; object-fit:cover; display:block; }
-  .av-actions{ position:absolute; top:10px; right:10px; display:flex; gap:8px; }
-  .fab{ width:38px; height:38px; border-radius:999px; display:grid; place-items:center; background:#0c1322cc; border:1px solid #2d4570; color:#cfe1ff; cursor:pointer; }
-  .fab:hover{ background:#0f1930; }
-  .name{ font-size:26px; font-weight:900; text-align:center; }
-  .badge-row{ display:flex; gap:8px; }
-  .book{ margin-top:18px; }
-  .book .view{ padding:14px; }
-  .skills{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px; }
-  .skill{ background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
+
+  /* 콘텐트 카드 */
+  .kv-label{ font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .kv-card{ background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
+  .grid2{ display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:12px; }
+  .grid3{ display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:12px; }
+
+  /* 스킬/아이템 */
+  .skill{ display:flex; gap:10px; align-items:flex-start; background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
   .skill .name{ font-weight:800; margin-bottom:6px; }
-  .list{ display:grid; gap:10px; }
+  .slot{ background:var(--card-2); border:1px dashed var(--border); border-radius:12px; padding:12px; color:var(--muted); display:grid; place-items:center; height:88px; }
+  .item{ background:var(--card-2); border:1px solid var(--border); border-radius:12px; padding:12px; }
+  .item .name{ font-weight:800; } .item .meta{ font-size:12px; color:var(--muted); display:flex; gap:8px; }
+
+  /* 버튼 / 액션바 */
   .btn{ border:1px solid var(--border); background:var(--card-2); color:var(--text); padding:10px 14px; border-radius:12px; cursor:pointer; }
-  .btn.primary{ background:var(--primary); border-color:var(--primary); color:#fff; }
+  .btn.large{ padding:12px 18px; font-weight:800; }
   .btn.ghost{ background:#0d121a; }
-  .center{ display:grid; place-items:center; }
-  .quote{ padding:10px 12px; border-left:3px solid #94a3b8; background:#0f1114; color:#cbd5e1; border-radius:6px; }
-  .ul{ margin:6px 0 6px 18px; display:grid; gap:4px; }
-  .sp{ height:8px; }
+  .fixed-actions{ position:fixed; left:0; right:0; bottom:14px; display:flex; justify-content:center; gap:10px; z-index:40; }
   `;
   document.head.appendChild(s);
 })();
 
-/* =======================  UTILS  ======================= */
-function parseId(){ const m=(location.hash||'').match(/^#\/char\/([^/]+)$/); return m? m[1]:null; }
-function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+/* ================== utils ================== */
+function parseId(){ const m=(location.hash||'').match(/^#\/char\/(.+)$/); return m? m[1]:null; }
 function rateText(w,l){ const W=+w||0, L=+l||0, T=W+L; return T? Math.round(W*100/T)+'%':'0%'; }
-function renderRich(text){
-  const lines = String(text||'').split(/\r?\n/);
-  const out=[]; let inList=false; const flush=()=>{ if(inList){ out.push('</ul>'); inList=false; } };
-  for(const raw of lines){
-    const line=raw.replace(/\s+$/,''); const esc=escapeHtml(line);
-    if (/^###\s+/.test(line)) { flush(); out.push(`<h4 class="h3">${esc.replace(/^###\s+/,'')}</h4>`); continue; }
-    if (/^##\s+/.test(line))  { flush(); out.push(`<h3 class="h2">${esc.replace(/^##\s+/,'')}</h3>`);  continue; }
-    if (/^#\s+/.test(line))   { flush(); out.push(`<div class="h1">${esc.replace(/^#\s+/,'')}</div>`);  continue; }
-    if (/^>\s+/.test(line))   { flush(); out.push(`<blockquote class="quote">${esc.replace(/^>\s+/,'')}</blockquote>`); continue; }
-    if (/^\*\s+/.test(line))  { if(!inList){ out.push('<ul class="ul">'); inList=true; } out.push(`<li>${esc.replace(/^\*\s+/,'')}</li>`); continue; }
-    if (line.trim()===''){ flush(); out.push('<div class="sp"></div>'); continue; }
-    flush();
-    const inline = esc.replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/\*([^*]+)\*/g,'<i>$1</i>');
-    out.push(`<p>${inline}</p>`);
-  }
-  flush();
-  return out.join('\n');
-}
-
-// 신규/레거시 서사 호환
 function normalizeChar(c){
   const out={...c};
   out.elo = out.elo ?? 1000;
@@ -117,119 +98,101 @@ function normalizeChar(c){
   out.abilities_all = Array.isArray(out.abilities_all)? out.abilities_all : (Array.isArray(out.abilities)? out.abilities: []);
   out.abilities_equipped = Array.isArray(out.abilities_equipped)? out.abilities_equipped.slice(0,2): [];
   out.items_equipped = Array.isArray(out.items_equipped)? out.items_equipped.slice(0,3): [];
-
-  // 이미지 우선순위
   out.thumb_url = out.thumb_url || '';
   out.image_url = out.thumb_url || out.image_b64 || out.image_url || '';
-
-  // narratives → narrative_items 로 변환(최신 긴 본문 + 나머지 요약)
-  if (Array.isArray(out.narratives) && out.narratives.length){
-    const latestId = out.narrative_latest_id || out.narratives[0].id;
-    const latest = out.narratives.find(n=>n.id===latestId) || out.narratives[0];
-    out.narrative_items = [
-      { title: latest?.title || '서사', body: latest?.long || '' },
-      ...(out.narratives.filter(n=>n.id!==latestId).map(n=>({ title: n.title || '서사', body: n.short || '' })) || [])
-    ];
-  }else{
-    out.narrative_items = Array.isArray(out.narrative_items) ? out.narrative_items
-      : (out.narrative ? [{ title:'서사', body: out.narrative }] : []);
-  }
+  out.narrative_items = Array.isArray(out.narrative_items) ? out.narrative_items
+    : (out.narrative ? [{ title:'서사', body: out.narrative }] : []);
   return out;
 }
-
 async function fetchInventory(charId){
-  const q = fx.query(fx.collection(db,'char_items'), fx.where('char_id','==', `chars/${charId}`));
-  const s = await fx.getDocs(q);
-  const arr=[]; s.forEach(d=>arr.push({id:d.id, ...d.data()}));
-  return arr;
+  try{
+    const q = fx.query(fx.collection(db,'char_items'), fx.where('char_id','==', `chars/${charId}`));
+    const s = await fx.getDocs(q);
+    const arr=[]; s.forEach(d=>arr.push({id:d.id, ...d.data()}));
+    return arr;
+  }catch(e){
+    console.error('[char] fetchInventory failed', e);
+    throw e;
+  }
 }
+function rarityClass(r){ return r==='legend'?'rarity-legend': r==='epic'?'rarity-epic': r==='rare'?'rarity-rare':'rarity-common'; }
 
-/* =======================  ENTRY  ======================= */
-export default async function showCharDetail(){
+/* ================== entry ================== */
+export async function showCharDetail(){
   const id = parseId();
   const root = document.getElementById('view');
-  if(!root) return;
+  if(!root){ console.warn('[char] #view not found'); return; }
+  if(!id){ root.innerHTML='<section class="container narrow"><p>잘못된 경로</p></section>'; return; }
 
-  root.innerHTML = `<section class="container narrow char-v2"><div class="card section center"><div class="muted">불러오는 중…</div></div></section>`;
-
-  if(!id){
-    root.innerHTML = `<section class="container narrow char-v2"><div class="card section center"><div class="muted">잘못된 경로야.</div></div></section>`;
-    return;
-  }
   try{
     const snap = await fx.getDoc(fx.doc(db,'chars',id));
-    if(!snap.exists()){ root.innerHTML = `<section class="container narrow char-v2"><div class="card section center"><div class="muted">캐릭터가 없네.</div></div></section>`; return; }
+    if(!snap.exists()){ root.innerHTML='<section class="container narrow"><p>캐릭터가 없네</p></section>'; return; }
     const c = normalizeChar({ id:snap.id, ...snap.data() });
     render(c);
   }catch(e){
-    root.innerHTML = `<section class="container narrow char-v2"><div class="card section"><div class="h2">오류</div><div class="hr"></div><div class="muted">${escapeHtml(e?.message||String(e))}</div></div></section>`;
+    console.error('[char] load error', e);
+    const msg = e?.code==='permission-denied' ? '권한이 없어 캐릭터를 불러올 수 없어. 먼저 로그인해줘!' : '캐릭터 로딩 중 오류가 났어.';
+    root.innerHTML = `<section class="container narrow"><p>${msg}</p><pre class="text-dim" style="white-space:pre-wrap">${e?.message || e}</pre></section>`;
   }
 }
 
-/* =======================  RENDER  ======================= */
+/* ================== render ================== */
 function render(c){
   const root = document.getElementById('view');
   const tier = tierOf(c.elo||1000);
   const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
 
   root.innerHTML = `
-  <section class="container narrow char-v2">
-
-    <!-- 헤더 카드 -->
-    <div class="card">
-      <div class="head">
-        <div class="avatar-outer" id="avatarWrap">
-          <img id="charAvatar" src="${c.thumb_url||c.image_b64||c.image_url||''}" alt="" onerror="this.src='';">
-          <div class="av-actions">
-            <button class="fab" id="btnLike" title="좋아요">♥</button>
-            ${isOwner? `<button class="fab" id="btnUpload" title="이미지 업로드">⤴</button>`:''}
+  <section class="container narrow">
+    <div class="card p16 char-card">
+      <div class="char-header">
+        <div class="avatar-wrap" style="border-color:${tier.color}">
+          <img id="charAvatar" src="${c.thumb_url||c.image_b64||c.image_url||''}" alt=""
+               onerror="this.src=''; this.classList.add('noimg')"/>
+          <div class="top-actions">
+            <button class="fab-circle" id="btnLike" title="좋아요">♥</button>
+            ${isOwner? `<button class="fab-circle" id="btnUpload" title="이미지 업로드">⤴</button>`:''}
           </div>
         </div>
 
-        <div class="name">${escapeHtml(c.name||'(이름 없음)')}</div>
-        <div class="badge-row">
-          <span class="chip">${tier.name||'Tier'}</span>
-          <span class="chip">${escapeHtml(c.world_id||'world')}</span>
+        <div class="char-name">${c.name||'(이름 없음)'}</div>
+        <div class="chips-row">
+          <span class="tier-chip" style="background:${tier.color}1a; color:#fff; border-color:${tier.color}80;">
+            ${tier.name || 'Tier'}
+          </span>
+          <span class="chip">${c.world_id || 'world:default'}</span>
         </div>
 
-        <div class="stats" style="width:100%; max-width:760px; margin-top:6px;">
-          <div class="stat">
-            <div class="k">승률</div>
-            <div class="v">${rateText(c.wins,c.losses)}</div>
-          </div>
-          <div class="stat elo">
-            <div class="k">Elo</div>
-            <div class="v">${c.elo||1000}</div>
-          </div>
-          <div class="stat">
-            <div class="k">EXP</div>
-            <div class="v">${c.exp||0}</div>
-          </div>
+        <div class="char-stats4 mt8">
+          <div class="stat-box stat-win"><div class="k">승률</div><div class="v">${rateText(c.wins,c.losses)}</div></div>
+          <div class="stat-box stat-like"><div class="k">누적 좋아요</div><div class="v">${c.likes_total||0}</div></div>
+          <div class="stat-box stat-elo"><div class="k">Elo</div><div class="v">${c.elo||1000}</div></div>
+          <div class="stat-box stat-week"><div class="k">주간 좋아요</div><div class="v">${c.likes_weekly||0}</div></div>
         </div>
+
+        <div class="char-counters mt8">전투 ${c.battle_count||0} · 탐험 ${c.explore_count||0}</div>
       </div>
     </div>
 
-    <!-- 북 카드 -->
-    <div class="card book">
-      <div class="tabs">
-        <button class="tab active" data-tab="bio">소개 / 서사</button>
-        <button class="tab" data-tab="loadout">스킬 / 아이템</button>
-        <button class="tab" data-tab="records">배틀 / 조우 / 탐험 전적</button>
+    <div class="book-card mt16">
+      <div class="bookmarks">
+        <button class="bookmark active" data-tab="bio">기본 소개 / 서사</button>
+        <button class="bookmark" data-tab="loadout">스킬 / 아이템</button>
+        <button class="bookmark" data-tab="history">배틀 / 조우 / 탐험 전적</button>
       </div>
-      <div class="view" id="tabView"></div>
+      <div class="bookview" id="bookview"></div>
     </div>
   </section>
   `;
 
-  // 원본 이미지로 교체(있으면)
   getCharMainImageUrl(c.id, {cacheFirst:true}).then(url=>{
     if(url){ const img=document.getElementById('charAvatar'); if(img) img.src=url; }
   }).catch(()=>{});
 
-  // 버튼
-  document.getElementById('btnLike')?.addEventListener('click', ()=> showToast('좋아요는 다음 패치!'));
+  mountFixedActions(c, isOwner);
+
   if(isOwner){
-    document.getElementById('btnUpload')?.addEventListener('click', ()=>{
+    root.querySelector('#btnUpload')?.addEventListener('click', ()=>{
       const i=document.createElement('input'); i.type='file'; i.accept='image/*';
       i.onchange=async()=>{
         const f=i.files?.[0]; if(!f) return;
@@ -240,22 +203,37 @@ function render(c){
       i.click();
     });
   }
+  root.querySelector('#btnLike')?.addEventListener('click', ()=> showToast('좋아요는 다음 패치!'));
 
-  // 탭 스위치
-  const view = document.getElementById('tabView');
-  const tabs = Array.from(root.querySelectorAll('.tab'));
+  const bv = root.querySelector('#bookview');
+  const tabs = root.querySelectorAll('.bookmark');
   tabs.forEach(b=>b.onclick=()=>{
     tabs.forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
     const t=b.dataset.tab;
-    if(t==='bio') renderBio(c, view);
-    else if(t==='loadout') renderLoadout(c, view);
-    else renderRecords(c, view);
+    if(t==='bio') renderBio(c, bv);
+    else if(t==='loadout') renderLoadout(c, bv);
+    else renderHistory(c, bv);
   });
-  renderBio(c, view);
+  renderBio(c, bv);
 }
 
-/* =======================  VIEWS  ======================= */
+/* 하단 고정 액션바 (소유자 전용) */
+function mountFixedActions(c, isOwner){
+  document.querySelector('.fixed-actions')?.remove();
+  if (!auth.currentUser || !isOwner) return;
+  const bar = document.createElement('div');
+  bar.className = 'fixed-actions';
+  bar.innerHTML = `
+    <button class="btn large" id="fabBattle">배틀 시작</button>
+    <button class="btn large ghost" id="fabEncounter">조우 시작</button>
+  `;
+  document.body.appendChild(bar);
+  bar.querySelector('#fabBattle').onclick = ()=> showToast('배틀 매칭은 다음 패치!');
+  bar.querySelector('#fabEncounter').onclick = ()=> showToast('조우 매칭은 다음 패치!');
+}
+
+/* ================== views ================== */
 function renderBio(c, view){
   view.innerHTML = `
     <div class="subtabs">
@@ -263,10 +241,10 @@ function renderBio(c, view){
       <button class="sub" data-s="narr">서사</button>
       <button class="sub" data-s="epis">미니 에피소드</button>
     </div>
-    <div id="subView"></div>
+    <div id="subview" class="p12"></div>
   `;
-  const sv = view.querySelector('#subView');
-  const subs = Array.from(view.querySelectorAll('.sub'));
+  const sv = view.querySelector('#subview');
+  const subs = view.querySelectorAll('.subtabs .sub');
   subs.forEach(b=>b.onclick=()=>{
     subs.forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
@@ -278,33 +256,24 @@ function renderBio(c, view){
 function renderBioSub(which, c, sv){
   if(which==='summary'){
     sv.innerHTML = `
-      <div class="h2">기본 소개</div>
-      <div class="hr"></div>
-      <div class="kv">${renderRich(c.summary||'-')}</div>
+      <div class="kv-label">기본 소개</div>
+      <div class="kv-card">${c.summary||'-'}</div>
     `;
   }else if(which==='narr'){
-    const items = Array.isArray(c.narrative_items)? c.narrative_items : [];
-    if(items.length===0){
-      sv.innerHTML = `<div class="kv muted">아직 등록된 서사가 없어.</div>`;
+    if((c.narrative_items||[]).length===0){
+      sv.innerHTML = `<div class="kv-card text-dim">아직 등록된 서사가 없어.</div>`;
       return;
     }
-    // 첫 카드는 긴 서사, 나머지는 요약 카드
-    sv.innerHTML = `
-      <div class="list">
-        ${items.map((it,idx)=>`
-          <div class="kv">
-            <div class="h3">${idx===0 ? '최근 서사 — ' : ''}${escapeHtml(it.title||'서사')}</div>
-            <div class="hr"></div>
-            <div>${renderRich(it.body||'-')}</div>
-          </div>
-        `).join('')}
+    sv.innerHTML = c.narrative_items.map((it,idx)=>`
+      <div class="kv-card" style="margin-bottom:10px">
+        <div style="font-weight:700; margin-bottom:6px">${idx+1}. ${it.title || '서사'}</div>
+        <div>${it.body || '-'}</div>
       </div>
-    `;
-  }else{
+    `).join('');
+  }else if(which==='epis'){
     sv.innerHTML = `
-      <div class="h2">미니 에피소드</div>
-      <div class="hr"></div>
-      <div class="kv muted">조우/배틀에서 생성된 에피소드가 여기에 쌓일 예정이야.</div>
+      <div class="kv-label">미니 에피소드</div>
+      <div class="kv-card text-dim">조우/배틀에서 생성된 에피소드가 여기에 쌓일 예정이야.</div>
     `;
   }
 }
@@ -318,37 +287,39 @@ async function renderLoadout(c, view){
   const equippedItems = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
 
   let inv = [];
-  try{ inv = await fetchInventory(c.id); }catch(e){ console.warn(e); }
+  try{ inv = await fetchInventory(c.id); }
+  catch(e){
+    console.error('[char] fetchInventory error', e);
+    if (e?.code === 'permission-denied') showToast('인벤토리 조회 권한이 없어.');
+    else showToast('인벤토리 로딩 중 오류가 났어.');
+    inv = [];
+  }
 
   view.innerHTML = `
-    <div class="row" style="justify-content:space-between; gap:12px;">
-      <div class="h2">스킬 / 아이템</div>
-      <div class="row">
-        <button class="pill ghost">배틀 시작</button>
-        <button class="pill ghost">조우 시작</button>
-      </div>
-    </div>
-    <div class="hr"></div>
-
-    <div class="h3">스킬 (4개 중 <b>2개</b> 선택)</div>
-    <div class="skills" style="margin-top:8px;">
-      ${abilitiesAll.length===0 ? `<div class="kv muted">등록된 스킬이 없어.</div>` :
-        abilitiesAll.map((ab,i)=>`
-          <label class="skill">
-            ${isOwner? `<input type="checkbox" data-i="${i}" ${equippedAb.includes(i)?'checked':''}/>` :
-                        `<input type="checkbox" disabled ${equippedAb.includes(i)?'checked':''}/>`}
-            <div>
-              <div class="name">${escapeHtml(ab?.name || ('스킬 ' + (i+1)))}</div>
-              <div class="muted">${escapeHtml(ab?.desc_soft || '-')}</div>
-            </div>
-          </label>
-        `).join('')}
+    <div class="p12">
+      <h4>스킬 (4개 중 <b>반드시 2개</b> 선택)</h4>
+      ${abilitiesAll.length===0
+        ? `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
+        : `<div class="grid2 mt8">
+            ${abilitiesAll.map((ab,i)=>`
+              <label class="skill">
+                ${isOwner
+                  ? `<input type="checkbox" data-i="${i}" ${equippedAb.includes(i)?'checked':''}/>`
+                  : `<input type="checkbox" disabled ${equippedAb.includes(i)?'checked':''}/>`}
+                <div>
+                  <div class="name">${ab?.name || ('스킬 ' + (i+1))}</div>
+                  <div class="desc text-dim">${ab?.desc_soft || '-'}</div>
+                </div>
+              </label>`).join('')}
+          </div>`}
     </div>
 
-    <div class="hr" style="margin-top:14px"></div>
-    <div class="h3">아이템 (최대 3개)</div>
-    <div class="grid3" id="slots" style="margin-top:8px"></div>
-    ${isOwner ? `<button id="btnEquip" class="btn" style="margin-top:8px">인벤토리에서 선택/교체</button>` : ''}
+    <div class="p12">
+      <h4 class="mt12">아이템 장착 (최대 3개)</h4>
+      <div class="grid3 mt8" id="slots"></div>
+      ${isOwner ? `<button id="btnEquip" class="btn mt8">인벤토리에서 선택/교체</button>` : ''}
+      <div class="kv-label">※ 등급/남은 사용횟수 표시.</div>
+    </div>
   `;
 
   if(isOwner && abilitiesAll.length>0){
@@ -366,15 +337,15 @@ async function renderLoadout(c, view){
   const renderSlots = ()=>{
     slotBox.innerHTML = [0,1,2].map(slot=>{
       const docId = equippedItems[slot];
-      if(!docId) return `<div class="kv center muted" style="height:86px">비어 있음</div>`;
+      if(!docId) return `<div class="slot">(비어 있음)</div>`;
       const it = inv.find(i=>i.id===docId);
-      if(!it) return `<div class="kv center muted" style="height:86px">인벤토리에 없음</div>`;
+      if(!it) return `<div class="slot">(인벤토리에 없음)</div>`;
+      const uses = (it.uses_remaining ?? '-');
       return `
-        <div class="kv">
-          <div class="h3">${escapeHtml(it.item_name || it.item_id || '아이템')}</div>
-          <div class="row muted" style="font-size:12px"><span>등급: ${escapeHtml(it.rarity || 'common')}</span><span>남은 사용: ${it.uses_remaining ?? '-'}</span></div>
-          <div class="hr"></div>
-          <div class="muted">${escapeHtml(it.desc_short || '-')}</div>
+        <div class="item">
+          <div class="name">${it.item_name || it.item_id || '아이템'}</div>
+          <div class="meta"><span>등급: ${it.rarity || 'common'}</span><span>남은 사용: ${uses}</span></div>
+          <div class="desc text-dim">${it.desc_short || '-'}</div>
         </div>`;
     }).join('');
   };
@@ -391,24 +362,19 @@ async function renderLoadout(c, view){
   }
 }
 
-function renderRecords(c, view){
+function renderHistory(c, view){
   view.innerHTML = `
-    <div class="row" style="justify-content:space-between; gap:12px;">
-      <div class="h2">배틀 / 조우 / 탐험 전적</div>
-      <div class="row">
-        <button class="pill ghost">배틀 시작</button>
-        <button class="pill ghost">조우 시작</button>
+    <div class="p12">
+      <h4>전적</h4>
+      <div class="grid3 mt8">
+        <div class="kv-card"><div class="kv-label">배틀</div><div>${c.battle_count||0}</div></div>
+        <div class="kv-card"><div class="kv-label">조우</div><div>${c.encounter_count||0}</div></div>
+        <div class="kv-card"><div class="kv-label">탐험</div><div>${c.explore_count||0}</div></div>
       </div>
+      <div class="kv-card mt12 text-dim">상세 타임라인은 추후 추가될 예정이야.</div>
     </div>
-    <div class="hr"></div>
-
-    <div class="grid3">
-      <div class="kv"><div class="muted">배틀 수</div><div class="h1">${c.battle_count||0}</div></div>
-      <div class="kv"><div class="muted">조우 수</div><div class="h1">${c.encounter_count||0}</div></div>
-      <div class="kv"><div class="muted">탐험 수</div><div class="h1">${c.explore_count||0}</div></div>
-    </div>
-
-    <div class="hr"></div>
-    <div class="kv muted">상세 타임라인은 추후 추가될 예정이야.</div>
   `;
 }
+
+/* 라우터 호환 */
+export default showCharDetail;
