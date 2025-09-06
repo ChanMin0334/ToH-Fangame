@@ -69,31 +69,6 @@ function wire(){
     if(e.target.id==='friendModal') closeFriendWin();
   });
 
-  // 친구 리스트(리렌더되어도 한 번만 걸리게) - 이벤트 위임
-  const frBox = document.getElementById('friends');
-  frBox.addEventListener('click', async (e)=>{
-    const bUnf = e.target.closest('.btnUnf');
-    if(bUnf){
-      if(!confirm('정말 삭제할까?')) return;
-      try{
-        bUnf.disabled = true;
-        await unfriend(bUnf.dataset.uid);
-        showToast('삭제했어');
-        FRIEND_SET.delete(bUnf.dataset.uid);
-        await refreshAll();
-      }catch(err){
-        showToast('삭제 실패: ' + (err?.message||err));
-      }finally{
-        bUnf.disabled = false;
-      }
-      return;
-    }
-    const bOpen = e.target.closest('.btnOpen');
-    if(bOpen){
-      openFriendWin(bOpen.dataset.uid, bOpen.dataset.nick, bOpen.dataset.ava);
-    }
-  });
-
 }
 
 async function onSearch(){
