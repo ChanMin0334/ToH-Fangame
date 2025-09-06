@@ -25,12 +25,12 @@ export async function uploadAvatarSquare(charId, file){
   const buf = await file.arrayBuffer();
   const bmp = await createImageBitmap(new Blob([buf]));
   const side = Math.min(bmp.width, bmp.height);
-  const sx = (bmp.width - side)/2, sy = (bmp.height - side)/2;
+  const cropX = (bmp.width - side)/2, cropY = (bmp.height - side)/2;
   const toBlob = (cv, q)=> new Promise(res=> cv.toBlob(res, 'image/webp', q));
 
   // 1) 썸네일 256x256
   const ct = document.createElement('canvas'); ct.width=256; ct.height=256;
-  ct.getContext('2d').drawImage(bmp, sx, sy, side, side, 0,0,256,256);
+  ct.getContext('2d').drawImage(bmp, cropX, cropY, side, side, 0,0,256,256);
   let tq=0.9, tB=await toBlob(ct,tq); while(tB.size>150_000 && tq>0.4){ tq-=0.1; tB=await toBlob(ct,tq); }
 
   // 2) 원본(긴 변 1024)
@@ -40,9 +40,6 @@ export async function uploadAvatarSquare(charId, file){
   const cm = document.createElement('canvas'); cm.width=w; cm.height=h;
   cm.getContext('2d').drawImage(bmp,0,0,w,h);
   let mq=0.9, mB=await toBlob(cm,mq); while(mB.size>950_000 && mq>0.4){ mq-=0.1; mB=await toBlob(cm,mq); }
-
-  // 최신 토큰
-  const idToken = await u.getIdToken(true);
 
   // 썸네일 업로드 (교체본)
 const resT = await fetch(`${KV_WORKER}/upload?kind=thumb&charId=${encodeURIComponent(charId)}`, {
@@ -79,6 +76,7 @@ if (!resM.ok || !upM?.ok) {
   await fx.setDoc(fx.doc(db,'chars',charId,'images','main'), {
   url: upM.url, w, h, mime: 'image/webp', owner_uid: u.uid, updatedAt: serverTimestamp()
 }, { merge:true });
+
 
 
 
