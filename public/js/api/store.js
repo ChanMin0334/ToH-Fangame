@@ -77,8 +77,9 @@ if (!resM.ok || !upM?.ok) {
   url: upM.url, w, h, mime: 'image/webp', owner_uid: u.uid, updatedAt: Date.now()
   };
   await fx.setDoc(fx.doc(db,'chars',charId,'images','main'), {
-    url: upM.url, w, h, mime: 'image/webp', owner_uid: u.uid, updatedAt: Date.now()
-  }, { merge:true });
+  url: upM.url, w, h, mime: 'image/webp', owner_uid: u.uid, updatedAt: serverTimestamp()
+}, { merge:true });
+
 
 
 
