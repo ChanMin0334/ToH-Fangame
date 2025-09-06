@@ -9,6 +9,22 @@ const collPair  = () => fx.collection(db,'friendships');
 
 export const pairId = (a,b)=> [a,b].sort().join('_');
 
+export async function isAlreadyFriends(otherUid){
+  const uid=auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
+  const pid = pairId(uid, otherUid);
+  const s = await fx.getDoc(docPair(pid));
+  return s.exists();
+}
+
+export async function hasPendingBetween(otherUid){
+  const uid=auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
+  const q1 = fx.query(collReq(), fx.where('from','==', uid), fx.where('to','==', otherUid), fx.where('status','==','pending'), fx.limit(1));
+  const q2 = fx.query(collReq(), fx.where('from','==', otherUid), fx.where('to','==', uid), fx.where('status','==','pending'), fx.limit(1));
+  const [a,b] = await Promise.all([fx.getDocs(q1), fx.getDocs(q2)]);
+  return (a.size>0 || b.size>0);
+}
+
+
 export async function searchUsersByNickname(q){
   const s=(q||'').trim().toLowerCase();
   if(!s) return [];
@@ -34,11 +50,24 @@ export async function listFriends(){
 export async function sendFriendRequest(to_uid, message=''){
   const uid=auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
   if(uid===to_uid) throw new Error('자기 자신에게는 보낼 수 없어');
+
+  // 이미 친구인지 확인
+  const pid = pairId(uid, to_uid);
+  const pairSnap = await fx.getDoc(docPair(pid));
+  if (pairSnap.exists()) throw new Error('이미 친구야');
+
+  // 대기중 요청 존재 여부 (양방향)
+  const q1 = fx.query(collReq(), fx.where('from','==', uid), fx.where('to','==', to_uid), fx.where('status','==','pending'), fx.limit(1));
+  const q2 = fx.query(collReq(), fx.where('from','==', to_uid), fx.where('to','==', uid), fx.where('status','==','pending'), fx.limit(1));
+  const [s1, s2] = await Promise.all([fx.getDocs(q1), fx.getDocs(q2)]);
+  if (s1.size>0 || s2.size>0) throw new Error('이미 대기 중인 요청이 있어');
+
   await fx.addDoc(collReq(), {
     from: uid, to: to_uid, message,
     status: 'pending', createdAt: Date.now()
   });
 }
+
 
 export async function listIncomingRequests(){
   const uid=auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
