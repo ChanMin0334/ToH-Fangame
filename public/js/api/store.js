@@ -41,7 +41,8 @@ export async function uploadAvatarSquare(charId, file){
   cm.getContext('2d').drawImage(bmp,0,0,w,h);
   let mq=0.9, mB=await toBlob(cm,mq); while(mB.size>950_000 && mq>0.4){ mq-=0.1; mB=await toBlob(cm,mq); }
 
-  const idToken = await u.getIdToken();
+  const idToken = await u.getIdToken(true);
+
 
   // 3) 업로드(thumb)
   const upT = await fetch(`${KV_WORKER}/upload?kind=thumb&charId=${encodeURIComponent(charId)}`,{
