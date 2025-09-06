@@ -1,74 +1,71 @@
 // /public/js/tabs/friends.js
 import {
-  searchUsersByNickname, sendFriendRequest, listIncomingRequests,
-  listOutgoingRequests, listFriends, acceptRequest, declineRequest, unfriend,
-  hasPendingBetween
+  searchUsersByNickname, hasPendingBetween, sendFriendRequest,
+  listIncomingRequests, listOutgoingRequests, listFriends,
+  acceptRequest, declineRequest, unfriend
 } from '../api/friends.js';
 import { db, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
 
 let FRIEND_SET = new Set();
 
-export function showFriends(){ render(); }
+function escapeHtml(s=''){ return String(s)
+  .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+  .replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
 
-async function render(){
-  const v=document.getElementById('view');
+export function showFriends(){
+  const v = document.getElementById('view');
   v.innerHTML = `
-    <section class="container narrow">
-      <div class="card p16">
-        <h3>친구</h3>
-        <div class="mt8">
-          <label class="label">닉네임으로 검색</label>
-          <div class="row gap8">
-            <input id="qName" class="w100" placeholder="예: hakuren"/>
-            <button id="btnSearch">검색</button>
-          </div>
-          <div id="searchList" class="mt8 list"></div>
+    <div class="p16">
+      <h2>친구</h2>
+
+      <div class="row gap8 mt8">
+        <input id="qName" class="w100" placeholder="예: hakuren" />
+        <button id="btnSearch">검색</button>
+      </div>
+      <div id="searchList" class="mt12"></div>
+
+      <div class="panel mt16">
+        <div class="panel-title">받은 요청</div>
+        <div id="incoming" class="panel-body">없음</div>
+      </div>
+
+      <div class="panel mt16">
+        <div class="panel-title">보낸 요청</div>
+        <div id="outgoing" class="panel-body">없음</div>
+      </div>
+
+      <div class="panel mt16">
+        <div class="panel-title">내 친구</div>
+        <div id="friends" class="panel-body">없음</div>
+      </div>
+    </div>
+
+    <div id="friendModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-title row between">
+          <div id="friendTitle">프로필</div>
+          <button id="btnCloseModal" class="ghost">닫기</button>
         </div>
-      </div>
-
-      <div class="card p16 mt12">
-        <h4>받은 요청</h4>
-        <div id="incoming" class="mt8 list"></div>
-      </div>
-
-      <div class="card p16 mt12">
-        <h4>보낸 요청</h4>
-        <div id="outgoing" class="mt8 list"></div>
-      </div>
-
-      <div class="card p16 mt12">
-        <h4>내 친구</h4>
-        <div id="friends" class="mt8 list"></div>
-      </div>
-    </section>
-
-    <!-- 친구 프로필/캐릭터 모달 -->
-    <div id="friendModal" class="fwin-modal" style="display:none">
-      <div class="fwin">
-        <div class="row between">
-          <div class="row gap8" id="fwinHeader"></div>
-          <button id="fwinClose">닫기</button>
-        </div>
-        <div id="fwinBody" class="mt12"></div>
+        <div id="friendBody" class="modal-body"></div>
       </div>
     </div>
   `;
 
   wire();
-
-  // 미리 친구셋 구성(검색 결과에서 버튼 비활성에 필요)
-  FRIEND_SET = new Set((await listFriends()).map(f=>f.uid));
-
-  await refreshAll();
+  refreshAll();
 }
 
 function wire(){
   document.getElementById('btnSearch').onclick = onSearch;
-  document.getElementById('friendModal').addEventListener('click', (e)=>{
+  const inp = document.getElementById('qName');
+  inp.onkeydown = (e)=>{ if(e.key==='Enter') onSearch(); };
+
+  const modal = document.getElementById('friendModal');
+  modal.addEventListener('click', (e)=>{
     if(e.target.id==='friendModal') closeFriendWin();
   });
-
+  document.getElementById('btnCloseModal').onclick = closeFriendWin;
 }
 
 async function onSearch(){
@@ -109,66 +106,96 @@ async function onSearch(){
         try{
           await sendFriendRequest(b.dataset.uid);
           showToast('요청 보냈어');
-          FRIEND_SET.add(b.dataset.uid);
           await refreshAll();
           await onSearch();
-        }catch(e){ showToast(e.message||'실패'); }
+        }catch(e){
+          showToast(e?.message || e?.code || '실패');
+        }
       };
     });
     list.querySelectorAll('.btnOpen').forEach(b=>{
       b.onclick=()=> openFriendWin(b.dataset.uid, b.dataset.nick, b.dataset.ava);
     });
   }catch(e){
-    showToast('검색 실패');
+    showToast('검색 실패: ' + (e?.message || e?.code || e));
     list.textContent='';
   }
-}
-
-
-async function refreshAll(){
-  await Promise.all([refreshIncoming(), refreshOutgoing(), refreshFriends()]);
 }
 
 async function refreshIncoming(){
   const box=document.getElementById('incoming'); box.textContent='불러오는 중...';
   try{
-    const arr=await listIncomingRequests();
-    box.innerHTML = arr.map(r=>`
+    const arr = await listIncomingRequests();
+    if(!arr.length){ box.innerHTML='<div class="text-dim">없음</div>'; return; }
+
+    // from 유저 정보 채우기
+    const infos = await Promise.all(arr.map(async r=>{
+      const d=await fx.getDoc(fx.doc(db,'users', r.from));
+      const u = d.exists()? d.data():{};
+      return { ...r, fromNick:u?.nickname||'(이름없음)', fromAva:u?.avatarURL||'' };
+    }));
+
+    box.innerHTML = infos.map(r=>`
       <div class="row between item">
-        <div>from: <b>${r.from.slice(0,6)}</b> 메시지: ${escapeHtml(r.message||'')}</div>
-        <div class="row gap8">
-          <button data-id="${r.id}" data-from="${r.from}" class="btnAccept">수락</button>
-          <button data-id="${r.id}" class="btnDecline">거절</button>
+        <div class="person">
+          <div class="avatar avatar-sm"><img src="${r.fromAva||''}" alt=""/></div>
+          <div class="nick">${escapeHtml(r.fromNick)}</div>
         </div>
-      </div>`).join('') || '<div class="text-dim">없음</div>';
+        <div class="row gap8">
+          <button class="btnAccept" data-id="${r.id}" data-from="${r.from}">수락</button>
+          <button class="btnDecline" data-id="${r.id}">거절</button>
+        </div>
+      </div>
+    `).join('');
 
     box.querySelectorAll('.btnAccept').forEach(b=>{
       b.onclick = async ()=>{
         if(FRIEND_SET.size >= 10){ showToast('친구는 최대 10명이야'); return; }
         try{
           await acceptRequest(b.dataset.id, b.dataset.from);
-          FRIEND_SET.add(b.dataset.from);
           showToast('수락했어');
           await refreshAll();
-        }catch(e){ showToast('실패'); }
+        }catch(e){ showToast(e?.message || e?.code || '실패'); }
       };
     });
     box.querySelectorAll('.btnDecline').forEach(b=>{
-      b.onclick=async ()=>{ try{ await declineRequest(b.dataset.id); showToast('거절했어'); await refreshAll(); }catch(e){ showToast('실패'); } };
+      b.onclick = async ()=>{
+        try{
+          await declineRequest(b.dataset.id);
+          showToast('거절했어');
+          await refreshAll();
+        }catch(e){ showToast(e?.message || e?.code || '실패'); }
+      };
     });
-  }catch{ box.textContent='오류'; }
+  }catch(e){
+    box.innerHTML='<div class="text-dim">오류</div>';
+  }
 }
 
 async function refreshOutgoing(){
   const box=document.getElementById('outgoing'); box.textContent='불러오는 중...';
   try{
-    const arr=await listOutgoingRequests();
-    box.innerHTML = arr.map(r=>`
+    const arr = await listOutgoingRequests();
+    if(!arr.length){ box.innerHTML='<div class="text-dim">없음</div>'; return; }
+
+    const infos = await Promise.all(arr.map(async r=>{
+      const d=await fx.getDoc(fx.doc(db,'users', r.to));
+      const u = d.exists()? d.data():{};
+      return { ...r, toNick:u?.nickname||'(이름없음)', toAva:u?.avatarURL||'' };
+    }));
+
+    box.innerHTML = infos.map(r=>`
       <div class="row between item">
-        <div>to: <b>${r.to.slice(0,6)}</b> 메시지: ${escapeHtml(r.message||'')}</div>
+        <div class="person">
+          <div class="avatar avatar-sm"><img src="${r.toAva||''}" alt=""/></div>
+          <div class="nick">${escapeHtml(r.toNick)}</div>
+        </div>
         <div class="text-dim">대기중</div>
-      </div>`).join('') || '<div class="text-dim">없음</div>';
-  }catch{ box.textContent='오류'; }
+      </div>
+    `).join('');
+  }catch(e){
+    box.innerHTML='<div class="text-dim">오류</div>';
+  }
 }
 
 async function refreshFriends(){
@@ -178,6 +205,8 @@ async function refreshFriends(){
   try{
     const pairs = await listFriends();
     FRIEND_SET = new Set(pairs.map(p=>p.uid)); // 동기화
+
+    if(!pairs.length){ box.innerHTML='<div class="text-dim">없음</div>'; }
 
     const users = await Promise.all(pairs.map(async p=>{
       const d = await fx.getDoc(fx.doc(db,'users', p.uid));
@@ -199,7 +228,7 @@ async function refreshFriends(){
       </div>
     `).join('') || '<div class="text-dim">없음</div>';
 
-    // (중요) 리스트는 매번 리렌더되니까, 위임 핸들러를 한 번만 설치
+    // 이벤트 위임(중복 방지)
     if(!box.dataset.bound){
       box.dataset.bound = '1';
       box.addEventListener('click', async (e)=>{
@@ -211,68 +240,31 @@ async function refreshFriends(){
             await unfriend(delBtn.dataset.uid);
             FRIEND_SET.delete(delBtn.dataset.uid);
             showToast('삭제했어');
-            await refreshFriends(); // 필요하면 refreshAll()로 교체 가능
+            await refreshAll();
           }catch(err){
-            showToast('삭제 실패: ' + (err?.message || err));
+            showToast('삭제 실패: ' + (err?.message || err?.code || err));
           }finally{
             delBtn.disabled = false;
           }
           return;
         }
-
         const openBtn = e.target.closest('.btnOpen');
         if(openBtn){
           openFriendWin(openBtn.dataset.uid, openBtn.dataset.nick, openBtn.dataset.ava);
         }
       });
     }
-
   }catch(e){
     box.textContent = '오류';
   }
 }
 
+async function refreshAll(){
+  await Promise.all([refreshIncoming(), refreshOutgoing(), refreshFriends()]);
+}
 
-function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
-
-// ===== 친구 윈도우 =====
-function closeFriendWin(){ document.getElementById('friendModal').style.display='none'; }
-
-async function openFriendWin(uid, nickname, avatarURL){
-  const modal=document.getElementById('friendModal');
-  const head=document.getElementById('fwinHeader');
-  const body=document.getElementById('fwinBody');
-  head.innerHTML = `
-    <div class="person">
-      <div class="avatar avatar-sm"><img src="${avatarURL||''}" alt=""/></div>
-      <b>${escapeHtml(nickname||'(이름없음)')}</b>
-      <span class="text-dim">#${uid.slice(0,6)}</span>
-    </div>`;
-  document.getElementById('fwinClose').onclick = closeFriendWin;
-
-  body.innerHTML = '캐릭터 불러오는 중...';
-
-  try{
-    const q = fx.query(fx.collection(db,'chars'), fx.where('owner_uid','==', uid), fx.limit(50));
-    const s = await fx.getDocs(q);
-    const list = s.docs.map(d=>({ id:d.id, ...d.data() }));
-    body.innerHTML = list.length ? (
-      `<div class="grid-cards">
-        ${list.map(c=>renderCharCard(c)).join('')}
-      </div>`
-    ) : '<div class="text-dim">이 친구가 만든 캐릭터가 아직 없네</div>';
-    // (추가) 캐릭터 카드 클릭 시 모달 닫고 상세로 이동
-    if(list.length){
-      body.querySelectorAll('.char-card.link').forEach(a=>{
-        a.addEventListener('click', ()=> closeFriendWin());
-      });
-    }
-
-  }catch(e){
-    body.innerHTML = '<div class="text-dim">불러오기 실패</div>';
-  }
-
-  modal.style.display='grid';
+function closeFriendWin(){
+  document.getElementById('friendModal').style.display='none';
 }
 
 function renderCharCard(c){
@@ -292,4 +284,34 @@ function renderCharCard(c){
         <div class="muted">전적 ${w}W-${l}L · 좋아요 ${likesW}/${likesT}</div>
       </div>
     </a>`;
+}
+
+async function openFriendWin(uid, nickname, avatarURL){
+  const modal = document.getElementById('friendModal');
+  const body  = document.getElementById('friendBody');
+  document.getElementById('friendTitle').textContent = `${nickname||'(이름없음)'}님의 캐릭터`;
+
+  body.innerHTML = '캐릭터 불러오는 중...';
+
+  try{
+    const q = fx.query(fx.collection(db,'chars'), fx.where('owner_uid','==', uid), fx.limit(50));
+    const s = await fx.getDocs(q);
+    const list = s.docs.map(d=>({ id:d.id, ...d.data() }));
+
+    body.innerHTML = list.length ? (
+      `<div class="grid-cards">
+        ${list.map(c=>renderCharCard(c)).join('')}
+      </div>`
+    ) : '<div class="text-dim">이 친구가 만든 캐릭터가 아직 없네</div>';
+
+    if(list.length){
+      body.querySelectorAll('.char-card.link').forEach(a=>{
+        a.addEventListener('click', ()=> closeFriendWin());
+      });
+    }
+  }catch(e){
+    body.innerHTML = '<div class="text-dim">불러오기 실패</div>';
+  }
+
+  modal.style.display='grid';
 }
