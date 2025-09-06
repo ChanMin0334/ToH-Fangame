@@ -18,7 +18,7 @@ export async function isAlreadyFriends(otherUid){
 
 export async function hasPendingBetween(otherUid){
   const me = auth.currentUser; if(!me) throw new Error('로그인이 필요해');
-  const col = fx.collection(db,'friendRequests');
+  const col = collReq();
 
   const q1 = fx.query(col,
     fx.where('from','==', me.uid),
@@ -35,8 +35,6 @@ export async function hasPendingBetween(otherUid){
   const [s1, s2] = await Promise.all([fx.getDocs(q1), fx.getDocs(q2)]);
   return !s1.empty || !s2.empty;
 }
-
-
 
 export async function searchUsersByNickname(q){
   const s=(q||'').trim().toLowerCase();
@@ -73,30 +71,31 @@ export async function sendFriendRequest(toUid, message=''){
     from: me.uid,
     to: toUid,
     message: String(message||'').slice(0, 200),
-    status: 'pending',            // ★ 리스트에서 이 필드로 필터함
+    status: 'pending',            // 리스트 필터용
     createdAt: Date.now()
   };
 
-  await fx.addDoc(fx.collection(db, 'friendRequests'), data);
+  await fx.addDoc(collReq(), data);
   return true;
 }
 
-
-
 export async function listIncomingRequests(){
   const uid=auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
-  const q=fx.query(collReq(), fx.where('to','==', uid), fx.where('status','==','pending'), fx.limit(20));
+  const q=fx.query(collReq(),
+    fx.where('to','==', uid),
+    fx.where('status','==','pending'),
+    fx.limit(50)
+  );
   const s=await fx.getDocs(q);
   return s.docs.map(d=>({ id:d.id, ...d.data() }));
 }
 
 export async function listOutgoingRequests(){
   const me = auth.currentUser; if(!me) throw new Error('로그인이 필요해');
-  const q = fx.query(
-    fx.collection(db,'friendRequests'),
+  // 정렬 없이 안전 쿼리 (복합 인덱스 불필요)
+  const q = fx.query(collReq(),
     fx.where('from','==',me.uid),
     fx.where('status','==','pending'),
-    fx.orderBy('createdAt','desc'),
     fx.limit(50)
   );
   const s = await fx.getDocs(q);
@@ -107,19 +106,17 @@ export async function acceptRequest(reqId, fromUid){
   const me = auth.currentUser; if(!me) throw new Error('로그인이 필요해');
   const a = me.uid < fromUid ? me.uid : fromUid;
   const b = me.uid < fromUid ? fromUid : me.uid;
-  const pairId = `${a}_${b}`;
-  await fx.setDoc(fx.doc(db,'friendships', pairId), { a, b, createdAt: Date.now() }, { merge:true });
-  await fx.deleteDoc(fx.doc(db,'friendRequests', reqId));
+  const pid = `${a}_${b}`;
+  await fx.setDoc(docPair(pid), { a, b, createdAt: Date.now() }, { merge:true });
+  await fx.deleteDoc(docReq(reqId));
   return true;
 }
-
 
 export async function declineRequest(reqId){
   const me = auth.currentUser; if(!me) throw new Error('로그인이 필요해');
-  await fx.deleteDoc(fx.doc(db,'friendRequests', reqId));
+  await fx.deleteDoc(docReq(reqId));
   return true;
 }
-
 
 export async function unfriend(otherUid){
   const uid=auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
