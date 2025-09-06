@@ -12,9 +12,10 @@ export const App = {
   }
 };
 
-// 워커 주소
+// 워커 주소 (KV/CDN 업로드 엔드포인트)
 const KV_WORKER = "https://toh-r2-uploader.pokemonrgby.workers.dev";
 
+// ===== 이미지 업로드: 256 썸네일 + 1024 원본 (KV 저장, Firestore엔 URL만) =====
 export async function uploadAvatarSquare(charId, file){
   const u = auth.currentUser;
   if (!u) throw new Error('로그인이 필요해');
@@ -25,8 +26,7 @@ export async function uploadAvatarSquare(charId, file){
   const bmp = await createImageBitmap(new Blob([buf]));
   const side = Math.min(bmp.width, bmp.height);
   const sx = (bmp.width - side)/2, sy = (bmp.height - side)/2;
-
-  const toBlob = (cv, q)=> new Promise(res=> cv.toBlob(res,'image/webp',q));
+  const toBlob = (cv, q)=> new Promise(res=> cv.toBlob(res, 'image/webp', q));
 
   // 1) 썸네일 256x256
   const ct = document.createElement('canvas'); ct.width=256; ct.height=256;
@@ -41,8 +41,8 @@ export async function uploadAvatarSquare(charId, file){
   cm.getContext('2d').drawImage(bmp,0,0,w,h);
   let mq=0.9, mB=await toBlob(cm,mq); while(mB.size>950_000 && mq>0.4){ mq-=0.1; mB=await toBlob(cm,mq); }
 
+  // 최신 토큰
   const idToken = await u.getIdToken(true);
-
 
   // 3) 업로드(thumb)
   const upT = await fetch(`${KV_WORKER}/upload?kind=thumb&charId=${encodeURIComponent(charId)}`,{
@@ -58,7 +58,7 @@ export async function uploadAvatarSquare(charId, file){
   }).then(r=>r.json());
   if(!upM?.ok) throw new Error('main upload fail');
 
-  // 5) Firestore에 URL 저장
+  // 5) Firestore에 URL 저장 (문서 작게 유지)
   await fx.updateDoc(fx.doc(db,'chars',charId), { thumb_url: upT.url, updatedAt: Date.now() });
   await fx.setDoc(fx.doc(db,'chars',charId,'images','main'), {
     url: upM.url, w, h, mime: 'image/webp', owner_uid: u.uid, updatedAt: fx.serverTimestamp()
@@ -68,7 +68,14 @@ export async function uploadAvatarSquare(charId, file){
   return { thumb_url: upT.url, main_url: upM.url };
 }
 
-
+// 상세에서 큰 원본 URL 로드 (캐시 우선)
+export async function getCharMainImageUrl(charId, {cacheFirst=true}={}){
+  const ref = fx.doc(db,'chars',charId,'images','main');
+  let snap;
+  if(cacheFirst){ try{ snap = await fx.getDocFromCache(ref); }catch(e){} }
+  if(!snap || !snap.exists()) snap = await fx.getDoc(ref);
+  return snap.exists() ? (snap.data()?.url || '') : '';
+}
 
 // ===== 티어 계산 =====
 export function tierOf(elo = 1000){
@@ -110,8 +117,7 @@ export async function fetchMyChars(uid){
   return arr;
 }
 
-// ===== 최소 생성 (직접 Firestore 생성 사용 시) =====
-//  ※ Functions로 생성 제한을 두는 경우에는 이 함수 대신 callable을 쓰세요.
+// ===== 최소 생성 =====
 export async function createCharMinimal({ world_id, name, input_info }){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
@@ -140,7 +146,7 @@ export async function createCharMinimal({ world_id, name, input_info }){
   return ref.id;
 }
 
-// ===== 스킬 2개 장착 =====
+// ===== 스킬/아이템 =====
 export async function updateAbilitiesEquipped(charId, indices){
   const u = auth.currentUser; if(!u) return;
   if(!Array.isArray(indices) || indices.length !== 2) return;
@@ -148,7 +154,6 @@ export async function updateAbilitiesEquipped(charId, indices){
   showToast('스킬 장착 변경');
 }
 
-// ===== 아이템 3칸 =====
 export async function updateItemsEquipped(charId, ids){
   const u = auth.currentUser; if(!u) return;
   const safe = (ids||[]).slice(0,3);
