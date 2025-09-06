@@ -22,7 +22,7 @@ function getCooldownRemainMs(){
   return Math.max(0, remain);
 }
 function mountCooldown(btn, lockedByCount){
-  const tick = async ()=>{
+  const tick = ()=>{
     if (lockedByCount()) {
       btn.disabled = true;
       btn.textContent = `캐릭터는 최대 ${MAX_CHAR_COUNT}개`;
@@ -44,44 +44,6 @@ function mountCooldown(btn, lockedByCount){
   }, 500);
 }
 
-// ====== 확인 팝업(HTML 오버레이) ======
-function confirmPopup(message){
-  return new Promise(resolve=>{
-    const wrap = document.createElement('div');
-    wrap.style.cssText = `
-      position:fixed; inset:0; z-index:9999;
-      display:flex; align-items:center; justify-content:center;
-      background:rgba(0,0,0,.45);
-    `;
-    const card = document.createElement('div');
-    card.style.cssText = `
-      width:min(92vw, 480px);
-      background:#111; color:#fff;
-      border:1px solid rgba(255,255,255,.12);
-      border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.4);
-      position:relative; overflow:hidden;
-    `;
-    card.innerHTML = `
-      <div style="padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; align-items:center; justify-content:space-between;">
-        <div style="font-weight:800">확인</div>
-        <button id="ppClose" class="icon-btn" style="width:34px;height:34px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:#18181b;display:grid;place-items:center;">✕</button>
-      </div>
-      <div style="padding:18px 16px; white-space:pre-wrap; line-height:1.5;">${message}</div>
-      <div style="display:flex; gap:10px; justify-content:flex-end; padding:12px 16px; background:#0f1115; border-top:1px solid rgba(255,255,255,.08);">
-        <button id="ppNo"  class="btn"        style="padding:8px 14px;">아니오</button>
-        <button id="ppYes" class="btn danger" style="padding:8px 14px;">예</button>
-      </div>
-    `;
-    wrap.appendChild(card);
-    document.body.appendChild(wrap);
-    const cleanup = (v)=>{ wrap.remove(); resolve(v); };
-    card.querySelector('#ppClose').onclick = ()=> cleanup(false);
-    card.querySelector('#ppNo').onclick    = ()=> cleanup(false);
-    card.querySelector('#ppYes').onclick   = ()=> cleanup(true);
-    wrap.addEventListener('click', (e)=>{ if(e.target===wrap) cleanup(false); });
-  });
-}
-
 // ====== 삭제 ======
 async function deleteChar(id){
   try{
@@ -100,20 +62,19 @@ async function deleteChar(id){
 
 // ====== 새 캐릭터 버튼 클릭 ======
 async function onClickNew(){
-  // 1) 서버/DB 기준 현재 개수 재확인(우회 방지)
+  // 1) 서버/DB 기준 현재 개수 재확인
   const countNow = await getMyCharCount();
   if(countNow >= MAX_CHAR_COUNT){
     showToast(`캐릭터는 최대 ${MAX_CHAR_COUNT}개까지야`);
     return;
   }
-  // 2) 쿨타임 확인
+  // 2) 쿨타임 확인 (여기서 쿨다운 시작하지 않음!)
   const remain = getCooldownRemainMs();
   if(remain>0){
     showToast(`쿨타임 남아있어: ${fmtRemain(remain)}`);
     return;
   }
-  // 3) 생성 화면으로 진입 + 쿨타임 시작(※ 실제 생성 성공 시점에 시작하려면 그 로직에서 setItem 호출)
-  localStorage.setItem(LS_KEY_CREATE_LAST_AT, Date.now().toString());
+  // 3) 생성 페이지로 이동 (타이머는 생성 시작 시점에 기록)
   location.hash = '#/create';
 }
 
@@ -121,7 +82,7 @@ async function onClickNew(){
 function cardHtml(c){
   const t = tierOf(c.elo||1000);
   const img = c.image_url
-    ? `<img src="${c.image_url}" alt="${c.name}" style="width:100px;height:100px;border-radius:12px;object-fit:cover;background:#0e0f12;">`
+    ? `<img src="${c.image_url}" alt="${c.name}" style="width:100px;height:100px;border-radius:12px;object-fit:cover;display:block;background:#0e0f12;">`
     : `<div style="width:100px;height:100px;border-radius:12px;background:#0e0f12;"></div>`;
 
   return `
@@ -203,7 +164,7 @@ export async function showHome(force=false){
     btn.addEventListener('click', async (e)=>{
       e.stopPropagation();
       const id = btn.getAttribute('data-del');
-      const ok = await confirmPopup('정말 삭제할까요?\n이 작업은 되돌릴 수 없어.');
+      const ok = confirm('정말 삭제할까? 이 작업은 되돌릴 수 없어.'); // 간소화
       if(!ok) return;
       await deleteChar(id);
     });
