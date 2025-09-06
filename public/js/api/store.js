@@ -1,5 +1,5 @@
 // /public/js/api/store.js
-import { db, auth, fx, storage, sx } from './firebase.js';
+import { db, auth, fx, storage, sx, serverTimestamp } from './firebase.js';
 import { showToast } from '../ui/toast.js';
 
 // ===== 전역 앱 상태 =====
@@ -76,7 +76,10 @@ if (!resM.ok || !upM?.ok) {
   const payload = {
   url: upM.url, w, h, mime: 'image/webp', owner_uid: u.uid, updatedAt: Date.now()
   };
-  await fx.setDoc(fx.doc(db,'chars',charId,'images','main'), payload, { merge:true });
+  await fx.setDoc(fx.doc(db,'chars',charId,'images','main'), {
+    url: upM.url, w, h, mime: 'image/webp', owner_uid: u.uid, updatedAt: Date.now()
+  }, { merge:true });
+
 
 
   showToast('아바타 업로드 완료 (KV/CDN)');
