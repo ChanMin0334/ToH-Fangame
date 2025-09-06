@@ -338,5 +338,21 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
 .cropper .ctrls{display:flex;flex-direction:column;gap:8px}
 
 
+/* === Friends layout (avatar on right) === */
+.person{display:flex;align-items:center;gap:8px;cursor:pointer}
+.person .nick{font-weight:700}
+.item .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+
+/* friend modal */
+.fwin-modal{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.65);z-index:1000}
+.fwin{width:720px;max-width:95vw;max-height:85vh;overflow:auto;background:#0f141b;border:1px solid var(--bd);border-radius:12px;padding:12px}
+.grid-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.char-card{border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:rgba(255,255,255,.02)}
+.char-card .thumb{width:100%;aspect-ratio:1/1;background:#0b0f14;display:grid;place-items:center}
+.char-card .thumb img{width:100%;height:100%;object-fit:cover}
+.char-card .thumb .ph{width:60%;height:60%;background:#111;border-radius:8px;border:1px dashed #333}
+.char-card .meta{padding:10px}
+.badge{background:#22324a;border:1px solid var(--bd);padding:2px 6px;border-radius:6px;font-size:12px}
+.muted{color:var(--muted);font-size:12px}
 
 
