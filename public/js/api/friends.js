@@ -47,26 +47,25 @@ export async function listFriends(){
   return items.map(x=>({ uid: x.a===uid? x.b : x.a, pairId: pairId(uid, x.a===uid? x.b : x.a) }));
 }
 
-export async function sendFriendRequest(to_uid, message=''){
-  const uid=auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
-  if(uid===to_uid) throw new Error('자기 자신에게는 보낼 수 없어');
+export async function sendFriendRequest(toUid, message=''){
+  const me = auth.currentUser;
+  if(!me) throw new Error('로그인이 필요해');
+  if(!toUid) throw new Error('대상 UID가 없어');
+  if(me.uid === toUid) throw new Error('자기 자신에게는 보낼 수 없어');
 
-  // 이미 친구인지 확인
-  const pid = pairId(uid, to_uid);
-  const pairSnap = await fx.getDoc(docPair(pid));
-  if (pairSnap.exists()) throw new Error('이미 친구야');
+  // 규칙 충족에 필요한 "최소 필드"만 전송 (from == 로그인한 유저)
+  const data = {
+    from: me.uid,
+    to: toUid,
+    message: String(message||'').slice(0, 200),
+    createdAt: Date.now()
+  };
 
-  // 대기중 요청 존재 여부 (양방향)
-  const q1 = fx.query(collReq(), fx.where('from','==', uid), fx.where('to','==', to_uid), fx.where('status','==','pending'), fx.limit(1));
-  const q2 = fx.query(collReq(), fx.where('from','==', to_uid), fx.where('to','==', uid), fx.where('status','==','pending'), fx.limit(1));
-  const [s1, s2] = await Promise.all([fx.getDocs(q1), fx.getDocs(q2)]);
-  if (s1.size>0 || s2.size>0) throw new Error('이미 대기 중인 요청이 있어');
-
-  await fx.addDoc(collReq(), {
-    from: uid, to: to_uid, message,
-    status: 'pending', createdAt: Date.now()
-  });
+  // 컬렉션 명 정확히 'friendRequests'
+  await fx.addDoc(fx.collection(db, 'friendRequests'), data);
+  return true;
 }
+
 
 
 export async function listIncomingRequests(){
