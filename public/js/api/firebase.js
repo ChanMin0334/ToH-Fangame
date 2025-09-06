@@ -1,9 +1,11 @@
 // /public/js/api/firebase.js  (정상화: Firebase 초기화 전용)
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js';
 import {
-  getFirestore,
-  doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit
+  initializeFirestore, // ← getFirestore 대신 이걸 씀
+  doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
+  collection, query, where, orderBy, limit
 } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
+
 
 import {
   getAuth
@@ -27,7 +29,13 @@ const firebaseConfig = {
 
 // init
 export const app     = initializeApp(firebaseConfig);
-export const db      = getFirestore(app);
+export const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true, // 네트워크/방화벽 환경 자동 감지
+  useFetchStreams: false                   // 일부 환경에서 스트림 문제 회피
+  // 필요하면 아래를 강제 옵션으로 바꿔도 됨:
+  // experimentalForceLongPolling: true
+});
+
 export const auth    = getAuth(app);
 export const storage = getStorage(app);
 
