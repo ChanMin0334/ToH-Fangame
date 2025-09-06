@@ -1,6 +1,9 @@
-// /public/js/tabs/char.js (rev2)
+// /public/js/tabs/char.js
 import { db, auth, fx } from '../api/firebase.js';
-import { tierOf, uploadAvatarSquare, updateAbilitiesEquipped, updateItemsEquipped } from '../api/store.js';
+import {
+  tierOf, uploadAvatarSquare, updateAbilitiesEquipped, updateItemsEquipped,
+  getCharMainImageUrl
+} from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 
 // ---------- utils ----------
@@ -12,8 +15,9 @@ function normalizeChar(c){
   out.abilities_all = Array.isArray(out.abilities_all)? out.abilities_all : (Array.isArray(out.abilities)? out.abilities: []);
   out.abilities_equipped = Array.isArray(out.abilities_equipped)? out.abilities_equipped.slice(0,2): [];
   out.items_equipped = Array.isArray(out.items_equipped)? out.items_equipped.slice(0,3): [];
-  // 이미지: Firestore(base64) 우선, 없으면 기존 URL
-  out.image_url = out.image_b64 || out.image_url || '';
+  // 이미지 경로: KV 썸네일 우선 → 레거시 b64 → 레거시 url
+  out.thumb_url = out.thumb_url || '';
+  out.image_url = out.thumb_url || out.image_b64 || out.image_url || '';
   // 서사 항목(배열) 호환
   out.narrative_items = Array.isArray(out.narrative_items) ? out.narrative_items
   : (out.narrative ? [{ title:'서사', body: out.narrative }] : []);
@@ -26,12 +30,10 @@ async function fetchInventory(charId){
     const arr=[]; s.forEach(d=>arr.push({id:d.id, ...d.data()}));
     return arr;
   }catch(e){
-    // 상위에서 처리할 수 있도록 다시 던지되, 콘솔에 남김
     console.error('[char] fetchInventory failed', e);
     throw e;
   }
 }
-
 function rarityClass(r){ return r==='legend'?'rarity-legend': r==='epic'?'rarity-epic': r==='rare'?'rarity-rare':'rarity-common'; }
 
 // ---------- entry ----------
@@ -56,16 +58,16 @@ export async function showCharDetail(){
 // ---------- render ----------
 function render(c){
   const root = document.getElementById('view');
-  const tier = tierOf(c.elo||1000);                    // tier.color / tier.name 가정
+  const tier = tierOf(c.elo||1000);
   const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
 
-  // 메인 뷰
   root.innerHTML = `
   <section class="container narrow">
     <div class="card p16 char-card">
       <div class="char-header">
         <div class="avatar-wrap" style="border-color:${tier.color}">
-          <img src="${c.image_b64||c.image_url||''}" alt="" onerror="this.src=''; this.classList.add('noimg')"/>
+          <img id="charAvatar" src="${c.thumb_url||c.image_b64||c.image_url||''}" alt=""
+               onerror="this.src=''; this.classList.add('noimg')"/>
           <div class="top-actions">
             <button class="fab-circle" id="btnLike" title="좋아요">♥</button>
             ${isOwner? `<button class="fab-circle" id="btnUpload" title="이미지 업로드">⤴</button>`:''}
@@ -103,24 +105,30 @@ function render(c){
   </section>
   `;
 
+  // 원본 이미지(1024)로 교체 — 상세에서만 네트워크 사용
+  getCharMainImageUrl(c.id, {cacheFirst:true}).then(url=>{
+    if(url){ const img=document.getElementById('charAvatar'); if(img) img.src=url; }
+  }).catch(()=>{ /* 썸네일 유지 */ });
+
   // 하단 고정 액션바 (소유자만)
   mountFixedActions(c, isOwner);
 
-  // 액션(업로드/좋아요)
+  // 업로드/좋아요
   if(isOwner){
     root.querySelector('#btnUpload')?.addEventListener('click', ()=>{
       const i=document.createElement('input'); i.type='file'; i.accept='image/*';
       i.onchange=async()=>{
         const f=i.files?.[0]; if(!f) return;
         await uploadAvatarSquare(c.id, f);
-        showToast('프로필 업데이트 완료!'); location.reload();
+        showToast('프로필 업데이트 완료!');
+        location.reload();
       };
       i.click();
     });
   }
   root.querySelector('#btnLike')?.addEventListener('click', ()=> showToast('좋아요는 다음 패치!'));
 
-  // 북마크 탭
+  // 탭
   const bv = root.querySelector('#bookview');
   const tabs = root.querySelectorAll('.bookmark');
   tabs.forEach(b=>b.onclick=()=>{
@@ -134,28 +142,22 @@ function render(c){
   renderBio(c, bv);
 }
 
-// 고정 액션바 (스크롤과 무관)
+// 고정 액션바 — 로그인+소유자만 (버튼 노출 가드)
 function mountFixedActions(c, isOwner){
-// 항상 기존 바 제거
-document.querySelector('.fixed-actions')?.remove();
+  document.querySelector('.fixed-actions')?.remove();
+  if (!auth.currentUser || !isOwner) return;
 
+  const bar = document.createElement('div');
+  bar.className = 'fixed-actions';
+  bar.innerHTML = `
+    <button class="btn large" id="fabBattle">배틀 시작</button>
+    <button class="btn large ghost" id="fabEncounter">조우 시작</button>
+  `;
+  document.body.appendChild(bar);
 
-// 로그인 안 되었거나, 소유자가 아니면 노출하지 않음
-if (!auth.currentUser || !isOwner) return;
-
-
-const bar = document.createElement('div');
-bar.className = 'fixed-actions';
-bar.innerHTML = `
-<button class="btn large" id="fabBattle">배틀 시작</button>
-<button class="btn large ghost" id="fabEncounter">조우 시작</button>
-`;
-document.body.appendChild(bar);
-
-
-// TODO: 실제 매칭 로직 연결 예정 — 현재는 가드만 유지
-bar.querySelector('#fabBattle').onclick = ()=> showToast('배틀 매칭은 다음 패치!');
-bar.querySelector('#fabEncounter').onclick = ()=> showToast('조우 매칭은 다음 패치!');
+  // TODO: 실제 매칭 로직 연결 예정 — 현재는 가드만 유지
+  bar.querySelector('#fabBattle').onclick = ()=> showToast('배틀 매칭은 다음 패치!');
+  bar.querySelector('#fabEncounter').onclick = ()=> showToast('조우 매칭은 다음 패치!');
 }
 
 // ---------- views ----------
@@ -180,14 +182,12 @@ function renderBio(c, view){
 
 function renderBioSub(which, c, sv){
   if(which==='summary'){
-    // 한줄 요약 제거 요청 반영 → 기본 소개만
     sv.innerHTML = `
       <div class="kv-label">기본 소개</div>
       <div class="kv-card">${c.summary||'-'}</div>
     `;
   }else if(which==='narr'){
-    // "서사"를 항목 리스트로 출력 (배열 순서 유지). 소유자는 나중에 추가 UI를 달 수 있게 영역만 마련.
-    if(c.narrative_items.length===0){
+    if((c.narrative_items||[]).length===0){
       sv.innerHTML = `<div class="kv-card text-dim">아직 등록된 서사가 없어.</div>`;
       return;
     }
@@ -227,9 +227,8 @@ async function renderLoadout(c, view){
     } else {
       showToast('인벤토리 로딩 중 오류가 났어.');
     }
-    inv = []; // 권한 없으면 빈 인벤토리로 진행
+    inv = [];
   }
-
 
   // UI
   view.innerHTML = `
