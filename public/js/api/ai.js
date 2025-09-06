@@ -3,28 +3,26 @@
 // Gemini Flash 2.0(실패시 1.5)으로 호출하고 결과를 표준 스키마로 반환.
 //
 // 입력 조립 순서(본문에 차례대로 포함):
-// 1) WORLD         — 세계관 상세(요약/장문/원본 JSON)
+// 1) WORLD           — 세계관 상세(요약/장문/원본 JSON)
 // 2) INJECTION_GUARD — 인젝션 방지 지시문
-// 3) USER_INPUT    — 사용자 입력(이름/설정)
+// 3) USER_INPUT      — 사용자 입력(이름/설정)
 //
 // 출력(표준 스키마; create.js가 이 값을 받아 전처리/저장):
-// {
-//   "intro": "string",
-//   "narrative_long": "string",
-//   "narrative_short": "string",
-//   "skills": [
-//     { "name": "string", "effect": "string" },
-//     { "name": "string", "effect": "string" },
-//     { "name": "string", "effect": "string" },
-//     { "name": "string", "effect": "string" }
-//   ]
-// }
+// { intro, narrative_long, narrative_short, skills:[{name,effect} x4] }
 
 import { db, fx } from './firebase.js';
 
 const GEM_ENDPOINT   = 'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_FLASH2 = 'gemini-2.0-flash';
 const FALLBACK_FLASH = 'gemini-1.5-flash';
+
+const DEBUG = !!localStorage.getItem('toh_debug_ai');
+function dbg(...args){ if(DEBUG) console.log('[AI]', ...args); }
+function group(title, fn){
+  if(!DEBUG){ fn(); return; }
+  console.groupCollapsed('[AI]', title);
+  try{ fn(); } finally{ console.groupEnd(); }
+}
 
 // ===== BYOK =====
 export function getByok(){
@@ -66,9 +64,6 @@ function limit(str, n){
 }
 
 // ===== 프롬프트 로드 =====
-// 문서: configs/prompts  (단일 문서)
-// 필수: char_create_system, char_create_inject
-// 선택: char_create_world,  char_create_user
 async function fetchCreatePrompts(id='char_create'){
   const snap = await fx.getDoc(fx.doc(db, 'configs', 'prompts'));
   if(!snap.exists()) throw new Error('프롬프트 문서(configs/prompts)가 없어');
@@ -91,17 +86,30 @@ async function callGeminiOnce(model, systemText, userText, temperature=0.85){
   const body = {
     contents: [{ role:'user', parts:[{ text: `# SYSTEM\n${systemText}\n\n# INPUT\n${userText}` }]}],
     generationConfig: { temperature, maxOutputTokens: 1400 },
-    // 일부 모델은 systemInstruction 지원 (본문에도 중복 포함해 호환성 확보)
     systemInstruction: { role:'system', parts:[{ text: systemText }] }
   };
+
+  group(`fetch ${model}`, ()=>{
+    dbg('url', url);
+    dbg('system.len', systemText.length, 'user.len', userText.length);
+  });
+
+  console.time('[AI] call');
   const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const raw = await res.text();
-  if(!res.ok) throw new Error(`Gemini 실패 ${res.status}: ${raw}`);
+  console.timeEnd('[AI] call');
+
+  if(!res.ok){
+    dbg('HTTP error', res.status, raw.slice(0, 400));
+    throw new Error(`Gemini 실패 ${res.status}: ${raw}`);
+  }
   try{
     const json = JSON.parse(raw);
     const out = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    dbg('ok raw.len', out.length);
     return sanitizeJsonLike(out);
   }catch(_){
+    dbg('fallback raw.len', raw.length);
     return sanitizeJsonLike(raw);
   }
 }
@@ -109,6 +117,7 @@ async function callGemini(modelPrefer, systemText, userText, temperature){
   try{
     return await callGeminiOnce(modelPrefer, systemText, userText, temperature);
   }catch(e){
+    dbg('primary failed → fallback', e?.message||e);
     if(modelPrefer !== FALLBACK_FLASH){
       return await callGeminiOnce(FALLBACK_FLASH, systemText, userText, temperature);
     }
@@ -123,7 +132,6 @@ function normalizeOutput(parsed, fallbackDesc=''){
   let narrative_long  = src.narrative_long ?? src.narrative ?? src.story_long ?? src.story ?? '';
   let narrative_short = src.narrative_short ?? src.summary_line ?? src.story_short ?? '';
 
-  // skills/abilities 매핑
   let skills = [];
   if(Array.isArray(src.skills)){
     skills = src.skills.map(s=>({ name: s?.name ?? '', effect: s?.effect ?? s?.desc ?? s?.desc_raw ?? '' }));
@@ -137,12 +145,20 @@ function normalizeOutput(parsed, fallbackDesc=''){
     effect: limit(s.effect, 160)
   }));
 
-  return {
+  const norm = {
     intro:          limit(intro, 600),
     narrative_long: limit(narrative_long, 2000),
     narrative_short:limit(narrative_short, 200),
     skills
   };
+
+  if(DEBUG){
+    window.__ai_debug = window.__ai_debug || {};
+    window.__ai_debug.out_parsed = src;
+    window.__ai_debug.out_norm   = norm;
+    dbg('normalized', norm);
+  }
+  return norm;
 }
 
 // ===== 공개 API =====
@@ -182,9 +198,25 @@ ${inject}
 ## USER_INPUT
 ${userTextPart}`;
 
+  if(DEBUG){
+    window.__ai_debug = {
+      system,
+      inject,
+      userCombined_len: userCombined.length,
+      world_name, world_intro_len: world_intro.length, world_detail_len: world_detail.length
+    };
+    dbg('request prepared', window.__ai_debug);
+  }
+
   // 5) 호출
   const raw    = await callGemini(DEFAULT_FLASH2, system, userCombined, 0.85);
   const parsed = tryParseJson(raw);
+  if(DEBUG){
+    window.__ai_debug.raw_len = raw.length;
+    window.__ai_debug.raw_head = raw.slice(0, 400);
+    window.__ai_debug.parsed_ok = !!parsed;
+    dbg('raw.head', window.__ai_debug.raw_head);
+  }
   const norm   = normalizeOutput(parsed, desc);
   return norm;
 }
