@@ -73,9 +73,11 @@ if (!resM.ok || !upM?.ok) {
 
   // 5) Firestore에 URL 저장 (문서 작게 유지)
   await fx.updateDoc(fx.doc(db,'chars',charId), { thumb_url: upT.url, updatedAt: Date.now() });
-  await fx.setDoc(fx.doc(db,'chars',charId,'images','main'), {
-    url: upM.url, w, h, mime: 'image/webp', owner_uid: u.uid, updatedAt: fx.serverTimestamp()
-  }, { merge:true });
+  const payload = {
+  url: upM.url, w, h, mime: 'image/webp', owner_uid: u.uid, updatedAt: Date.now()
+  };
+  await fx.setDoc(fx.doc(db,'chars',charId,'images','main'), payload, { merge:true });
+
 
   showToast('아바타 업로드 완료 (KV/CDN)');
   return { thumb_url: upT.url, main_url: upM.url };
