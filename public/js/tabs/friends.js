@@ -76,7 +76,6 @@ async function onSearch(){
   list.textContent='검색 중...';
   try{
     const arr=await searchUsersByNickname(q);
-    // 상태를 비동기로 보강(대기중 요청)
     const pendingMap = Object.create(null);
     await Promise.all(arr.map(async u=>{
       pendingMap[u.uid] = await hasPendingBetween(u.uid);
@@ -155,7 +154,6 @@ async function refreshFriends(){
   try{
     const pairs=await listFriends();
     FRIEND_SET = new Set(pairs.map(p=>p.uid)); // 동기화
-    // 각 친구 프로필 로딩
     const users = await Promise.all(pairs.map(async p=>{
       const d=await fx.getDoc(fx.doc(db,'users', p.uid));
       return { uid:p.uid, ...(d.exists()?d.data():{}) };
@@ -217,7 +215,8 @@ async function openFriendWin(uid, nickname, avatarURL){
 }
 
 function renderCharCard(c){
-  const img = c?.imageURL || c?.avatarURL || '';
+  // KV/CDN 썸네일 우선
+  const img = c?.thumb_url || c?.image_b64 || c?.image_url || '';
   const name = c?.name || '(이름없음)';
   const region = c?.region || c?.area || '-';
   const tier = c?.tier || c?.rank || '-';
