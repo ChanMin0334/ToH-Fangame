@@ -1,5 +1,9 @@
 // /public/js/tabs/create.js
-// 생성 폼: 개수/쿨타임/BYOK 검사 → AI 호출 → (전처리) → Firestore 직접 저장
+// 생성 화면: (개수≤4 / 쿨다운 30초 / BYOK 확인) → AI 호출 → Firestore 저장
+// - 설정 입력 1000자 제한(입력단+제출단 이중 가드)
+// - 세계관 세로 카드 목록 + 선택 시 상단에 1:1 미리보기/설명
+// - "생성" 버튼을 눌러 실제 생성 시작할 때부터 쿨다운 가동
+
 import { auth, db, fx } from '../api/firebase.js';
 import { fetchWorlds, getMyCharCount } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
@@ -8,256 +12,246 @@ import { getByok, genCharacterFlash2 } from '../api/ai.js';
 const LS_KEY_CREATE_LAST_AT = 'charCreateLastAt';
 const MAX_CHAR_COUNT = 4;
 const CREATE_COOLDOWN_SEC = 30;
-const PROMPT_DOC_ID = 'char_create';
 const DEBUG = !!localStorage.getItem('toh_debug_ai');
 
-function phImg(w=160){ return `<div style="width:${w}px;aspect-ratio:1/1;background:#0e0f12;border-radius:12px;display:block"></div>`; }
+/* ============== DOM 유틸 ============== */
 function el(tag, attrs={}, inner=''){
   const d = document.createElement(tag);
-  for(const k in attrs){
-    if(k==='className') d.className = attrs[k];
-    else if(k==='style') d.style.cssText = attrs[k];
-    else if(k.startsWith('on') && typeof attrs[k]==='function') d.addEventListener(k.slice(2), attrs[k]);
-    else d.setAttribute(k, attrs[k]);
-  }
-  if(typeof inner==='string') d.innerHTML = inner; else if(inner instanceof Node) d.appendChild(inner);
+  Object.entries(attrs||{}).forEach(([k,v])=>{
+    if(k==='class') d.className = v;
+    else if(k.startsWith('on') && typeof v==='function') d[k]=v;
+    else d.setAttribute(k, v);
+  });
+  if(inner!==undefined) d.innerHTML = inner;
   return d;
 }
-function resolveWorldImg(img){
-  if(!img) return null;
-  if(/^https?:\/\//.test(img)) return img;
-  if(img.startsWith('/')) return img;
-  return `/assets/${img}`;
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+function nowSec(){ return Math.floor(Date.now()/1000); }
+function leftCooldown(){
+  const last = parseInt(localStorage.getItem(LS_KEY_CREATE_LAST_AT)||'0',10);
+  const left = CREATE_COOLDOWN_SEC - (nowSec() - last);
+  return Math.max(0, left);
 }
-function stripUndefined(x){
-  if(Array.isArray(x)) return x.map(stripUndefined);
-  if(x && typeof x==='object'){
-    const y={};
-    for(const k of Object.keys(x)){
-      const v = x[k];
-      if(v === undefined) continue;
-      y[k] = stripUndefined(v);
-    }
-    return y;
-  }
-  return x;
-}
-function debugBox(){ return document.getElementById('aiDebug'); }
-function debugPrint(t){
-  if(!DEBUG) return;
-  const b = debugBox(); if(!b) return;
-  b.textContent += `[${new Date().toLocaleTimeString()}] ${t}\n`;
-}
+function startCooldown(){ localStorage.setItem(LS_KEY_CREATE_LAST_AT, String(nowSec())); }
+function debugPrint(t){ if(DEBUG) console.log('[create]', t); }
 
-// Firestore 직접 저장
+/* ============== 저장(파이어스토어) ============== */
 async function saveCharDirect(payload){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
-  const docRef = await fx.addDoc(fx.collection(db,'chars'), { owner_uid: u.uid, ...payload });
+  const docRef = await fx.addDoc(fx.collection(db,'chars'), {
+    owner_uid: u.uid,
+    createdAt: fx.serverTimestamp ? fx.serverTimestamp() : Date.now(),
+    updatedAt: fx.serverTimestamp ? fx.serverTimestamp() : Date.now(),
+    ...payload,
+  });
   return { id: docRef.id };
 }
 
-// 제목 생성: AI가 title을 주지 않으므로 안전 파생
-function deriveTitle(name, worldName, out){
-  const s = String(out?.narrative_short||'').trim();
-  if(s) return s.slice(0, 40);
-  return `${name} — ${worldName}`.slice(0, 40);
+/* ============== AI → 저장 페이로드 구성 ============== */
+function makeId(prefix='n'){
+  return prefix + Math.random().toString(36).slice(2,10);
 }
-
-// AI 출력 → chars 문서 전처리
-function buildCharPayloadFromAi(out, world, name, desc){
-  const safe = (s, n) => String(s ?? '').slice(0, n);
-
-  // 스킬
-  const skills = Array.isArray(out?.skills) ? out.skills : [];
-  const abilities = skills.slice(0, 4).map(s => ({
-    name:      safe(s?.name,   24),
-    desc_soft: safe(s?.effect, 160)
-  }));
-  while(abilities.length < 4) abilities.push({ name:'', desc_soft:'' });
-
-  // 서사(다중 확장 고려: narratives 배열 + latest id)
-  const nid = 'n' + Date.now();
-  const narrative = {
-    id: nid,
-    title: safe(deriveTitle(name, world?.name||world?.id||'world', out), 60),
-    long:  safe(out?.narrative_long, 2000),
-    short: safe(out?.narrative_short, 200),
-    encounters: [], // 추후 업데이트용
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+// name/world/desc는 원본 입력
+function buildCharPayloadFromAi(aiOut, world, name, desc){
+  const n0 = (Array.isArray(aiOut.narratives) && aiOut.narratives[0]) ? aiOut.narratives[0] : {
+    title: '초기 서사',
+    long:  aiOut.narrative_long || '-',
+    short: aiOut.narrative_short || '',
   };
+  const nid  = makeId('n');
+  const now  = Date.now();
 
-  const payload = {
-    world_id: world?.id || world?.name || 'world',
-    name: safe(name, 20),
+  const abilities = Array.isArray(aiOut.skills) ? aiOut.skills.map(s=>({
+    name: String(s?.name||'스킬').slice(0,24),
+    desc_soft: String(s?.effect||'-').slice(0,160),
+  })) : [];
 
-    // 소개 + 서사(새 구조)
-    summary: safe(out?.intro, 600),
-    narratives: [ narrative ],
+  // 1000자 이중 가드
+  const desc1000 = String(desc||'').slice(0, 1000);
+
+  return {
+    name: String(name||'(이름 없음)').slice(0, 40),
+    world_id: world?.id || (world?.name || 'default'),
+    summary: aiOut.intro || '',
+    elo: 1000,
+    exp: 0,
+    thumb_url: '', // 업로더가 채울 수 있음
+    image_url: '',
+
+    // 새 구조
+    narratives: [{
+      id: nid,
+      title: n0.title || '초기 서사',
+      long:  n0.long  || '-',
+      short: n0.short || '',
+      encounters: [],
+      createdAt: now,
+      updatedAt: now,
+    }],
     narrative_latest_id: nid,
 
     // 스킬
     abilities_all: abilities,
-    abilities_equipped: [0,1],
-    items_equipped: [],
 
-    // 썸네일(없으면 빈 값 유지)
-    image_url: '',
-
-    // 전투/탐험/경험치(기본값)
-    elo: 1000,
-    likes_weekly: 0,
-    likes_total: 0,
-    exp: 0, // 추가됨
-
-    // 입력 정보 기록
+    // 입력 메모(디버깅/추후 프롬프트 재생성용)
     input_info: {
-      name: safe(name, 20),
-      desc: safe(desc, 1000),
-      world_name: safe(world?.name || world?.id || 'world', 40)
+      world_id: world?.id || '',
+      user_input: desc1000,
+      name: String(name||''),
     },
-
-    createdAt: Date.now()
   };
-
-  return stripUndefined(payload);
 }
 
-export async function showCreate(){
+/* ============== 메인 렌더러 ============== */
+export default async function showCreate(){
   const root = document.getElementById('view');
+  if(!root) return;
+
+  root.innerHTML = `
+  <section class="container narrow">
+    <div class="card" style="padding:16px">
+      <div style="font-size:18px;font-weight:900">새 캐릭터 만들기</div>
+      <div id="createBody" style="margin-top:12px"></div>
+    </div>
+  </section>`;
+
   const u = auth.currentUser;
   if(!u){
-    root.innerHTML = `<section class="container narrow"><p>로그인해야 캐릭터를 만들 수 있어.</p></section>`;
-    return;
-  }
-
-  // 개수 제한
-  const cnt = await getMyCharCount();
-  if(cnt >= MAX_CHAR_COUNT){
-    root.innerHTML = `<section class="container narrow"><p>캐릭터는 최대 ${MAX_CHAR_COUNT}개까지 만들 수 있어.</p></section>`;
+    document.getElementById('createBody').innerHTML = `<div class="text-dim">로그인이 필요해.</div>`;
     return;
   }
 
   // 세계관 로드
-  const cfg = await fetchWorlds();
-  const worlds = (cfg && cfg.worlds) ? cfg.worlds : [];
-
-  root.innerHTML = `
-    <section class="container narrow">
-      <h2>새 캐릭터 만들기</h2>
-      <div id="worldsCol" style="display:flex; flex-direction:column; gap:12px; margin-top:12px;"></div>
-      <div id="createArea" style="margin-top:18px;"></div>
-      ${DEBUG ? `<div id="aiDebug" class="card p12 mt12" style="white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace"></div>` : ''}
-    </section>
-  `;
-
-  const col = document.getElementById('worldsCol');
-  if(worlds.length === 0){
-    col.innerHTML = `<div class="card p12">세계관 정보가 로드되지 않았어. /assets/worlds.json을 확인해줘.</div>`;
+  let worlds = [];
+  try{
+    worlds = await fetchWorlds(); // [{id,name,summary,detail,image}]
+  }catch(e){
+    document.getElementById('createBody').innerHTML = `<div class="text-dim">세계관을 불러오지 못했어.</div>`;
     return;
   }
 
-  // 목록
-  worlds.forEach(w=>{
-    const src = resolveWorldImg(w.img);
-    const card = el('div',{className:'card p12 clickable'}, `
-      <div style="display:flex; gap:12px; align-items:center;">
-        <div style="width:80px;flex-shrink:0">
-          ${src ? `<img src="${src}" alt="${w.name}" style="width:80px;aspect-ratio:1/1;border-radius:10px;object-fit:cover;display:block">` : phImg(80)}
+  // UI 구성
+  const body = document.getElementById('createBody');
+  body.innerHTML = `
+    <div id="worldSelect" style="display:grid; grid-template-columns:1fr; gap:10px; align-items:start;">
+      <div id="worldPreview" class="kv-card" style="padding:12px;display:none"></div>
+      <div class="kv-label">세계관 선택</div>
+      <div id="worldList" style="display:grid; gap:8px;"></div>
+    </div>
+    <div style="margin-top:12px;display:grid;gap:8px">
+      <label>이름 <input id="charName" type="text" maxlength="40" placeholder="이름(최대 40자)" class="inp"/></label>
+      <label>설정(최대 1000자)
+        <textarea id="charDesc" rows="6" maxlength="1000" placeholder="캐릭터 설정을 적어줘 (최대 1000자)"></textarea>
+        <div id="descCount" class="text-dim" style="font-size:12px;text-align:right">0 / 1000</div>
+      </label>
+      <div style="display:flex; gap:8px; align-items:center; justify-content:space-between">
+        <div class="text-dim" style="font-size:12px">
+          최대 ${MAX_CHAR_COUNT}개 • 쿨다운 ${CREATE_COOLDOWN_SEC}초 • BYOK 필요
         </div>
-        <div style="flex:1">
-          <div style="font-weight:800;font-size:16px;margin-bottom:6px">${w.name}</div>
-          <div style="color:var(--dim);font-size:13px">${w.intro||''}</div>
+        <button id="btnCreate" class="btn">생성</button>
+      </div>
+      <div id="helpers" class="text-dim" style="font-size:12px"></div>
+      <pre id="aiDebug" style="display:${DEBUG?'block':'none'};background:#0e1116;border:1px solid #273247;border-radius:12px;padding:8px;white-space:pre-wrap;max-height:180px;overflow:auto"></pre>
+    </div>
+  `;
+
+  /* 세계관 목록(세로) + 선택 시 상단에 1:1 프리뷰 */
+  const listBox = document.getElementById('worldList');
+  const prevBox = document.getElementById('worldPreview');
+  let selected = null;
+
+  listBox.innerHTML = worlds.map(w=>`
+    <button class="kv-card" data-id="${esc(w.id)}" style="text-align:left;cursor:pointer">
+      <div style="display:flex;gap:10px;align-items:center">
+        <div style="width:64px;aspect-ratio:1/1;border-radius:10px;overflow:hidden;border:1px solid #273247;background:#0b0f15">
+          ${w.image ? `<img src="${esc(w.image)}" style="width:100%;height:100%;object-fit:cover">` : ''}
+        </div>
+        <div>
+          <div style="font-weight:800">${esc(w.name||w.id||'세계관')}</div>
+          <div class="text-dim" style="font-size:12px">${esc((w.summary||'').slice(0,80))}</div>
         </div>
       </div>
-    `);
-    card.onclick = ()=> selectWorld(w);
-    col.appendChild(card);
+    </button>
+  `).join('');
+
+  listBox.querySelectorAll('[data-id]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.getAttribute('data-id');
+      selected = worlds.find(x=>String(x.id)===String(id));
+      if(!selected) return;
+      prevBox.style.display = 'block';
+      prevBox.innerHTML = `
+        <div style="display:grid;gap:8px">
+          <div style="width:100%;max-width:640px;margin:0 auto;aspect-ratio:1/1;border-radius:14px;overflow:hidden;border:2px solid #87b6ff;box-shadow:0 0 0 6px #69a1ff55">
+            ${selected.image ? `<img src="${esc(selected.image)}" style="width:100%;height:100%;object-fit:cover">` : ''}
+          </div>
+          <div style="font-size:16px;font-weight:900">${esc(selected.name||selected.id||'세계관')}</div>
+          <div class="text-dim">${esc(selected.detail||selected.summary||'-')}</div>
+        </div>
+      `;
+    });
   });
 
-  function selectWorld(w){
-    const area = document.getElementById('createArea');
-    const src = resolveWorldImg(w.img);
-    const loreLong = w?.detail?.lore_long
-      ? `<div style="color:var(--dim); text-align:left; max-width:720px; font-size:13px; white-space:pre-line;">${w.detail.lore_long}</div>`
-      : '';
+  /* 입력 카운터(1000자) */
+  const descEl = document.getElementById('charDesc');
+  const cntEl  = document.getElementById('descCount');
+  descEl.addEventListener('input', ()=>{
+    const v = descEl.value||'';
+    if(v.length>1000) descEl.value = v.slice(0,1000);
+    cntEl.textContent = `${descEl.value.length} / 1000`;
+  });
 
-    area.innerHTML = `
-      <div class="card p16" id="selWorld">
-        <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
-          ${src ? `<img id="selWorldImg" src="${src}" alt="${w.name}" style="width:min(380px, 100%); aspect-ratio:1/1; object-fit:cover; border-radius:14px; display:block;">` : phImg(380)}
-          <div style="font-weight:900;font-size:18px">${w.name}</div>
-          <div style="color:var(--dim); text-align:center; max-width:720px;">${w.intro||''}</div>
-          <div style="color:var(--dim); text-align:left; max-width:720px; font-size:13px;">${(w.detail && w.detail.lore) ? w.detail.lore : ''}</div>
-          ${loreLong}
-          <div class="text-dim" style="font-size:12px">이 카드를 다시 클릭하면 세계관 정보 탭으로 이동(더미)</div>
-        </div>
+  /* 생성 버튼 */
+  const btn = document.getElementById('btnCreate');
+  btn.onclick = async ()=>{
+    try{
+      // 1) 쿨다운/개수/BYOK/입력 검증
+      const cool = leftCooldown();
+      if(cool>0) return showToast(`잠시만! ${cool}초 후에 다시 시도해줘`);
+      const me = auth.currentUser; if(!me) return showToast('로그인이 필요해');
+      const myCount = await getMyCharCount(me.uid);
+      if(myCount >= MAX_CHAR_COUNT) return showToast(`캐릭터는 최대 ${MAX_CHAR_COUNT}개까지야`);
+      if(!selected) return showToast('세계관을 먼저 골라줘');
+      const name = (document.getElementById('charName').value||'').trim();
+      if(!name) return showToast('이름을 입력해줘');
+      const desc = (descEl.value||'').trim();
+      if(!desc) return showToast('설정을 입력해줘');
+      if(desc.length>1000) return showToast('설정은 1000자까지만 가능해');
+      if(!getByok()) return showToast('설정 > API 키(BYOK)를 먼저 저장해줘');
 
-        <hr style="margin:14px 0; border:none; border-top:1px solid rgba(255,255,255,.06)">
-
-        <form id="charForm" style="display:flex; flex-direction:column; gap:10px;">
-          <label>이름 (≤20자)</label>
-          <input id="charName" class="input" placeholder="이름" maxlength="20" />
-          <label>설명 (≤1000자)</label>
-          <textarea id="charDesc" class="input" rows="8" placeholder="캐릭터 소개/설정 (최대 1000자)"></textarea>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <button id="btnCreate" class="btn primary">생성</button>
-            <div id="createHint" style="color:var(--dim); font-size:13px;">API 키/BYOK 필요. 생성 시작 시 쿨타임이 걸려.</div>
-          </div>
-        </form>
-      </div>
-    `;
-
-    area.querySelector('#selWorld').onclick = (e)=>{
-      const isInsideForm = e.target.closest?.('#charForm');
-      if(isInsideForm) return;
-      location.hash = `#/world/${w.id || w.name || 'default'}`;
-    };
-
-    document.getElementById('charForm').onsubmit = async (ev)=>{
-      ev.preventDefault();
-
-      const countNow = await getMyCharCount();
-      if(countNow >= MAX_CHAR_COUNT){ showToast(`캐릭터는 최대 ${MAX_CHAR_COUNT}개야`); return; }
-
-      const last = +(localStorage.getItem(LS_KEY_CREATE_LAST_AT) || 0);
-      const remain = Math.max(0, CREATE_COOLDOWN_SEC*1000 - (Date.now() - last));
-      if(remain>0){ showToast(`쿨타임 남아있어`); return; }
-
-      const key = getByok();
-      if(!key){ showToast('Gemini API Key(BYOK)를 내정보에서 넣어줘'); return; }
-
-      const name = document.getElementById('charName').value.trim();
-      const desc = document.getElementById('charDesc').value.trim();
-      if(!name){ showToast('이름을 입력해줘'); return; }
-      if(name.length > 20){ showToast('이름은 20자 이하'); return; }
-      if(desc.length > 1000){ showToast('설명은 1000자 이하'); return; }
-
-      localStorage.setItem(LS_KEY_CREATE_LAST_AT, Date.now().toString());
-      const btn = document.getElementById('btnCreate');
+      // 2) 여기서부터 "실제 생성 시작" → 쿨다운 가동
+      startCooldown();
       btn.disabled = true;
+      btn.textContent = '생성 중…';
 
-      try{
-        const out = await genCharacterFlash2({ promptId: PROMPT_DOC_ID, world: w, name, desc });
-        const payload = buildCharPayloadFromAi(out, w, name, desc);
-        if(DEBUG){
-          const box = debugBox();
-          if(box){
-            box.textContent = 'AI out:\n' + JSON.stringify(out, null, 2) + '\n\nPayload:\n' + JSON.stringify(payload, null, 2);
-          }
-        }
-        const res = await saveCharDirect(payload);
-        showToast('캐릭터 생성 완료!');
-        location.hash = `#/char/${res.id}`;
-      }catch(e){
-        console.error('[create] error', e);
-        showToast('생성에 실패했어: ' + (e?.message || e?.code || 'unknown'));
-      }finally{
-        btn.disabled = false;
-      }
-    };
+      // 3) 프롬프트 로딩/AI 호출
+      const userInput = `이름: ${name}\n설정:\n${desc}`;
+      const injectionGuard = ''; // configs/prompts/char_create_system에서 {{inject}} 사용
+      const aiOut = await genCharacterFlash2({
+        world: {
+          id: selected.id,
+          name: selected.name,
+          summary: selected.summary,
+          detail: selected.detail,
+          rawJson: selected,
+        },
+        userInput,
+        injectionGuard,
+      });
 
-    setTimeout(()=> document.getElementById('charName')?.focus(), 50);
-  }
+      // 4) Firestore 저장 페이로드 구성 + 저장
+      const payload = buildCharPayloadFromAi(aiOut, selected, name, desc);
+      const res = await saveCharDirect(payload);
+
+      showToast('캐릭터 생성 완료!');
+      location.hash = `#/char/${res.id}`;
+    }catch(e){
+      console.error('[create] error', e);
+      showToast('생성에 실패했어: ' + (e?.message || e?.code || 'unknown'));
+    }finally{
+      btn.disabled = false;
+      btn.textContent = '생성';
+    }
+  };
 }
