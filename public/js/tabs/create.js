@@ -35,6 +35,38 @@ function leftCooldown(){
 function startCooldown(){ localStorage.setItem(LS_KEY_CREATE_LAST_AT, String(nowSec())); }
 function debugPrint(t){ if(DEBUG) console.log('[create]', t); }
 
+// --- 세계관 데이터 정규화: 무엇을 받아도 Array<{id,name,summary,detail,image}>로 ---
+function canonWorld(w, idx){
+  const id = String(w?.id ?? w?.key ?? idx ?? '');
+  return {
+    id,
+    name:    w?.name ?? w?.title ?? id || '세계관',
+    summary: w?.summary ?? w?.desc ?? '',
+    detail:  w?.detail ?? w?.description ?? w?.summary ?? '',
+    image:   w?.image ?? w?.img ?? w?.thumbnail ?? ''
+  };
+}
+function normalizeWorlds(data){
+  // Firestore DocumentSnapshot 같은 경우
+  if (data && typeof data.data === 'function') {
+    const obj = data.data() || {};
+    return normalizeWorlds(obj.worlds ?? obj.list ?? obj.items ?? obj);
+  }
+  // 이미 배열이면
+  if (Array.isArray(data)) return data.map(canonWorld);
+  // {worlds:[...]} / {list:[...]} / {items:[...]} 형태
+  if (data && typeof data === 'object') {
+    if (Array.isArray(data.worlds)) return data.worlds.map(canonWorld);
+    if (Array.isArray(data.list))   return data.list.map(canonWorld);
+    if (Array.isArray(data.items))  return data.items.map(canonWorld);
+    // 키:값 객체를 값 배열로 변환
+    return Object.values(data).map(canonWorld);
+  }
+  // 그 외는 빈 배열
+  return [];
+}
+
+
 /* ============== 저장(파이어스토어) ============== */
 async function saveCharDirect(payload){
   const u = auth.currentUser;
@@ -125,11 +157,14 @@ async function showCreate(){
   // 세계관 로드
   let worlds = [];
   try{
-    worlds = await fetchWorlds(); // [{id,name,summary,detail,image}]
+    const raw = await fetchWorlds();           // 무엇이 오든…
+    worlds = normalizeWorlds(raw);             // …항상 배열로 맞춘다
+    if (!Array.isArray(worlds)) worlds = normalizeWorlds(worlds);
   }catch(e){
     document.getElementById('createBody').innerHTML = `<div class="text-dim">세계관을 불러오지 못했어.</div>`;
     return;
   }
+
 
   // UI 구성
   const body = document.getElementById('createBody');
@@ -161,7 +196,8 @@ async function showCreate(){
   const prevBox = document.getElementById('worldPreview');
   let selected = null;
 
-  listBox.innerHTML = worlds.map(w=>`
+  listBox.innerHTML = worlds.length
+  ? worlds.map(w=>`
     <button class="kv-card" data-id="${esc(w.id)}" style="text-align:left;cursor:pointer">
       <div style="display:flex;gap:10px;align-items:center">
         <div style="width:64px;aspect-ratio:1/1;border-radius:10px;overflow:hidden;border:1px solid #273247;background:#0b0f15">
@@ -173,7 +209,9 @@ async function showCreate(){
         </div>
       </div>
     </button>
-  `).join('');
+  `).join('')
+  : `<div class="text-dim">등록된 세계관이 없어.</div>`;
+
 
   listBox.querySelectorAll('[data-id]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
