@@ -1,8 +1,18 @@
 // /public/js/api/user.js
 import { db, auth, fx, storage, sx } from './firebase.js';
 
-export function getLocalGeminiKey(){ return localStorage.getItem('toh_gemini_key') || ''; }
-export function setLocalGeminiKey(k){ localStorage.setItem('toh_gemini_key', (k||'').trim()); }
+// BYOK 키 저장 위치 통일 (ai.js의 'toh_byok'와도 동기화)
+export function getLocalGeminiKey(){
+  return localStorage.getItem('toh_gemini_key')
+      || localStorage.getItem('toh_byok')
+      || '';
+}
+export function setLocalGeminiKey(k){
+  const v = (k||'').trim();
+  localStorage.setItem('toh_gemini_key', v);
+  localStorage.setItem('toh_byok', v); // ai.js 호환
+}
+
 export const ONE_WEEK_MS = 7*24*60*60*1000;
 
 function userRef(uid){ return fx.doc(db,'users', uid); }
@@ -127,3 +137,17 @@ dataUrl = await toDataUrl(q);
 await fx.setDoc(userRef(u.uid), { avatar_b64: dataUrl, updatedAt: Date.now() }, { merge:true });
 return dataUrl;
 }
+
+// 구글 계정 프로필 이미지로 복원 (덮어쓰기 방지: avatar_b64 비움)
+export async function restoreAvatarFromGoogle(){
+  const u = auth.currentUser;
+  if(!u) throw new Error('로그인이 필요해');
+  const url = u.photoURL || '';
+  await fx.setDoc(userRef(u.uid), {
+    avatarURL: url,
+    avatar_b64: '',       // b64가 우선 표시되지 않도록 비워둠
+    updatedAt: Date.now()
+  }, { merge:true });
+  return url;
+}
+
