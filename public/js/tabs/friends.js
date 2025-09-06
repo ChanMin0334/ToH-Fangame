@@ -197,30 +197,66 @@ async function refreshOutgoing(){
 }
 
 async function refreshFriends(){
-  const box=document.getElementById('friends'); box.textContent='불러오는 중...';
+  const box = document.getElementById('friends');
+  box.textContent = '불러오는 중...';
+
   try{
-    const pairs=await listFriends();
+    const pairs = await listFriends();
     FRIEND_SET = new Set(pairs.map(p=>p.uid)); // 동기화
+
     const users = await Promise.all(pairs.map(async p=>{
-      const d=await fx.getDoc(fx.doc(db,'users', p.uid));
-      return { uid:p.uid, ...(d.exists()?d.data():{}) };
+      const d = await fx.getDoc(fx.doc(db,'users', p.uid));
+      return { uid:p.uid, ...(d.exists()? d.data() : {}) };
     }));
+
     box.innerHTML = users.map(u=>`
       <div class="fr-card">
         <div class="fr-info">
           <div class="fr-uid">UID #${u.uid.slice(0,12)}</div>
           <div class="fr-name"><b>${escapeHtml(u.nickname||'(이름없음)')}</b></div>
           <div class="fr-actions">
-            <button data-uid="${u.uid}" data-nick="${escapeHtml(u.nickname||'(이름없음)')}" data-ava="${u.avatarURL||''}" class="btnOpen">열기</button>
+            <button data-uid="${u.uid}" data-nick="${escapeHtml(u.nickname||'(이름없음)')}"
+                    data-ava="${u.avatarURL||''}" class="btnOpen">열기</button>
             <button data-uid="${u.uid}" class="btnUnf">삭제</button>
           </div>
-
         </div>
         <div class="fr-photo"><img src="${u.avatarURL||''}" alt=""/></div>
       </div>
     `).join('') || '<div class="text-dim">없음</div>';
 
+    // (중요) 리스트는 매번 리렌더되니까, 위임 핸들러를 한 번만 설치
+    if(!box.dataset.bound){
+      box.dataset.bound = '1';
+      box.addEventListener('click', async (e)=>{
+        const delBtn = e.target.closest('.btnUnf');
+        if(delBtn){
+          if(!confirm('정말 삭제할까?')) return;
+          try{
+            delBtn.disabled = true;
+            await unfriend(delBtn.dataset.uid);
+            FRIEND_SET.delete(delBtn.dataset.uid);
+            showToast('삭제했어');
+            await refreshFriends(); // 필요하면 refreshAll()로 교체 가능
+          }catch(err){
+            showToast('삭제 실패: ' + (err?.message || err));
+          }finally{
+            delBtn.disabled = false;
+          }
+          return;
+        }
+
+        const openBtn = e.target.closest('.btnOpen');
+        if(openBtn){
+          openFriendWin(openBtn.dataset.uid, openBtn.dataset.nick, openBtn.dataset.ava);
+        }
+      });
+    }
+
+  }catch(e){
+    box.textContent = '오류';
+  }
 }
+
 
 function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
 
