@@ -44,19 +44,32 @@ export async function uploadAvatarSquare(charId, file){
   // 최신 토큰
   const idToken = await u.getIdToken(true);
 
-  // 3) 업로드(thumb)
-  const upT = await fetch(`${KV_WORKER}/upload?kind=thumb&charId=${encodeURIComponent(charId)}`,{
-    method:'POST', headers:{'Authorization':`Bearer ${idToken}`,'Content-Type':'image/webp'},
-    body: await tB.arrayBuffer()
-  }).then(r=>r.json());
-  if(!upT?.ok) throw new Error('thumb upload fail');
+  // 썸네일 업로드 (교체본)
+const resT = await fetch(`${KV_WORKER}/upload?kind=thumb&charId=${encodeURIComponent(charId)}`, {
+  method: 'POST',
+  headers: { 'Authorization': `Bearer ${await u.getIdToken(true)}`, 'Content-Type': 'image/webp' },
+  body: await tB.arrayBuffer()
+});
+let upT; try { upT = await resT.clone().json(); } catch {}
+if (!resT.ok || !upT?.ok) {
+  const text = await resT.text();
+  console.error('[thumb upload error]', resT.status, text);
+  throw new Error(`thumb upload fail: ${resT.status} ${text}`);
+}
 
-  // 4) 업로드(main)
-  const upM = await fetch(`${KV_WORKER}/upload?kind=main&charId=${encodeURIComponent(charId)}`,{
-    method:'POST', headers:{'Authorization':`Bearer ${idToken}`,'Content-Type':'image/webp'},
-    body: await mB.arrayBuffer()
-  }).then(r=>r.json());
-  if(!upM?.ok) throw new Error('main upload fail');
+// 원본 업로드 (교체본)
+const resM = await fetch(`${KV_WORKER}/upload?kind=main&charId=${encodeURIComponent(charId)}`, {
+  method: 'POST',
+  headers: { 'Authorization': `Bearer ${await u.getIdToken(true)}`, 'Content-Type': 'image/webp' },
+  body: await mB.arrayBuffer()
+});
+let upM; try { upM = await resM.clone().json(); } catch {}
+if (!resM.ok || !upM?.ok) {
+  const text = await resM.text();
+  console.error('[main upload error]', resM.status, text);
+  throw new Error(`main upload fail: ${resM.status} ${text}`);
+}
+
 
   // 5) Firestore에 URL 저장 (문서 작게 유지)
   await fx.updateDoc(fx.doc(db,'chars',charId), { thumb_url: upT.url, updatedAt: Date.now() });
