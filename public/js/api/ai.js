@@ -36,6 +36,14 @@ export function setByok(k){
   localStorage.setItem('toh_gemini_key', v);
 }
 
+// 최대 토큰 수(로컬에서 쉽게 조절)
+// 예) 콘솔에서 localStorage.setItem('toh_ai_max_tokens','3000')
+function getMaxTokens(){
+  const v = parseInt(localStorage.getItem('toh_ai_max_tokens') || '', 10);
+  return Number.isFinite(v) && v > 0 ? v : 3000; // 기본 3000
+}
+
+
 // ===== 유틸 =====
 function sanitizeJsonLike(text){
   if(!text) return '';
@@ -85,14 +93,21 @@ async function callGeminiOnce(model, systemText, userText, temperature=0.85){
   const url = `${GEM_ENDPOINT}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
   const body = {
     contents: [{ role:'user', parts:[{ text: `# SYSTEM\n${systemText}\n\n# INPUT\n${userText}` }]}],
-    generationConfig: { temperature, maxOutputTokens: 1400 },
+    generationConfig: {
+      temperature,
+      maxOutputTokens: getMaxTokens()  // ★ 여기서 토큰 크게
+    },
+    // systemInstruction 지원 모델에서 우선 적용(본문에도 중복 포함해 호환성 확보)
     systemInstruction: { role:'system', parts:[{ text: systemText }] }
   };
 
-  group(`fetch ${model}`, ()=>{
-    dbg('url', url);
-    dbg('system.len', systemText.length, 'user.len', userText.length);
-  });
+  if(DEBUG){
+    console.groupCollapsed('[AI] fetch', model);
+    console.log('url', url);
+    console.log('maxOutputTokens', getMaxTokens());
+    console.log('system.len', systemText.length, 'user.len', userText.length);
+    console.groupEnd();
+  }
 
   console.time('[AI] call');
   const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
@@ -100,19 +115,20 @@ async function callGeminiOnce(model, systemText, userText, temperature=0.85){
   console.timeEnd('[AI] call');
 
   if(!res.ok){
-    dbg('HTTP error', res.status, raw.slice(0, 400));
+    if(DEBUG) console.log('HTTP error', res.status, raw.slice(0, 400));
     throw new Error(`Gemini 실패 ${res.status}: ${raw}`);
   }
   try{
     const json = JSON.parse(raw);
     const out = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    dbg('ok raw.len', out.length);
+    if(DEBUG) console.log('[AI] ok raw.len', out.length);
     return sanitizeJsonLike(out);
   }catch(_){
-    dbg('fallback raw.len', raw.length);
+    if(DEBUG) console.log('[AI] fallback raw.len', raw.length);
     return sanitizeJsonLike(raw);
   }
 }
+
 async function callGemini(modelPrefer, systemText, userText, temperature){
   try{
     return await callGeminiOnce(modelPrefer, systemText, userText, temperature);
@@ -213,7 +229,7 @@ ${userTextPart}`;
   const parsed = tryParseJson(raw);
   if(DEBUG){
     window.__ai_debug.raw_len = raw.length;
-    window.__ai_debug.raw_head = raw.slice(0, 400);
+    window.__ai_debug.raw_head = raw.slice(0, 3500);
     window.__ai_debug.parsed_ok = !!parsed;
     dbg('raw.head', window.__ai_debug.raw_head);
   }
