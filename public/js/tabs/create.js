@@ -1,5 +1,4 @@
 // /public/js/tabs/create.js
-// 생성 폼: 개수/쿨타임/BYOK 검사 → AI 호출 → (전처리 + undefined 제거) → Firestore 저장
 import { auth, db, fx } from '../api/firebase.js';
 import { fetchWorlds, getMyCharCount, createCharMinimal } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
@@ -9,10 +8,9 @@ const LS_KEY_CREATE_LAST_AT = 'charCreateLastAt';
 const MAX_CHAR_COUNT = 4;
 const CREATE_COOLDOWN_SEC = 30;
 const PROMPT_DOC_ID = 'char_create';
+const DEBUG = !!localStorage.getItem('toh_debug_ai');
 
-// ---------- 유틸 ----------
 function phImg(w=160){ return `<div style="width:${w}px;aspect-ratio:1/1;background:#0e0f12;border-radius:12px;display:block"></div>`; }
-
 function el(tag, attrs={}, inner=''){
   const d = document.createElement(tag);
   for(const k in attrs){
@@ -24,20 +22,12 @@ function el(tag, attrs={}, inner=''){
   if(typeof inner==='string') d.innerHTML = inner; else if(inner instanceof Node) d.appendChild(inner);
   return d;
 }
-
-// (이미지 404 방지) worlds.json의 img 값이
-//   - "elysium.jpg"        → "/assets/elysium.jpg"
-//   - "worlds/gionkir.jpg" → "/assets/worlds/gionkir.jpg"
-//   - "/assets/ahnoria.png" 그대로
-//   - "https://..."         그대로
 function resolveWorldImg(img){
   if(!img) return null;
   if(/^https?:\/\//.test(img)) return img;
-  if(img.startsWith('/')) return img;        // 절대경로면 그대로
-  return `/assets/${img}`;                   // 상대경로면 /assets 접두사
+  if(img.startsWith('/')) return img;
+  return `/assets/${img}`;
 }
-
-// (undefined 저장 방지) 객체의 undefined 값을 전부 제거
 function stripUndefined(x){
   if(Array.isArray(x)) return x.map(stripUndefined);
   if(x && typeof x==='object'){
@@ -51,18 +41,10 @@ function stripUndefined(x){
   }
   return x;
 }
+async function tryCreateChar(payload){ return await createCharMinimal(payload); }
 
-// ---------- 저장 경로(Functions CORS 회피: Firestore 직접 저장) ----------
-async function tryCreateChar(payload){
-  // Cloud Functions(HTTP) 는 CORS 때문에 막혀서 호출 안 함.
-  // 바로 Firestore 저장기로 간다.
-  return await createCharMinimal(payload);
-}
-
-// ---------- AI 출력 → chars 문서 전처리 ----------
 function buildCharPayloadFromAi(out, world, name, desc){
   const safe = (s, n) => String(s ?? '').slice(0, n);
-
   const skills = Array.isArray(out?.skills) ? out.skills : [];
   const abilities = skills.slice(0, 4).map(s => ({
     name:      safe(s?.name,   24),
@@ -73,38 +55,21 @@ function buildCharPayloadFromAi(out, world, name, desc){
   const payload = {
     world_id: world?.id || world?.name || 'world',
     name: safe(name, 20),
-
-    // 소개/서사
     summary: safe(out?.intro, 600),
     narrative_items: [
       { title: '긴 서사',  body: safe(out?.narrative_long,  2000) },
       { title: '짧은 서사', body: safe(out?.narrative_short, 200) }
     ],
-
-    // 스킬
     abilities_all: abilities,
     abilities_equipped: [0,1],
     items_equipped: [],
-
-    // 기본값들
-    elo: 1000,
-    likes_weekly: 0,
-    likes_total: 0,
-
-    // (에러 방지) 입력 정보 기록: undefined 금지
-    input_info: {
-      name: safe(name, 20),
-      desc: safe(desc, 500),
-      world_name: safe(world?.name || world?.id || 'world', 40)
-    },
-
+    elo: 1000, likes_weekly: 0, likes_total: 0,
+    input_info: { name: safe(name,20), desc: safe(desc,500), world_name: safe(world?.name||world?.id||'world',40) },
     createdAt: Date.now()
   };
-
   return stripUndefined(payload);
 }
 
-// ---------- 메인 ----------
 export async function showCreate(){
   const root = document.getElementById('view');
   const u = auth.currentUser;
@@ -113,25 +78,30 @@ export async function showCreate(){
     return;
   }
 
-  // 개수 제한(서버 기준)
   const cnt = await getMyCharCount();
   if(cnt >= MAX_CHAR_COUNT){
     root.innerHTML = `<section class="container narrow"><p>캐릭터는 최대 ${MAX_CHAR_COUNT}개까지 만들 수 있어.</p></section>`;
     return;
   }
 
-  // 세계관 로드
   const cfg = await fetchWorlds();
   const worlds = (cfg && cfg.worlds) ? cfg.worlds : [];
 
-  // 초기 렌더
   root.innerHTML = `
     <section class="container narrow">
       <h2>새 캐릭터 만들기</h2>
       <div id="worldsCol" style="display:flex; flex-direction:column; gap:12px; margin-top:12px;"></div>
       <div id="createArea" style="margin-top:18px;"></div>
+      ${DEBUG ? `<div id="aiDebug" class="card p12 mt12" style="white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace"></div>` : ''}
     </section>
   `;
+
+  const debugBox = document.getElementById('aiDebug');
+  function debugPrint(text){
+    if(!DEBUG || !debugBox) return;
+    const now = new Date().toLocaleTimeString();
+    debugBox.textContent += `[${now}] ${text}\n`;
+  }
 
   const col = document.getElementById('worldsCol');
   if(worlds.length === 0){
@@ -139,7 +109,6 @@ export async function showCreate(){
     return;
   }
 
-  // 세계관 목록(세로)
   worlds.forEach(w=>{
     const src = resolveWorldImg(w.img);
     const card = el('div',{className:'card p12 clickable'}, `
@@ -190,67 +159,62 @@ export async function showCreate(){
       </div>
     `;
 
-    // 다시 클릭 시 세계관 정보 탭으로(더미 이동)
     area.querySelector('#selWorld').onclick = (e)=>{
       const isInsideForm = e.target.closest?.('#charForm');
       if(isInsideForm) return;
       location.hash = `#/world/${w.id || w.name || 'default'}`;
     };
 
-    // ---------- 생성 핸들러 ----------
     document.getElementById('charForm').onsubmit = async (ev)=>{
       ev.preventDefault();
 
-      // 1) 개수 제한
       const countNow = await getMyCharCount();
       if(countNow >= MAX_CHAR_COUNT){ showToast(`캐릭터는 최대 ${MAX_CHAR_COUNT}개야`); return; }
 
-      // 2) 쿨타임
       const last = +(localStorage.getItem(LS_KEY_CREATE_LAST_AT) || 0);
       const remain = Math.max(0, CREATE_COOLDOWN_SEC*1000 - (Date.now() - last));
       if(remain>0){ showToast(`쿨타임 남아있어`); return; }
 
-      // 3) BYOK
       const key = getByok();
       if(!key){ showToast('Gemini API Key(BYOK)를 내정보에서 넣어줘'); return; }
 
-      // 4) 입력값
       const name = document.getElementById('charName').value.trim();
       const desc = document.getElementById('charDesc').value.trim();
       if(!name){ showToast('이름을 입력해줘'); return; }
       if(name.length > 20){ showToast('이름은 20자 이하'); return; }
       if(desc.length > 500){ showToast('설명은 500자 이하'); return; }
 
-      // 5) 타이머 시작(생성 "시작" 시점) + 버튼 잠금
       localStorage.setItem(LS_KEY_CREATE_LAST_AT, Date.now().toString());
       const btn = document.getElementById('btnCreate');
       btn.disabled = true;
 
       try{
-        // 6) AI 호출 → 표준 스키마 획득
-        const out = await genCharacterFlash2({
-          promptId: PROMPT_DOC_ID,
-          world: w,
-          name,
-          desc
-        });
+        debugPrint('AI 호출 시작…');
+        const out = await genCharacterFlash2({ promptId: PROMPT_DOC_ID, world: w, name, desc });
+        debugPrint('AI 호출 완료');
+        if(DEBUG){
+          const info = window.__ai_debug || {};
+          debugPrint('raw.len='+(info.raw_len||0)+', parsed='+info.parsed_ok);
+          debugPrint('out=' + JSON.stringify(out, null, 2).slice(0, 1200) + (JSON.stringify(out).length>1200?'…':''));
+        }
 
-        // 7) 전처리(매핑) + undefined 제거 → 저장 페이로드
         const payload = buildCharPayloadFromAi(out, w, name, desc);
+        if(DEBUG){
+          debugPrint('payload=' + JSON.stringify(payload, null, 2).slice(0, 1200) + (JSON.stringify(payload).length>1200?'…':''));
+        }
 
-        // 8) 저장 (Functions CORS 회피: Firestore 직접)
         const res = await tryCreateChar(payload);
         showToast('캐릭터 생성 완료!');
         location.hash = `#/char/${res.id || res}`;
       }catch(e){
         console.error('[create] error', e);
+        debugPrint('에러: ' + (e?.message || e?.code || e));
         showToast('생성에 실패했어: ' + (e?.message || e?.code || 'unknown'));
       }finally{
         btn.disabled = false;
       }
     };
 
-    // UX: 이름 포커스
     setTimeout(()=> document.getElementById('charName')?.focus(), 50);
   }
 }
