@@ -1,6 +1,7 @@
 // /public/js/tabs/me.js
 import { loadUserProfile, updateNickname, leftMsForNicknameChange,
-         getLocalGeminiKey, setLocalGeminiKey, uploadAvatarBlob } from '../api/user.js';
+         getLocalGeminiKey, setLocalGeminiKey, uploadAvatarBlob, restoreAvatarFromGoogle } from '../api/user.js';
+
 import { showToast } from '../ui/toast.js';
 
 export function showMe(){
@@ -17,7 +18,9 @@ export function showMe(){
             </div>
             <div class="row mt8">
               <button id="btnAvatarChange">이미지 변경</button>
+              <button id="btnAvatarReset" class="ghost">구글 프로필로 복원</button>
             </div>
+
             <input id="fileAvatar" type="file" accept="image/*" style="display:none"/>
           </div>
 
@@ -37,6 +40,11 @@ export function showMe(){
                 <button id="btnGemToggle">표시</button>
                 <button id="btnGemClear">삭제</button>
               </div>
+              <div class="text-dim mt4">
+                이 키는 이 기기의 <code>localStorage["toh_gemini_key"]</code>와
+                <code>localStorage["toh_byok"]</code>에만 저장돼. 서버로 전송하지 않아.
+              </div>
+
               <small class="text-dim">* 서버로 전송하지 않고 이 기기의 로컬에만 저장돼.</small>
             </div>
           </div>
@@ -66,13 +74,14 @@ async function boot(){
   try{
     const me = await loadUserProfile();
     const img = document.getElementById('meAvatar');
-    img.src = me.avatarURL || '';
+    img.src = me.avatar_b64 || me.avatarURL || '';
     document.getElementById('nickInput').value = me.nickname||'';
     renderNickHint(me);
 
     // Avatar
     document.getElementById('btnAvatarChange').onclick = ()=> document.getElementById('fileAvatar').click();
     document.getElementById('fileAvatar').onchange = onPickAvatar;
+    document.getElementById('btnAvatarReset').onclick = onResetAvatar;
 
     // Nickname
     document.getElementById('btnNickSave').onclick = async ()=>{
@@ -105,6 +114,18 @@ function renderNickHint(profile){
   const h = Math.floor(left/3600000), m = Math.floor((left%3600000)/60000);
   hint.textContent = `다음 변경까지 약 ${h}시간 ${m}분`;
 }
+
+// 아바타를 구글 프로필로 복원
+async function onResetAvatar(){
+  try{
+    const url = await restoreAvatarFromGoogle();
+    document.getElementById('meAvatar').src = url || '';
+    showToast('구글 프로필 이미지로 복원했어');
+  }catch(e){
+    showToast('복원 실패: ' + (e?.message || e));
+  }
+}
+
 
 // === Avatar Cropper ===
 let cropCtx, rawImg=null, scale=1, offset={x:0,y:0}, dragging=false, last={x:0,y:0};
