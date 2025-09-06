@@ -104,7 +104,7 @@ function buildCharPayloadFromAi(aiOut, world, name, desc){
 }
 
 /* ============== 메인 렌더러 ============== */
-export default async function showCreate(){
+async function showCreate(){
   const root = document.getElementById('view');
   if(!root) return;
 
@@ -255,3 +255,6 @@ export default async function showCreate(){
     }
   };
 }
+
+export { showCreate };
+export default showCreate;
