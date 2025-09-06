@@ -24,14 +24,28 @@ function tabs(){
 }
 
 function rankCard(c, i){
-  const open=()=> location.hash = `#/char/${c.id}`;
-  const thumb = (c.image_b64 || c.image_url)
-    ? el('img',{className:'rank-thumb', src:c.image_url, alt:c.name})
-    : el('div',{className:'rank-thumb'});
+  const open = () => location.hash = `#/char/${c.id}`;
+
+  // ✅ KV/CDN 전환 대응: thumb_url 최우선, 없으면 b64, 마지막에 기존 url
+  const imgSrc = c.thumb_url || c.image_b64 || c.image_url || '';
+
+  // onerror 시 빈 틀로 교체(깨진 링크 대비)
+  const thumb = imgSrc
+    ? (() => {
+        const img = el('img', { className: 'rank-thumb', src: imgSrc, alt: c.name || '' });
+        img.onerror = () => {
+          const ph = el('div', { className: 'rank-thumb noimg' });
+          img.replaceWith(ph);
+        };
+        return img;
+      })()
+    : el('div', { className: 'rank-thumb' });
+
   const stat = (State.tab==='weekly') ? (c.likes_weekly||0)
             : (State.tab==='total')  ? (c.likes_total||0)
             : (c.elo||0);
   const statLabel = (State.tab==='elo') ? 'Elo' : '❤';
+
   return el('div',{className:'rank-card', onclick:open, style:'cursor:pointer'},
     el('div',{className:'rank-no'}, `#${i+1}`),
     thumb,
