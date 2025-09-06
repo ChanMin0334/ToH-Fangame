@@ -37,15 +37,19 @@ function debugPrint(t){ if(DEBUG) console.log('[create]', t); }
 
 // --- 세계관 데이터 정규화: 무엇을 받아도 Array<{id,name,summary,detail,image}>로 ---
 function canonWorld(w, idx){
-  const id = String(w?.id ?? w?.key ?? idx ?? '');
+  var id = String(
+    (w && (w.id !== undefined && w.id !== null ? w.id :
+           (w.key !== undefined && w.key !== null ? w.key : idx))) || ''
+  );
   return {
-    id,
-    name:    w?.name ?? w?.title ?? id || '세계관',
-    summary: w?.summary ?? w?.desc ?? '',
-    detail:  w?.detail ?? w?.description ?? w?.summary ?? '',
-    image:   w?.image ?? w?.img ?? w?.thumbnail ?? ''
+    id: id,
+    name:    (w && (w.name || w.title)) ? (w.name || w.title) : (id || '세계관'),
+    summary: (w && (w.summary || w.desc)) ? (w.summary || w.desc) : '',
+    detail:  (w && (w.detail || w.description || w.summary)) ? (w.detail || w.description || w.summary) : '',
+    image:   (w && (w.image || w.img || w.thumbnail)) ? (w.image || w.img || w.thumbnail) : ''
   };
 }
+
 function normalizeWorlds(data){
   // Firestore DocumentSnapshot 같은 경우
   if (data && typeof data.data === 'function') {
