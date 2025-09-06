@@ -81,35 +81,48 @@ async function onSearch(){
       pendingMap[u.uid] = await hasPendingBetween(u.uid);
     }));
 
+    const limitReached = FRIEND_SET.size >= 10;
+
     list.innerHTML = arr.map(u=>{
-      const isFriend = FRIEND_SET.has(u.uid);
+      const isFriend  = FRIEND_SET.has(u.uid);
       const isPending = !!pendingMap[u.uid];
-      const disabled = isFriend || isPending;
-      const tip = isFriend ? '이미 친구야' : isPending ? '대기중 요청 있음' : '요청 보내기';
+      const disabled  = isFriend || isPending || limitReached;
+      const btnLabel  = isFriend ? '이미 친구' : (isPending ? '대기중' : (limitReached ? '가득 참' : '추가'));
       return `
         <div class="row between item">
-          <div class="left text-dim">UID <b>${u.uid.slice(0,12)}</b></div>
-          <div class="row gap8 right">
-            <button data-uid="${u.uid}" class="btnAdd" ${disabled?'disabled':''} title="${tip}">요청</button>
-            <div class="person btnOpen" data-uid="${u.uid}" data-nick="${escapeHtml(u.nickname||'')}" data-ava="${u.avatarURL||''}" title="프로필/캐릭터 보기">
-              <div class="avatar avatar-sm"><img src="${u.avatarURL||''}" alt=""/></div>
-              <div class="nick">${escapeHtml(u.nickname||'(이름없음)')}</div>
-            </div>
+          <div class="person btnOpen" data-uid="${u.uid}" data-nick="${escapeHtml(u.nickname||'')}" data-ava="${u.avatarURL||''}" title="프로필/캐릭터 보기">
+            <div class="avatar avatar-sm"><img src="${u.avatarURL||''}" alt=""/></div>
+            <div class="nick">${escapeHtml(u.nickname||'(이름없음)')}</div>
+          </div>
+          <div class="row gap8">
+            <button class="btnAdd" data-uid="${u.uid}" ${disabled?'disabled':''}>${btnLabel}</button>
+            <button class="btnOpen" data-uid="${u.uid}" data-nick="${escapeHtml(u.nickname||'')}" data-ava="${u.avatarURL||''}">열기</button>
           </div>
         </div>`;
     }).join('') || '<div class="text-dim">결과 없음</div>';
 
     list.querySelectorAll('.btnAdd').forEach(b=>{
       b.onclick=async ()=>{
-        try{ await sendFriendRequest(b.dataset.uid); showToast('요청 보냈어'); FRIEND_SET.add(b.dataset.uid); await refreshAll(); await onSearch(); }
-        catch(e){ showToast(e.message||'실패'); }
+        if(FRIEND_SET.size >= 10){ showToast('친구는 최대 10명이야'); return; }
+        if(FRIEND_SET.has(b.dataset.uid)){ showToast('이미 친구야'); return; }
+        try{
+          await sendFriendRequest(b.dataset.uid);
+          showToast('요청 보냈어');
+          FRIEND_SET.add(b.dataset.uid);
+          await refreshAll();
+          await onSearch();
+        }catch(e){ showToast(e.message||'실패'); }
       };
     });
     list.querySelectorAll('.btnOpen').forEach(b=>{
       b.onclick=()=> openFriendWin(b.dataset.uid, b.dataset.nick, b.dataset.ava);
     });
-  }catch(e){ showToast('검색 실패'); list.textContent=''; }
+  }catch(e){
+    showToast('검색 실패');
+    list.textContent='';
+  }
 }
+
 
 async function refreshAll(){
   await Promise.all([refreshIncoming(), refreshOutgoing(), refreshFriends()]);
@@ -129,7 +142,15 @@ async function refreshIncoming(){
       </div>`).join('') || '<div class="text-dim">없음</div>';
 
     box.querySelectorAll('.btnAccept').forEach(b=>{
-      b.onclick=async ()=>{ try{ await acceptRequest(b.dataset.id, b.dataset.from); showToast('수락했어'); FRIEND_SET.add(b.dataset.from); await refreshAll(); }catch(e){ showToast('실패'); } };
+      b.onclick = async ()=>{
+        if(FRIEND_SET.size >= 10){ showToast('친구는 최대 10명이야'); return; }
+        try{
+          await acceptRequest(b.dataset.id, b.dataset.from);
+          FRIEND_SET.add(b.dataset.from);
+          showToast('수락했어');
+          await refreshAll();
+        }catch(e){ showToast('실패'); }
+      };
     });
     box.querySelectorAll('.btnDecline').forEach(b=>{
       b.onclick=async ()=>{ try{ await declineRequest(b.dataset.id); showToast('거절했어'); await refreshAll(); }catch(e){ showToast('실패'); } };
@@ -159,16 +180,19 @@ async function refreshFriends(){
       return { uid:p.uid, ...(d.exists()?d.data():{}) };
     }));
     box.innerHTML = users.map(u=>`
-      <div class="row between item">
-        <div class="left text-dim">UID <b>${u.uid.slice(0,12)}</b></div>
-        <div class="row gap8 right">
-          <button data-uid="${u.uid}" class="btnUnf">삭제</button>
-          <div class="person btnOpen" data-uid="${u.uid}" data-nick="${escapeHtml(u.nickname||'')}" data-ava="${u.avatarURL||''}" title="프로필/캐릭터 보기">
-            <div class="avatar avatar-sm"><img src="${u.avatarURL||''}" alt=""/></div>
-            <div class="nick">${escapeHtml(u.nickname||'(이름없음)')}</div>
+      <div class="fr-card">
+        <div class="fr-info">
+          <div class="fr-uid">UID #${u.uid.slice(0,12)}</div>
+          <div class="fr-name"><b>${escapeHtml(u.nickname||'(이름없음)')}</b></div>
+          <div class="fr-actions">
+            <button data-uid="${u.uid}" class="btnOpen">열기</button>
+            <button data-uid="${u.uid}" class="btnUnf">삭제</button>
           </div>
         </div>
-      </div>`).join('') || '<div class="text-dim">없음</div>';
+        <div class="fr-photo"><img src="${u.avatarURL||''}" alt=""/></div>
+      </div>
+    `).join('') || '<div class="text-dim">없음</div>';
+
 
     box.querySelectorAll('.btnUnf').forEach(b=>{
       b.onclick=async ()=>{ try{ await unfriend(b.dataset.uid); showToast('삭제했어'); FRIEND_SET.delete(b.dataset.uid); await refreshAll(); }catch(e){ showToast('실패'); } };
@@ -207,6 +231,13 @@ async function openFriendWin(uid, nickname, avatarURL){
         ${list.map(c=>renderCharCard(c)).join('')}
       </div>`
     ) : '<div class="text-dim">이 친구가 만든 캐릭터가 아직 없네</div>';
+    // (추가) 캐릭터 카드 클릭 시 모달 닫고 상세로 이동
+    if(list.length){
+      body.querySelectorAll('.char-card.link').forEach(a=>{
+        a.addEventListener('click', ()=> closeFriendWin());
+      });
+    }
+
   }catch(e){
     body.innerHTML = '<div class="text-dim">불러오기 실패</div>';
   }
@@ -215,7 +246,6 @@ async function openFriendWin(uid, nickname, avatarURL){
 }
 
 function renderCharCard(c){
-  // KV/CDN 썸네일 우선
   const img = c?.thumb_url || c?.image_b64 || c?.image_url || '';
   const name = c?.name || '(이름없음)';
   const region = c?.region || c?.area || '-';
@@ -224,12 +254,12 @@ function renderCharCard(c){
   const w = c?.wins ?? 0, l=c?.losses ?? 0;
   const likesW = c?.likes_weekly ?? 0, likesT = c?.likes_total ?? 0;
   return `
-    <div class="char-card">
+    <a class="char-card link" href="#/char/${c.id}">
       <div class="thumb">${ img ? `<img src="${img}" alt=""/>` : '<div class="ph"></div>' }</div>
       <div class="meta">
         <div class="row between"><b>${escapeHtml(name)}</b><span class="badge">${escapeHtml(String(tier))}</span></div>
         <div class="muted">${escapeHtml(region)} · Elo ${elo}</div>
         <div class="muted">전적 ${w}W-${l}L · 좋아요 ${likesW}/${likesT}</div>
       </div>
-    </div>`;
+    </a>`;
 }
