@@ -91,29 +91,35 @@ function fillVars(tpl, vars){
 }
 
 /* ================= Gemini 호출 ================= */
+// [교체] callGemini: BYOK 폐지 → 서버 프록시만 사용
 async function callGemini(model, systemText, userText, temperature=0.85){
-  const key = getByok();
-  if(!key) throw new Error('BYOK(구글 API 키)가 설정되지 않았어');
-
-  const url = `${GEM_ENDPOINT}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-  const body = {
-    contents: [{ role:'user', parts:[{ text: userText }] }],
-    systemInstruction: { parts: [{ text: systemText }] },
-    generationConfig: {
-      temperature,
-      maxOutputTokens: getMaxTokens(),
-    },
-    safetySettings: [],
+  const payload = {
+    model,
+    systemText,
+    userText,
+    temperature,
+    maxOutputTokens: getMaxTokens(),
   };
-  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+
+  // 프록시 엔드포인트(서버에만 키가 있음)
+  const proxyUrl = '/api/ai/generate';
+  const res = await fetch(proxyUrl, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+
   if(!res.ok){
-    const text = await res.text().catch(()=> '');
-    throw new Error(`Gemini 실패: ${res.status} ${text}`);
+    const txt = await res.text().catch(()=> '');
+    throw new Error(`AI 프록시 실패: ${res.status} ${txt}`);
   }
-  const j = await res.json();
-  const text = j?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return text;
+
+  const j = await res.json().catch(()=>null);
+  const outText = j?.text ?? '';
+  if(!outText) throw new Error('AI 프록시 응답이 비어 있어');
+  return outText;
 }
+
 
 /* =============== 출력 표준화(새/구 호환) =============== */
 // 입력(parsed)은 새 포맷을 기대: { intro, narratives:[{title,long,short}], skills }
