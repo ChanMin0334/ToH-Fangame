@@ -6,6 +6,7 @@ import { auth, db, fx, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
 
+// ---------- utils ----------
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c])); }
 function truncate(s, n){ s=String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
 function ensureSpinCss(){
@@ -29,9 +30,6 @@ function intentGuard(mode){
 }
 
 // --- 내 로드아웃(스킬/아이템) 표시 + 스킬 2개 선택 저장 ---
-function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c])); }
-function truncate(s, n){ s=String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
-
 async function renderLoadoutForMatch(charId, myChar){
   const box = document.getElementById('loadoutArea');
   if(!box) return;
@@ -83,22 +81,22 @@ async function renderLoadoutForMatch(charId, myChar){
         let on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
         if(on.length > 2){
           inp.checked = false;
-          return window.showToast?.('스킬은 정확히 2개만 선택 가능해');
+          return showToast('스킬은 정확히 2개만 선택 가능해');
         }
         equipped = on;
         try{
           await fx.updateDoc(fx.doc(db,'chars', charId), { abilities_equipped: on });
-          window.showToast?.('스킬 선택 저장 완료');
+          showToast('스킬 선택 저장 완료');
         }catch(e){
           console.error('[encounter] abilities_equipped update fail', e);
-          window.showToast?.('저장 실패');
+          showToast('저장 실패');
         }
       });
     });
   }
 }
 
-
+// ---------- entry ----------
 export async function showEncounter(){
   ensureSpinCss();
   const intent = intentGuard('encounter');
@@ -125,6 +123,11 @@ export async function showEncounter(){
       <div id="matchArea" class="kv-card" style="display:flex;gap:10px;align-items:center;min-height:72px">
         <div class="spin"></div><div>상대를 찾는 중…</div>
       </div>
+    </div>
+
+    <div class="card p16 mt12" id="loadoutPanel">
+      <div class="kv-label">내 스킬 / 아이템</div>
+      <div id="loadoutArea"></div>
     </div>
 
     <div class="card p16 mt16" id="toolPanel">
@@ -169,6 +172,16 @@ export async function showEncounter(){
     back.querySelector('#mClose').onclick = ()=> back.remove();
     document.body.appendChild(back);
   };
+
+  // 내 캐릭터 불러와서 로드아웃 렌더
+  let myChar = {};
+  try{
+    const meSnap = await fx.getDoc(fx.doc(db,'chars', (intent?.charId||'').replace(/^chars\//,'')));
+    if(meSnap.exists()) myChar = meSnap.data();
+  }catch(e){
+    console.error('[encounter] my char load fail', e);
+  }
+  renderLoadoutForMatch(intent.charId, myChar);
 
   // 자동 매칭 시작
   let matchToken = null;
