@@ -2,8 +2,7 @@
 // 들어오자마자 자동 매칭 → 상단에 상대 카드(이름/intro 요약/스킬 라벨) → 하단에 '배틀 시작'
 // 내 캐릭터 카드는 표시하지 않음. '가방 열기'는 모달(더미 데이터).
 
-import { auth, db, fx, func } from '../api/firebase.js';
-import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+import { auth, db, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
 // 제일 위 import 들 아래에 추가
 import { autoMatch } from '../api/match_client.js';
@@ -53,12 +52,8 @@ function getCooldownRemainMs(){
 function applyGlobalCooldown(seconds){
   const until = Date.now() + (seconds*1000);
   localStorage.setItem('toh.cooldown.allUntilMs', String(until));
-  // 서버 함수는 선택(없어도 동작). 있어도 실패 무시.
-  try{
-    const call = httpsCallable(func, 'setGlobalCooldown');
-    call({ seconds }).catch(()=>{});
-  }catch(_){}
 }
+
 function mountCooldownOnButton(btn, labelReady){
   const tick = ()=>{
     const r = getCooldownRemainMs();
@@ -254,25 +249,16 @@ const persisted = loadMatchLock('battle', intent.charId);
 if (persisted) {
   data = { ok:true, token: persisted.token||null, opponent: persisted.opponent };
 } else {
-  // (b) 서버 onCall 시도 → 실패 시 기존 autoMatch 폴백
-  try{
-    const call = httpsCallable(func, 'requestMatch');
-    ({ data } = await call({ charId: intent.charId, mode: 'battle' }));
-  }catch(_e){
-    data = null;
-  }
-  if(!data?.ok){
-    data = await autoMatch({ db, fx, charId: intent.charId, mode: 'battle' });
-  }
+   // (b) 서버 함수 없이 → 클라 임시 매칭만 사용
+  data = await autoMatch({ db, fx, charId: intent.charId, mode: 'battle' });
   if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
 
-  // (c) 이번에 잡은 매칭을 세션 락에 저장(3분 TTL)
+  // (c) 세션 락 저장(3분 TTL)
   saveMatchLock('battle', intent.charId, {
     token: data.token || null,
-    opponent: data.opponent,
-    // 서버가 expiresAt 주면 우선 사용(없으면 주석 라인처럼 기본 3분)
-    // expiresAt: data.expiresAt || (Date.now() + 3*60*1000)
+    opponent: data.opponent
   });
+
 }
 
 
@@ -307,20 +293,12 @@ if (persisted) {
     btnStart.disabled = false;
     mountCooldownOnButton(btnStart, '배틀 시작');
     btnStart.onclick = async ()=>{
-      try{
-        const callCD = httpsCallable(func, 'setGlobalCooldown');
-        await callCD({ seconds: 60 }); // 서버가 쿨타임 고정(연장만)
-      }catch(e){
-        showToast('쿨타임 설정에 실패했어. 잠시 후 다시 시도해줘');
-        return; // 서버가 못 박으면 진행 금지
-      }
+  if (getCooldownRemainMs()>0) return showToast('전역 쿨타임 중이야!');
+  applyGlobalCooldown(60); // 배틀 시작 시 1분 전역 쿨타임(로컬)
+  showToast('배틀 로직은 다음 패치에서 이어서 할게!');
+  // TODO: import('../api/ai.js').then(({startBattleWithToken})=> startBattleWithToken({ token: matchToken }));
+};
 
-      if (getCooldownRemainMs()>0) return showToast('전역 쿨타임 중이야!');
-      applyGlobalCooldown(60); // 배틀 시작 시 1분 전역 쿨타임
- 
-      showToast('배틀 로직은 다음 패치에서 이어서 할게!');
-      // TODO: import('../api/ai.js').then(({startBattleWithToken})=> startBattleWithToken({ token: matchToken }));
-    };
 
   }catch(e){
     console.error('[battle] match error', e);
