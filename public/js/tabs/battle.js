@@ -6,7 +6,7 @@ import { auth, db, fx, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
 // 제일 위 import 들 아래에 추가
-import { autoMatch, cleanupExpired } from '../api/match_client.js';
+import { autoMatch } from '../api/match_client.js';
 
 
 // ---------- utils ----------
