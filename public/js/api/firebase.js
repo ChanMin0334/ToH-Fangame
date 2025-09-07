@@ -49,6 +49,7 @@ export const fx = {
   doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
   collection, query, where, orderBy, limit, serverTimestamp
 };
+export { serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 
 
 export const sx = { ref: sRef, uploadBytes, getDownloadURL };
