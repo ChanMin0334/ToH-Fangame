@@ -107,6 +107,32 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────
+    // Battle Logs
+    // ─────────────────────────────
+    match /battle_logs/{logId} {
+      allow read: if true;
+
+      // 생성은 공격자(생성자)만
+      allow create: if isSignedIn()
+       && request.resource.data.attacker_char.matches('^chars/[^/]+$')
+        && request.resource.data.defender_char.matches('^chars/[^/]+$')
+        && request.resource.data.createdBy == request.auth.uid;
+
+      // 업데이트는 금지(관계 마킹 등은 별도 필드/함수로 처리 시 허용 가능)
+      allow update, delete: if false;
+
+      // 서브: actions/relation 마킹 (선택용)
+      match /actions/{actId} {
+        allow create: if isSignedIn()
+          && get(/databases/$(database)/documents/battle_logs/$(logId)).data.createdBy == request.auth.uid
+          && request.time < get(/databases/$(database)/documents/battle_logs/$(logId)).data.relation_deadline;
+        allow read: if true;
+        allow update, delete: if false;
+      }
+    }
+
+
+    // ─────────────────────────────
     // Relation Daily Episodes  (하루 1개: docId=YYYY-MM-DD)
     // ─────────────────────────────
     match /relation_daily/{relId}/episodes/{date} {
