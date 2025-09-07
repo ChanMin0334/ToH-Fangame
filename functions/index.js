@@ -18,6 +18,164 @@ exports.onBattleLogCreate = functions.firestore
 // === requestMatch: 캐릭터 기준 매칭 락 생성(배틀/조우 공용) ===
 // 입력: { charId: string, mode: 'battle'|'encounter' }
 exports.matchRequest = onCall({
+  // v1 안정판: CORS 문제 회피용 콜러블 (로직 동일)
+exports.matchRequestV1 = functions.region('us-central1').https.onCall(async (data, ctx) => {
+  try {
+    const uid = ctx.auth?.uid;
+    if(!uid) throw new functions.https.HttpsError('unauthenticated','로그인이 필요해');
+
+    const mode = (data?.mode==='encounter') ? 'encounter' : 'battle';
+    const charId = String(data?.charId||'');
+    if(!charId) throw new functions.https.HttpsError('invalid-argument','charId 필요');
+
+    const dbx = admin.firestore();
+    const now = admin.firestore.Timestamp.now();
+
+    // 전역 쿨타임(1분)
+    const userRef = dbx.doc(`users/${uid}`);
+    const userSnap = await userRef.get();
+    const cooldownUntil = userSnap.exists ? userSnap.get('cooldown_all_until') : null;
+    if (cooldownUntil && cooldownUntil.toMillis() > Date.now()) {
+      return { ok:false, reason:'cooldown', until: cooldownUntil.toMillis() };
+    }
+
+    const charRef = dbx.doc(`chars/${charId}`);
+    const mySnap = await charRef.get();
+    if(!mySnap.exists) throw new functions.https.HttpsError('failed-precondition','캐릭터 없음');
+
+    const me = mySnap.data()||{};
+    if (me.owner_uid !== uid) throw new functions.https.HttpsError('permission-denied','내 캐릭터만 매칭 요청 가능');
+    if (!Number.isFinite(me.elo)) throw new functions.https.HttpsError('failed-precondition','Elo 없음');
+
+    const field = (mode==='battle') ? 'match_battle' : 'match_encounter';
+    const myLock = me[field] || null;
+
+    const stillValid = (L)=>{
+      if(!L) return false;
+      const exp = L.expiresAt && L.expiresAt.toMillis ? L.expiresAt.toMillis() : 0;
+      return exp > Date.now();
+    };
+    if (stillValid(myLock)) {
+      const oppId = (myLock.opponent_char||'').replace('chars/','');
+      const oppSnap = oppId ? await dbx.doc(`chars/${oppId}`).get() : null;
+      const opp = oppSnap?.exists ? { id: oppSnap.id, ...oppSnap.data() } : null;
+      return {
+        ok:true, reused:true, token: myLock.token, expiresAt: myLock.expiresAt.toMillis(),
+        opponent: opp ? { id: oppSnap.id, name: opp.name||'상대', elo: opp.elo||1000, thumb_url: opp.thumb_url||'' } : null
+      };
+    }
+
+    const myElo = me.elo|0;
+    const limitEach = 10;
+    const isValidChar = (c)=> !!(c && c.owner_uid && c.name && Number.isFinite(c.elo) && c.createdAt);
+
+    const qUp = await dbx.collection('chars')
+      .where('elo','>=', myElo).orderBy('elo','asc').limit(50).get();
+    let up = qUp.docs.map(d=>({ id:d.id, ...d.data() }))
+      .filter(c=> c.id!==charId && c.owner_uid!==uid && isValidChar(c));
+
+    const qDown = await dbx.collection('chars')
+      .where('elo','<=', myElo).orderBy('elo','desc').limit(50).get();
+    let down = qDown.docs.map(d=>({ id:d.id, ...d.data() }))
+      .filter(c=> c.id!==charId && c.owner_uid!==uid && isValidChar(c));
+
+    const dedup = (arr)=> { const seen=new Set(); const out=[]; for (const c of arr) if(!seen.has(c.id)) { seen.add(c.id); out.push(c);} return out; };
+    up = dedup(up); down = dedup(down);
+
+    const byDelta = (a,b)=> Math.abs(a.elo - myElo) - Math.abs(b.elo - myElo);
+    up.sort(byDelta); down.sort(byDelta);
+
+    const cutWithTieRandom = (arr, k)=>{
+      if(arr.length<=k) return arr;
+      const base = arr.slice(0,k);
+      const borderElo = base.length ? base[base.length-1].elo : null;
+      const tie = arr.slice(k).filter(x=> x.elo===borderElo);
+      if (!tie.length) return base;
+      const sameBefore = base.filter(x=> x.elo===borderElo);
+      const need = Math.max(0, k - (base.length - sameBefore.length));
+      const pool = sameBefore.concat(tie);
+      const border = pool.filter(x=> x.elo===borderElo);
+      for(let i=border.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [border[i],border[j]]=[border[j],border[i]]; }
+      const picked = border.slice(0, need);
+      const others = base.filter(x=> x.elo!==borderElo);
+      return others.concat(picked).sort(byDelta);
+    };
+
+    up   = cutWithTieRandom(up, limitEach);
+    down = cutWithTieRandom(down, limitEach);
+
+    let cand = up.concat(down);
+    cand = cand.filter(c=>{
+      const L = c[field];
+      const ok = !(L && L.expiresAt && L.expiresAt.toMillis && L.expiresAt.toMillis()>Date.now());
+      return ok;
+    });
+
+    if(cand.length===0){
+      return { ok:false, reason:'no-candidate' };
+    }
+
+    // 가우시안 가중 주사위
+    const sigma = 220;
+    const weights = cand.map(c => {
+      const e = Math.abs((c.elo|0) - myElo);
+      return Math.exp(- (e*e) / (sigma*sigma));
+    });
+    const sum = weights.reduce((a,b)=> a+b, 0);
+    let pickIdx = 0;
+    if (sum > 0) {
+      let r = Math.random() * sum;
+      for (let i=0; i<weights.length; i++) { r -= weights[i]; if (r <= 0) { pickIdx = i; break; } }
+    } else {
+      pickIdx = cand.reduce((bestIdx, cur, idx) => {
+        const be = Math.abs((cand[bestIdx].elo|0) - myElo);
+        const ce = Math.abs((cur.elo|0) - myElo);
+        return (ce < be) ? idx : bestIdx;
+      }, 0);
+    }
+    const opp = cand[pickIdx];
+
+    const token = `m_${mode}_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+    const expMs = Date.now() + 3*60*1000;
+    const expiresTs = admin.firestore.Timestamp.fromMillis(expMs);
+
+    const oppRef = dbx.doc(`chars/${opp.id}`);
+    await dbx.runTransaction(async (tx)=>{
+      const meDoc  = await tx.get(charRef);
+      const opDoc  = await tx.get(oppRef);
+      const meNow  = meDoc.data()||{};
+      const opNow  = opDoc.data()||{};
+
+      const myL = meNow[field];
+      const opL = opNow[field];
+      if (stillValid(myL)) throw new functions.https.HttpsError('aborted','이미 매칭됨');
+      if (stillValid(opL)) throw new functions.https.HttpsError('aborted','상대가 막 매칭잡힘');
+
+      const payloadMe = { token, mode, opponent_char: `chars/${opp.id}`, opponent_elo: opp.elo, lockedAt: now, expiresAt: expiresTs };
+      const payloadOp = { token, mode, opponent_char: `chars/${charId}`, opponent_elo: myElo, lockedAt: now, expiresAt: expiresTs };
+
+      tx.update(charRef, { [field]: payloadMe });
+      tx.update(oppRef, { [field]: payloadOp });
+      tx.set(userRef, { cooldown_all_until: admin.firestore.Timestamp.fromMillis(Date.now()+60*1000) }, { merge:true });
+      tx.set(dbx.doc(`match_sessions/${token}`), {
+        mode, a: `chars/${charId}`, b: `chars/${opp.id}`, createdAt: now, expiresAt: expiresTs, createdBy: uid
+      });
+    });
+
+    return {
+      ok:true, token, expiresAt: expMs,
+      opponent: { id: opp.id, name: opp.name||'상대', elo: opp.elo||1000, thumb_url: opp.thumb_url||'' }
+    };
+  } catch (err) {
+    functions.logger.error('[matchRequestV1] fail', err);
+    if (err instanceof functions.https.HttpsError) throw err;
+    throw new functions.https.HttpsError('internal', 'match-internal-error', {
+      message: err?.message || String(err)
+    });
+  }
+});
+
+  
 
   region: 'us-central1',
   cors: true
