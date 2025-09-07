@@ -1,9 +1,11 @@
 // /public/js/tabs/create.js
-// 생성 폼: 개수/쿨타임/BYOK 검사 → AI 호출 → (전처리) → Firestore 직접 저장
+// 생성 폼: 개수/쿨타임 검사 → AI 호출(서버 프록시) → (전처리) → Firestore 직접 저장
+
 import { auth, db, fx } from '../api/firebase.js';
 import { fetchWorlds, getMyCharCount } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
-import { getByok, genCharacterFlash2 } from '../api/ai.js';
+import { genCharacterFlash2 } from '../api/ai.js';
+
 
 const LS_KEY_CREATE_LAST_AT = 'charCreateLastAt';
 const MAX_CHAR_COUNT = 4;
@@ -238,7 +240,8 @@ export async function showCreate(){
 
           <div style="display:flex; gap:8px; align-items:center;">
             <button id="btnCreate" class="btn primary">생성</button>
-            <div id="createHint" style="color:var(--dim); font-size:13px;">API 키/BYOK 필요. 생성 시작 시 쿨타임이 걸려.</div>
+            <div id="createHint" style="color:var(--dim); font-size:13px;">AI 호출은 서버에서 처리돼. 생성 시작 시 쿨타임이 걸려.</div>
+
           </div>
         </form>
       </div>
@@ -270,9 +273,6 @@ export async function showCreate(){
       const remain = leftCooldown();
 
       if(remain>0){ showToast(`잠시만! ${remain}초 후에 다시 시도해줘`); return; }
-
-      const key = getByok();
-      if(!key){ showToast('Gemini API Key(BYOK)를 내정보에서 넣어줘'); return; }
 
       const name = document.getElementById('charName').value.trim();
       const descEl = document.getElementById('charDesc');
