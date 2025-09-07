@@ -43,17 +43,35 @@ function getMaxTokens(){
 
 /* ============ 프롬프트 로드 (configs/prompts) ============ */
 async function fetchPromptDoc(id){
-  // 경로: configs/prompts/{id}, 필드: content 또는 text
+  // 경로: configs/prompts (단일 문서), 필드: 문자열 또는 {content|text|value}
   const ref = fx.doc(db,'configs','prompts');
   const snap = await fx.getDoc(ref);
   if(!snap.exists()) throw new Error('프롬프트 저장소(configs/prompts)가 없어');
-  const all = snap.data()||{};
+
+  const all = snap.data() || {};
   const raw = all[id];
-  if(!raw) throw new Error(`프롬프트 ${id} 가 없어`);
-  const content = raw.content ?? raw.text ?? raw.value ?? '';
-  if(!content) throw new Error(`프롬프트 ${id} 내용이 비어 있어`);
+
+  if (raw === undefined || raw === null) {
+    throw new Error(`프롬프트 ${id} 가 없어`);
+  }
+
+  // 문자열/객체 모두 처리
+  let content = '';
+  if (typeof raw === 'string') {
+    content = raw;
+  } else if (typeof raw === 'object') {
+    content = raw.content ?? raw.text ?? raw.value ?? '';
+  } else {
+    content = String(raw ?? '');
+  }
+
+  content = String(content).trim();
+  if(!content){
+    throw new Error(`프롬프트 ${id} 내용이 비어 있어`);
+  }
   return content;
 }
+
 
 async function loadCreatePrompts(){
   const [system, inject] = await Promise.all([
