@@ -70,7 +70,8 @@ export async function showBattle(){
     b.classList.add('active');
     b.dataset.t==='match' ? renderMatchSection(c, viewBody) : renderLoadoutSection(c, viewBody);
   });
-  renderLoadoutSection(c, viewBody);
+  renderMatchSection(c, viewBody);
+
 }
 
 // ====== 스킬/아이템 편집 ======
@@ -132,34 +133,62 @@ function renderLoadoutSection(c, box){
   };
 }
 
-// ====== 매칭 섹션(스텁) ======
+// ====== 매칭 섹션(자동 매칭) ======
 function renderMatchSection(c, box){
   box.innerHTML = `
     <div class="p12">
-      <div class="kv-card">
-        <div class="kv-label">매칭 안내</div>
-        <div class="text-dim" style="white-space:pre-line">
-- URL은 #/battle 고정이며, 캐릭터 ID는 주소에 노출되지 않아요.
-- 이 페이지는 캐릭터 화면에서 들어온 경우에만 작동해요.
-- ‘매칭 시작’을 누르면 Elo가 가까운 상대를 자동으로 찾을 거예요.
-        </div>
+      <div class="kv-card" id="matchCard">
+        <div class="kv-label">자동 매칭</div>
+        <div id="matchStatus" class="text-dim">상대를 찾는 중…</div>
       </div>
+
+      <div id="vsWrap" style="display:none; gap:12px; margin-top:12px;">
+        <div class="card p12" style="flex:1">
+          <div style="font-weight:900;margin-bottom:6px">내 캐릭터</div>
+          <div class="text-dim" style="font-size:13px">${c.name||'(이름 없음)'} · Elo ${c.elo||1000}</div>
+        </div>
+        <div class="card p12" style="flex:1" id="oppCard"></div>
+      </div>
+
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
-        <button id="btnStart" class="btn">매칭 시작</button>
+        <button id="btnStart" class="btn" style="display:none">배틀 시작</button>
       </div>
     </div>
   `;
 
-  box.querySelector('#btnStart').onclick = async ()=>{
-    // 다음 단계에서 /public/js/api/match.js → Cloud Functions 연결
-    const { requestMatch } = await import('../api/match.js');
+  (async ()=>{
     try{
-      const res = await requestMatch(c.id, 'battle');
-      if(!res?.ok) throw new Error('fail');
-      showToast(`상대 찾음: ${res.opponent?.name||'???'} (Elo ${res.opponent?.elo??'-'})`);
+      const { requestMatch } = await import('../api/match.js');
+      const res = await requestMatch(c.id, 'battle'); // 서버 연결 전까지 스텁 사용
+      if(!res?.ok || !res.opponent){ throw new Error('no-opponent'); }
+
+      // 상대 카드 표시
+      const opp = res.opponent;
+      const oppBox = box.querySelector('#oppCard');
+      oppBox.innerHTML = `
+        <div style="font-weight:900;margin-bottom:6px">상대</div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <div style="width:56px;aspect-ratio:1/1;border-radius:8px;overflow:hidden;border:1px solid #273247;background:#0b0f15">
+            ${opp.thumb_url ? `<img src="${opp.thumb_url}" style="width:100%;height:100%;object-fit:cover">` : ''}
+          </div>
+          <div>
+            <div>${opp.name || '???'}</div>
+            <div class="text-dim" style="font-size:13px">Elo ${opp.elo ?? '-'}</div>
+          </div>
+        </div>
+      `;
+      box.querySelector('#matchStatus').textContent = '상대가 정해졌어!';
+      box.querySelector('#vsWrap').style.display = 'flex';
+      const go = box.querySelector('#btnStart');
+      go.style.display = '';
+      go.onclick = ()=> {
+        // TODO: 실제 배틀 시작 로직 연결(다음 단계에서 서버와 연결)
+        showToast('배틀 시작! (다음 패치에서 실제 전투 연결)');
+      };
     }catch(e){
       console.error(e);
-      showToast('지금은 매칭이 어려워. 잠시 후 다시 시도해줘');
+      box.querySelector('#matchStatus').textContent = '지금은 매칭이 어려워. 잠시 후 다시 시도해줘';
     }
-  };
+  })();
 }
+
