@@ -2,7 +2,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js';
 import {
   initializeFirestore,
-  doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
+  doc, getDoc, getDocFromCache, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
   collection, query, where, orderBy, limit, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 
@@ -46,9 +46,10 @@ export const storage = getStorage(app);
 export const func = getFunctions(app, 'us-central1');
 // 편의를 위한 네임스페이스 export (기존 코드 호환)
 export const fx = {
-  doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
+  doc, getDoc, getDocFromCache, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
   collection, query, where, orderBy, limit, serverTimestamp
 };
+
 export { serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 
 
