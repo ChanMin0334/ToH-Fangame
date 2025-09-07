@@ -1,10 +1,12 @@
 // /public/js/api/firebase.js  (정상화: Firebase 초기화 전용)
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js';
 import {
-  initializeFirestore, // ← getFirestore 대신 이걸 씀
+  initializeFirestore,
   doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
-  collection, query, where, orderBy, limit
+  collection, query, where, orderBy, limit, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
+
+
 
 
 
@@ -38,17 +40,18 @@ export const db = initializeFirestore(app, {
   // experimentalForceLongPolling: true
 });
 
-export const func = getFunctions(app, 'us-central1');
 
 export const auth    = getAuth(app);
 export const storage = getStorage(app);
 export const func = getFunctions(app, 'us-central1');
 // 편의를 위한 네임스페이스 export (기존 코드 호환)
-export const fx = { doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit };
+export const fx = {
+  doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
+  collection, query, where, orderBy, limit, serverTimestamp
+};
+
 
 export const sx = { ref: sRef, uploadBytes, getDownloadURL };
-// firebase.js (이미 모듈형 v9을 쓰는 가정)
-export { serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 
 
 
