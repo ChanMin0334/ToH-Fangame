@@ -105,7 +105,10 @@ function render(c){
             ${tier.name || 'Tier'}
           </span>
           <span class="chip">${c.world_id || 'world:default'}</span>
+          <!-- 관계 보기 버튼 -->
+          <button class="chip" id="btnRelations" style="cursor:pointer">관계</button>
         </div>
+
 
                 <!-- EXP bar -->
         <div class="expbar" aria-label="EXP"
@@ -164,6 +167,10 @@ function render(c){
     });
   }
   root.querySelector('#btnLike')?.addEventListener('click', ()=> showToast('좋아요는 다음 패치!'));
+  root.querySelector('#btnRelations')?.addEventListener('click', ()=> {
+    location.hash = `#/relations/${c.id}`;
+  });
+
 
   // 탭
   const bv = root.querySelector('#bookview');
@@ -192,10 +199,11 @@ function mountFixedActions(c, isOwner){
   `;
   document.body.appendChild(bar);
 
-  // TODO: 실제 매칭 로직 연결 예정 — 현재는 가드만 유지
-  bar.querySelector('#fabBattle').onclick = ()=> showToast('배틀 매칭은 다음 패치!');
-  bar.querySelector('#fabEncounter').onclick = ()=> showToast('조우 매칭은 다음 패치!');
+  // 링크 전환 없이 모달로만 열기 (매칭 세션은 다음 단계에서 연결)
+  bar.querySelector('#fabBattle').onclick = ()=> openMatchOverlay(c, 'battle');
+  bar.querySelector('#fabEncounter').onclick = ()=> openMatchOverlay(c, 'encounter');
 }
+
 
 // ---------- views ----------
 function renderBio(c, view){
@@ -499,6 +507,53 @@ function renderHistory(c, view){
     </div>
   `;
 }
+
+// 간단 오버레이 생성/닫기 (매칭 로직은 다음 단계에서 붙임)
+function openMatchOverlay(charData, mode){
+  closeMatchOverlay(); // 중복 방지
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-wrap';
+  wrap.innerHTML = `
+    <div class="modal-dim" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"></div>
+    <div class="modal-card" style="
+      position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+      width:min(660px,calc(100% - 32px));background:#0e1116;border:1px solid #273247;
+      border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.6);padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-weight:900;font-size:18px">
+          ${mode==='battle' ? '배틀 매칭' : '조우 매칭'}
+        </div>
+        <button id="btnCloseOverlay" class="btn ghost">닫기</button>
+      </div>
+
+      <div class="kv-card" style="margin-top:8px">
+        <div class="kv-label">안내</div>
+        <div class="text-dim" style="white-space:pre-line">
+- 이 화면은 링크로 진입할 수 없고, 현재 캐릭터 상세에서만 열려.
+- 자동 매칭은 Elo가 가까울수록 확률이 높아. (알고리즘은 다음 단계에서 연결)
+- 매칭이 한번 잡히면 상대는 바뀌지 않아.
+- 전역 쿨타임 1분은 사용자 정보로 관리돼. (다음 단계에서 서버 가드 연결)
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button id="btnStartMatch" class="btn">매칭 시작</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+
+  wrap.querySelector('#btnCloseOverlay').onclick = closeMatchOverlay;
+  wrap.querySelector('#btnStartMatch').onclick = ()=>{
+    // TODO: api/match.requestMatch(charData.id, mode) 연결
+    showToast('매칭 로직은 다음 패치에서 연결할게!');
+  };
+}
+
+function closeMatchOverlay(){
+  document.querySelector('.modal-wrap')?.remove();
+}
+
 
 // 라우터 호환
 export default showCharDetail;
