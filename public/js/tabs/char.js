@@ -301,6 +301,7 @@ function renderBioSub(which, c, sv){
       location.hash = `#/relations/${c.id}`;
     });
   }
+}  
 
 
 // 스킬/아이템 탭
