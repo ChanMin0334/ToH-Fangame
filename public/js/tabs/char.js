@@ -242,39 +242,34 @@ function renderBioSub(which, c, sv){
       <div class="kv-card" style="white-space:pre-line">${c.summary||'-'}</div>
 
     `;
-    }else if(which==='narr'){
-      const list = normalizeNarratives(c);
-      if(list.length === 0){
-        sv.innerHTML = `<div class="kv-card text-dim">아직 등록된 서사가 없어.</div>`;
-        return;
-      }
-      // createdAt 최신 1개 = 메인, 나머지는 요약 카드
-      list.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-      const [main, ...rest] = list;
-   
-      sv.innerHTML = `
-        <div class="kv-label">메인 서사(최신)</div>
-        <div class="kv-card" id="nMain">
-          <div style="font-weight:900; font-size:18px; margin-bottom:8px">${esc(main.title||'서사')}</div>
-          <div id="nMainLong" style="white-space:pre-wrap"></div>
-        </div>
+  }else if(which==='narr'){
+  // 표준 narratives 우선, 없으면 legacy narrative_items를 긴 본문으로 취급
+  const list = normalizeNarratives(c);
+  if(list.length === 0){
+    sv.innerHTML = `<div class="kv-card text-dim">아직 등록된 서사가 없어.</div>`;
+    return;
+  }
 
-        <div class="kv-label" style="margin-top:12px">과거 서사(요약)</div>
-        <div class="col" style="gap:8px">
-          ${rest.map(n=>`
-            <div class="kv-card">
-              <div style="font-weight:700">${esc(n.title||'서사')}</div>
-              <div class="text-dim" style="margin-top:6px">${esc(n.short||'(요약 없음)')}</div>
-              <div class="row" style="margin-top:8px">
-                <button class="btn small" onclick="location.hash='#/char/${c.id}/narrative/${n.id}'">자세히</button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      `;
-      const nMainLong = document.getElementById('nMainLong');
-      if(nMainLong) nMainLong.innerHTML = renderRich(main.long||'-');
-
+  // 모든 카드 동일 구성: 제목 + 긴 본문 일부(줄임표). short(요약)는 여기서 노출하지 않음.
+  sv.innerHTML = `
+    <div class="kv-label">서사 목록</div>
+    <div class="list">
+      ${list.map(n => `
+        <button class="kv-card" data-nid="${n.id}" style="text-align:left; cursor:pointer">
+          <div style="font-weight:800; margin-bottom:6px">${esc(n.title || '서사')}</div>
+          <div style="
+            color:#9aa5b1;
+            display:-webkit-box;
+            -webkit-line-clamp:2;
+            -webkit-box-orient:vertical;
+            overflow:hidden;
+          ">
+            ${esc((n.long || '').replace(/\s+/g,' ').trim())}
+          </div>
+        </button>
+      `).join('')}
+    </div>
+  `;
 
   // 카드 클릭 → 서사 전용 페이지로 리디렉션
   sv.querySelectorAll('[data-nid]').forEach(btn=>{
