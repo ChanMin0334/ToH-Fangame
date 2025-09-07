@@ -543,10 +543,21 @@ function openMatchOverlay(charData, mode){
   `;
   document.body.appendChild(wrap);
 
-  wrap.querySelector('#btnCloseOverlay').onclick = closeMatchOverlay;
-  wrap.querySelector('#btnStartMatch').onclick = ()=>{
-    // TODO: api/match.requestMatch(charData.id, mode) 연결
-    showToast('매칭 로직은 다음 패치에서 연결할게!');
+  wrap.querySelector('#btnStartMatch').onclick = async ()=>{
+    try{
+      const btn = wrap.querySelector('#btnStartMatch');
+      btn.disabled = true; btn.textContent = '매칭 중…';
+      const { requestMatch } = await import('../api/match.js');
+      const res = await requestMatch(charData.id, mode);
+      if(!res?.ok) throw new Error('매칭 실패');
+
+      // 더미 표시: 다음 단계에서 실제 진행 UI로 교체
+      showToast(`상대: ${res.opponent?.name || '??'} (Elo ${res.opponent?.elo ?? '-'})`);
+      btn.textContent = '성공!';
+    }catch(e){
+      console.error(e);
+      showToast('지금은 매칭이 어려워. 잠시 후 다시 시도해줘');
+    }
   };
 }
 
