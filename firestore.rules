@@ -83,42 +83,44 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────
-    // relations (관계)
-    // - 읽기: 모두 (프로필/상세 공개용) — 필요 시 로그인 제한으로 바꿔도 됨
-    // - 쓰기: 양 당사자(a, b) 중 본인만
+    // Relations
     // ─────────────────────────────
     match /relations/{relId} {
       allow read: if true;
 
-      // 새 작성 시 본인이 a 또는 b에 포함되어야 함
-      allow create: if isSignedIn()
-        && (
-          request.auth.uid == (request.resource.data.a)
-          || request.auth.uid == (request.resource.data.b)
-        );
+      function isCharPath(p){ return p.matches('^chars/[^/]+$'); }
+      function charOwner(p){ return get(/databases/$(database)/documents/$(p)).data.owner_uid; }
 
-      // 수정/삭제는 기존 문서 기준 당사자만
-      allow update, delete: if isSignedIn()
-        && (
-          request.auth.uid == (resource.data.a)
-          || request.auth.uid == (resource.data.b)
-        );
+      allow create: if isSignedIn()
+        && isCharPath(request.resource.data.a_charRef)
+        && isCharPath(request.resource.data.b_charRef)
+        && request.resource.data.createdBy == request.auth.uid
+        // 공격자만 생성: a_charRef의 소유자 == 나
+        && charOwner(request.resource.data.a_charRef) == request.auth.uid;
+
+      // 양측 삭제 가능
+      allow delete: if isSignedIn()
+        && (charOwner(resource.data.a_charRef) == request.auth.uid
+         || charOwner(resource.data.b_charRef) == request.auth.uid);
+
+      allow update: if false; // 업데이트는 메모 등 별도 서브문서에서
     }
 
     // ─────────────────────────────
-    // episodes (에피소드)
-    // - 읽기: 모두
-    // - 쓰기: 소유자만
+    // Relation Daily Episodes  (하루 1개: docId=YYYY-MM-DD)
     // ─────────────────────────────
-    match /episodes/{epId} {
+    match /relation_daily/{relId}/episodes/{date} {
       allow read: if true;
-
-      allow create: if isSignedIn()
-        && request.resource.data.owner_uid == request.auth.uid;
-
-      allow update, delete: if isSignedIn()
-        && resource.data.owner_uid == request.auth.uid;
+    
+      function canWrite(){
+        return isSignedIn()
+          && request.resource.data.owner_uid == request.auth.uid;
+      }
+  
+      allow create: if canWrite();  // 같은 날짜로 재생성은 Firestore가 create 막아줌
+      allow update, delete: if canWrite();
     }
+
 
     // ─────────────────────────────
     // friendRequests (친구 요청)
