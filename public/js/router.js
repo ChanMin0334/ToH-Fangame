@@ -7,7 +7,8 @@ import { showMe } from './tabs/me.js';
 import { showRelations } from './tabs/relations.js';
 import { showCreate } from './tabs/create.js';
 import { showBattle } from './tabs/battle.js';
-import { showEncounterTab } from './tabs/encounter.js';
+import { showEncounter } from './tabs/encounter.js';
+
 
 
 export const routes = {
@@ -23,7 +24,7 @@ export const routes = {
       ?? console.warn('[router] char.js: export가 없어 실행 못함')),
   '#/create': showCreate,
   '#/battle': showBattle,
-  '#/encounter': showEncounterTab
+  '#/encounter': showEncounter
 
 };
 
