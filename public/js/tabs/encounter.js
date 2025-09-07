@@ -165,7 +165,9 @@ function renderEncounterMatch(c, box){
       const oppBox = box.querySelector('#oppCard');
       oppBox.innerHTML = `
         <div style="font-weight:900;margin-bottom:6px">상대</div>
-        <div style="display:flex;gap:10px;align-items:center">
+        <div id="oppBtn" title="상세 보기"
+             style="display:flex;gap:10px;align-items:center;padding:6px;
+                    border-radius:10px;border:1px solid #273247;background:#0b0f15;cursor:pointer;">
           <div style="width:56px;aspect-ratio:1/1;border-radius:8px;overflow:hidden;border:1px solid #273247;background:#0b0f15">
             ${opp.thumb_url ? `<img src="${opp.thumb_url}" style="width:100%;height:100%;object-fit:cover">` : ''}
           </div>
@@ -175,6 +177,15 @@ function renderEncounterMatch(c, box){
           </div>
         </div>
       `;
+
+      const oppIdRaw = opp.id || opp.charId || opp.path || '';
+      const oppDocId = String(oppIdRaw).replace(/^chars\//,'');
+      const btn = oppBox.querySelector('#oppBtn');
+      if (oppDocId && btn) {
+        btn.addEventListener('click', ()=> { location.hash = `#/char/${oppDocId}`; });
+       }
+
+
       box.querySelector('#matchStatus').textContent = '상대가 정해졌어!';
       box.querySelector('#vsWrap').style.display = 'flex';
       const go = box.querySelector('#btnStart');
