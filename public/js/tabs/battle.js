@@ -192,7 +192,8 @@ export async function showBattle(){
 
     try{
       // 서버에서만 매칭 — 이미 잡힌 매칭이 있으면 재사용
-     const call = httpsCallable(func, 'matchRequest');
+     const call = httpsCallable(func, 'matchRequestV1');
+
 
       const { data } = await call({ charId: intent.charId, mode: 'battle' });
       if(!data?.ok || !data?.opponent) {
