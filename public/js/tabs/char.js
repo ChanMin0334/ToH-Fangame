@@ -200,8 +200,17 @@ function mountFixedActions(c, isOwner){
   document.body.appendChild(bar);
 
   // 링크 전환 없이 모달로만 열기 (매칭 세션은 다음 단계에서 연결)
-  bar.querySelector('#fabBattle').onclick = ()=> setMatchIntentAndGo(c.id, 'battle');
-  bar.querySelector('#fabEncounter').onclick = ()=> setMatchIntentAndGo(c.id, 'encounter');
+  // 배틀
+  bar.querySelector('#fabBattle').onclick = ()=>{
+    sessionStorage.setItem('toh.match.intent', JSON.stringify({ charId:c.id, mode:'battle', ts: Date.now() }));
+    location.hash = '#/battle';
+  };
+  // 조우
+  bar.querySelector('#fabEncounter').onclick = ()=>{
+    sessionStorage.setItem('toh.match.intent', JSON.stringify({ charId:c.id, mode:'encounter', ts: Date.now() }));
+    location.hash = '#/encounter';
+  };
+
 
 }
 
