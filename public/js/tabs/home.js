@@ -1,6 +1,7 @@
 // /public/js/tabs/home.js
 import { auth, db, fx } from '../api/firebase.js';
-import { fetchMyChars, getMyCharCount, tierOf } from '../api/store.js';
+import { fetchMyChars, getMyCharCount, tierOf, getCharMainImageUrl, fetchWorlds } from '../api/store.js';
+
 import { showToast } from '../ui/toast.js';
 
 // ====== 설정 ======
@@ -79,11 +80,15 @@ async function onClickNew(){
 }
 
 // ====== 카드 템플릿(왼쪽 이미지, 오른쪽 정보 블록) ======
-function cardHtml(c){
+function cardHtml(c, worldName){
+
   const t = tierOf(c.elo||1000);
-  const img = c.image_url
-    ? `<img src="${c.image_url}" alt="${c.name}" style="width:100px;height:100px;border-radius:12px;object-fit:cover;display:block;background:#0e0f12;">`
-    : `<div style="width:100px;height:100px;border-radius:12px;background:#0e0f12;"></div>`;
+  const hint = c.image_url || c.thumb_url || '';
+  const img = `
+    <img data-char="${c.id}" src="${hint}" alt="${c.name||''}"
+         style="width:100px;height:100px;border-radius:12px;object-fit:cover;display:block;background:#0e0f12;">
+  `;
+
 
   return `
   <div class="card clickable" data-id="${c.id}"
@@ -111,7 +116,7 @@ function cardHtml(c){
 
         <!-- 지역 / 티어 라벨 -->
         <div class="chips" style="display:flex; gap:8px; flex-wrap:wrap;">
-          <span class="chip">${c.world_id}</span>
+          <span class="chip">${worldName||c.world_id||'world:default'}</span>
           <span class="chip" style="background:${t.color}; color:#121316; font-weight:700;">${t.name}</span>
         </div>
 
@@ -138,16 +143,61 @@ export async function showHome(force=false){
   // 목록 로드
   const list = await fetchMyChars(u.uid);
   const count = await getMyCharCount();
+  // 세계관 이름 매핑 준비
+  const _rawWorlds = await fetchWorlds().catch(()=>null);
+  const ws = Array.isArray(_rawWorlds)
+    ? _rawWorlds
+    : (_rawWorlds && Array.isArray(_rawWorlds.worlds)) ? _rawWorlds.worlds : _rawWorlds;
+  const worldNameFor = (id)=>{
+    try{
+      if (Array.isArray(ws)) {
+        const w = ws.find(x => (x.id===id) || (x.slug===id));
+        return w?.name || id || 'world:default';
+      } else if (ws && typeof ws==='object') {
+        const w = ws[id];
+        return (typeof w==='string') ? w : (w?.name || id || 'world:default');
+      }
+    }catch(_){}
+    return id || 'world:default';
+  };
+
   const lockedByCount = () => count >= MAX_CHAR_COUNT;
 
   root.innerHTML = `
   <section class="container narrow">
-    ${list.map(c => cardHtml(c)).join('')}
+    ${list.map(c => cardHtml(c, worldNameFor(c.world_id))).join('')}
+
 
     <div class="card center mt16">
       <button id="btnNew" class="btn primary">새 캐릭터 만들기</button>
     </div>
   </section>`;
+
+  // 이미지 지연 로딩: 화면에 들어오면 메인 이미지로 교체
+  (function lazyImages(){
+    const imgs = root.querySelectorAll('img[data-char]');
+    if(!imgs.length) return;
+
+    const load = async (img)=>{
+      const id = img.getAttribute('data-char');
+      try{
+        const url = await getCharMainImageUrl(id, { cacheFirst: true });
+        if(url) img.src = url;
+      }catch(_){}
+    };
+
+    const io = new IntersectionObserver((entries)=>{
+      entries.forEach(en=>{
+        if(en.isIntersecting){
+          io.unobserve(en.target);
+          load(en.target);
+        }
+      });
+    }, { root: null, rootMargin: '400px 0px', threshold: 0 });
+
+    imgs.forEach(img=> io.observe(img));
+  })();
+
 
   // 카드 클릭 → 상세
   root.querySelectorAll('.clickable').forEach(el=>{
