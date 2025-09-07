@@ -196,7 +196,8 @@ export async function showEncounter(){
     // 1) 먼저 Cloud Functions(onCall) 시도
     let data = null;
     try{
-      const call = httpsCallable(func, 'matchRequest');
+      const call = httpsCallable(func, 'matchRequestV1');
+
 
       ({ data } = await call({ charId: intent.charId, mode: 'encounter' }));
     }catch(_e){
