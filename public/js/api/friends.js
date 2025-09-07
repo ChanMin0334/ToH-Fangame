@@ -67,16 +67,19 @@ export async function sendFriendRequest(toUid, message=''){
   // 중복 pending 사전 차단
   if(await hasPendingBetween(toUid)) throw new Error('이미 대기중이야');
 
+  const pid = pairId(me.uid, toUid);
   const data = {
+    pairId: pid,
     from: me.uid,
     to: toUid,
     message: String(message||'').slice(0, 200),
-    status: 'pending',            // 리스트 필터용
-    createdAt: Date.now()
+    status: 'pending',
+    createdAt: Date.now(),
   };
-
-  await fx.addDoc(collReq(), data);
+  // 문서 ID를 pairId로 고정 → 양방향 중복/스팸 차단
+  await fx.setDoc(docReq(pid), data, { merge: false });
   return true;
+
 }
 
 export async function listIncomingRequests(){
