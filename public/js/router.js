@@ -6,6 +6,9 @@ import { showFriends } from './tabs/friends.js';
 import { showMe } from './tabs/me.js';
 import { showRelations } from './tabs/relations.js';
 import { showCreate } from './tabs/create.js';
+import { showBattle } from './tabs/battle.js';
+import { showEncounterTab } from './tabs/encounter.js';
+
 
 export const routes = {
   '#/home': showHome,
@@ -19,6 +22,9 @@ export const routes = {
     .then(m => (m.showCharDetail ?? m.default ?? m.showChar)?.()
       ?? console.warn('[router] char.js: export가 없어 실행 못함')),
   '#/create': showCreate
+  '#/battle': showBattle,
+  '#/encounter': showEncounterTab,
+
 };
 
 export function highlightTab(){
