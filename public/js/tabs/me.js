@@ -1,6 +1,7 @@
 // /public/js/tabs/me.js
 import { loadUserProfile, updateNickname, leftMsForNicknameChange,
-         getLocalGeminiKey, setLocalGeminiKey, uploadAvatarBlob, restoreAvatarFromGoogle } from '../api/user.js';
+         uploadAvatarBlob, restoreAvatarFromGoogle } from '../api/user.js';
+
 
 import { showToast } from '../ui/toast.js';
 
@@ -32,20 +33,6 @@ export function showMe(){
             </div>
             <div id="nickHint" class="text-dim mt4"></div>
 
-            <div class="mt16">
-              <label class="label">Gemini API Key (로컬에만 저장)</label>
-              <div class="row gap8">
-                <input id="gemKey" class="w100" type="password" placeholder="AIza..."/>
-                <button id="btnGemSave">저장</button>
-                <button id="btnGemToggle">표시</button>
-                <button id="btnGemClear">삭제</button>
-              </div>
-              <div class="text-dim mt4">
-                이 키는 이 기기의 <code>localStorage["toh_gemini_key"]</code>와
-                <code>localStorage["toh_byok"]</code>에만 저장돼. 서버로 전송하지 않아.
-              </div>
-
-              <small class="text-dim">* 서버로 전송하지 않고 이 기기의 로컬에만 저장돼.</small>
             </div>
           </div>
         </div>
@@ -94,13 +81,6 @@ async function boot(){
       }catch(e){ showToast(e.message||'닉네임 저장 실패'); }
     };
 
-    // Gemini Key (local)
-    const key = getLocalGeminiKey();
-    const inp = document.getElementById('gemKey'); inp.value = key;
-    document.getElementById('btnGemSave').onclick = ()=>{ setLocalGeminiKey(inp.value); showToast('이 기기에 저장했어'); };
-    document.getElementById('btnGemToggle').onclick = ()=>{
-      inp.type = inp.type==='password' ? 'text' : 'password';
-    };
     document.getElementById('btnGemClear').onclick = ()=>{ inp.value=''; setLocalGeminiKey(''); showToast('삭제했어'); };
   }catch(e){
     showToast('로그인이 필요해');
