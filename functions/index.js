@@ -19,16 +19,12 @@ exports.onBattleLogCreate = functions.firestore
 // 입력: { charId: string, mode: 'battle'|'encounter' }
 exports.requestMatch = onCall({
   region: 'us-central1',
-  cors: ['https://tale-of-heros---fangame.firebaseapp.com',
-         'https://tale-of-heros---fangame.web.app',
-         'http://localhost:5000']
+  cors: true
 }, async (req) => {
+
   try {
     const data = req.data || {};
     const uid  = req.auth?.uid;
-
-  try {
-
 // (이미 위에서 uid를 만들었으니 이 줄은 지우거나 아래처럼 맞춰도 됨)
 // const uid = req.auth?.uid;
 
@@ -213,11 +209,12 @@ exports.requestMatch = onCall({
     });
   });
 
-  return {
-    ok:true, token, expiresAt: expMs,
-    opponent: { id: opp.id, name: opp.name||'상대', elo: opp.elo||1000, thumb_url: opp.thumb_url||'' }
-  };
-      } catch (err) {
+    return {
+      ok:true, token, expiresAt: expMs,
+      opponent: { id: opp.id, name: opp.name||'상대', elo: opp.elo||1000, thumb_url: opp.thumb_url||'' }
+    };
+  
+  } catch (err) {
     functions.logger.error('[requestMatch] fail', err);
     if (err instanceof functions.https.HttpsError) throw err;
     throw new functions.https.HttpsError('internal', 'match-internal-error', {
