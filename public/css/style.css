@@ -384,18 +384,5 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
 
 .fixed-actions { z-index: 1000; }  /* 모달 z-index 1001 */
 
-
-// ===== modal css (adventure 전용) =====
-function ensureModalCss(){
-  if (document.getElementById('toh-modal-css')) return;
-  const st = document.createElement('style');
-  st.id = 'toh-modal-css';
-  st.textContent = `
-    .modal-back{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
-                background:rgba(0,0,0,.45)}
-    .modal-card{background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:720px;width:92vw;
-                max-height:80vh;overflow:auto}
-  `;
-  document.head.appendChild(st);
 }
 
