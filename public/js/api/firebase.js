@@ -6,6 +6,10 @@ import {
   collection, query, where, orderBy, limit
 } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 
+import { getFunctions } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+
+
+
 
 import {
   getAuth
@@ -35,6 +39,8 @@ export const db = initializeFirestore(app, {
   // 필요하면 아래를 강제 옵션으로 바꿔도 됨:
   // experimentalForceLongPolling: true
 });
+
+export const func = getFunctions(app, 'us-central1');
 
 export const auth    = getAuth(app);
 export const storage = getStorage(app);
