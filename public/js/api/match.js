@@ -1,15 +1,15 @@
-// 매칭 API 어댑터(스텁) — 다음 단계에서 Cloud Functions와 연결
+// /public/js/api/match.js
+import { func } from './firebase.js';
+import { httpsCallable } from 'firebase/functions';
+
 export async function requestMatch(charId, mode){
-  // TODO: HTTPS Callable 연결 (functions: requestMatch)
-  // 지금은 더미 반환
-  return {
-    ok: true,
-    token: 'dev-token',
-    opponent: { id: 'chars/demo', name: '상대(더미)', elo: 1200 }
-  };
+  const call = httpsCallable(func, 'requestMatch');
+  const { data } = await call({ charId, mode });
+  return data; // { ok, token, opponent:{ id, name, elo, thumb_url } }
 }
 
 export async function cancelMatch(token){
-  // TODO: HTTPS Callable 연결 (functions: cancelMatch)
-  return { ok: true };
+  const call = httpsCallable(func, 'cancelMatch');
+  const { data } = await call({ token });
+  return data; // { ok:true }
 }
