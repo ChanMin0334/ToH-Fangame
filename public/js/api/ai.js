@@ -102,7 +102,8 @@ async function callGemini(model, systemText, userText, temperature=0.85){
   };
 
   // 프록시 엔드포인트(서버에만 키가 있음)
-  const proxyUrl = '/api/ai/generate';
+  const proxyUrl = 'https://toh-ai-proxy.pokemonrgby.workers.dev/api/ai/generate';
+
   const res = await fetch(proxyUrl, {
     method:'POST',
     headers:{'Content-Type':'application/json'},
