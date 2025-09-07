@@ -1,9 +1,4 @@
 // functions/index.js
-const { onCall } = require('firebase-functions/v2/https');
-
-const crypto = require('crypto');
-
-
 
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
@@ -22,7 +17,10 @@ exports.onBattleLogCreate = functions.firestore
 
 // === requestMatch: 캐릭터 기준 매칭 락 생성(배틀/조우 공용) ===
 // 입력: { charId: string, mode: 'battle'|'encounter' }
-exports.requestMatch = functions.https.onCall(async (data, ctx) => {
+exports.requestMatch = functions.region('us-central1').https.onCall(async (data, ctx) => {
+  try {
+
+
   const uid = ctx.auth?.uid;
   if(!uid) throw new functions.https.HttpsError('unauthenticated','로그인이 필요해');
 
@@ -209,6 +207,13 @@ exports.requestMatch = functions.https.onCall(async (data, ctx) => {
     ok:true, token, expiresAt: expMs,
     opponent: { id: opp.id, name: opp.name||'상대', elo: opp.elo||1000, thumb_url: opp.thumb_url||'' }
   };
+      } catch (err) {
+    functions.logger.error('[requestMatch] fail', err);
+    if (err instanceof functions.https.HttpsError) throw err;
+    throw new functions.https.HttpsError('internal', 'match-internal-error', {
+      message: err?.message || String(err)
+    });
+  }
 });
 
 
