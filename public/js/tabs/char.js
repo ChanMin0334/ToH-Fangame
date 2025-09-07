@@ -408,7 +408,10 @@ function renderNarrativePage(c, narrId){
         <div class="kv-card">
           <div style="font-weight:900; font-size:18px; margin-bottom:8px">${esc(n.title || '서사')}</div>
           <div class="kv-label">긴 본문</div>
-          <div style="margin-bottom:10px; white-space:pre-line">${esc(n.long || '-')}</div>
+          <div id="nLong" style="margin-bottom:10px"></div>
+          var nLongNode = document.getElementById('nLong');
+          if(nLongNode){ nLongNode.innerHTML = renderRich(n.long || '-'); }
+
           <div class="kv-label">요약</div>
           <div>${esc(n.short || '(요약이 아직 없어요)')}</div>
         </div>
@@ -422,6 +425,63 @@ function esc(s){
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   }[c]));
 }
+
+// --- 인라인 강조(**굵게**, *기울임*) 처리
+function applyInlineMarks(html){
+  // 굵게
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  // 기울임(양쪽 **가 아닌 단일 * 만) — 구형 엔진 호환 버전
+  html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, function(_, pre, inner){
+    return pre + '<i>' + inner + '</i>';
+  });
+  return html;
+}
+
+// --- 간단 마크업(#, ##, ###, >, * ) + 줄바꿈(\n, \n\n) 렌더링
+function renderRich(text){
+  var s = String(text||'').replace(/\r\n?/g,'\n');
+  var lines = s.split('\n');
+  var out = [];
+  var inList = false;
+
+  function flushList(){ if(inList){ out.push('</ul>'); inList=false; } }
+
+  for(var i=0;i<lines.length;i++){
+    var raw = lines[i];
+    var empty = /^\s*$/.test(raw);
+    var escd  = esc(raw);
+
+    if(empty){ flushList(); continue; }
+
+    // ### / ## / #
+    if(/^###\s+/.test(raw)){ flushList(); out.push('<h4 style="font-weight:800;font-size:15px;margin:10px 0 4px;">'+ escd.replace(/^###\s+/, '') +'</h4>'); continue; }
+    if(/^##\s+/.test(raw)){  flushList(); out.push('<h3 style="font-weight:850;font-size:16px;margin:12px 0 6px;">'+ escd.replace(/^##\s+/, '') +'</h3>'); continue; }
+    if(/^#\s+/.test(raw)){   flushList(); out.push('<h2 style="font-weight:900;font-size:18px;margin:14px 0 8px;">'+ escd.replace(/^#\s+/, '') +'</h2>'); continue; }
+
+    // > 인용
+    if(/^>\s+/.test(raw)){
+      flushList();
+      var q = applyInlineMarks(escd.replace(/^>\s+/, ''));
+      out.push('<blockquote style="margin:8px 0;padding:8px 10px;border-left:3px solid rgba(122,155,255,.7);background:rgba(122,155,255,.06);border-radius:8px;">'+ q +'</blockquote>');
+      continue;
+    }
+
+    // * 글머리
+    if(/^\*\s+/.test(raw)){
+      if(!inList){ out.push('<ul style="margin:6px 0 8px 18px;list-style:disc;">'); inList=true; }
+      var li = applyInlineMarks(escd.replace(/^\*\s+/, ''));
+      out.push('<li>'+ li +'</li>');
+      continue;
+    }
+
+    // 일반 문단
+    flushList();
+    out.push('<p style="margin:6px 0 6px;">'+ applyInlineMarks(escd) +'</p>');
+  }
+  flushList();
+  return out.join('');
+}
+
 
 
 function renderHistory(c, view){
