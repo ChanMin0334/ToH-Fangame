@@ -259,19 +259,35 @@ function viewPrep(root, world, site, char){
     </section>
   `;
 
-    // 스킬 체크박스 2개 유지 + 저장
-  (function bindSkillSelection(){
-    const abilities = Array.isArray(char.abilities_all) ? char.abilities_all : [];
-    if (!abilities.length) return;
+// 스킬 체크박스 2개 유지 + 저장
+(function bindSkillSelection(){
+  const abilities = Array.isArray(char.abilities_all) ? char.abilities_all : [];
+  if (!abilities.length) return;
 
-    const inputs = root.querySelectorAll('#skillGrid input[type=checkbox][data-i]');
-    inputs.forEach(inp=>{
-      inp.addEventListener('change', async ()=>{
-        const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
-        if (on.length > 2){
-          inp.checked = false;
-          return showToast('스킬은 정확히 2개만 선택 가능해');
-        }
+  const inputs = root.querySelectorAll('#skillGrid input[type=checkbox][data-i]');
+  const btn    = root.querySelector('#btnStart');
+
+  const updateStartEnabled = ()=>{
+    const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
+    if (btn){
+      // 쿨타임이 남았거나 스킬이 2개가 아니면 시작 버튼 잠금
+      btn.disabled = (cooldownRemain()>0) || (on.length !== 2);
+    }
+  };
+  updateStartEnabled();
+
+  inputs.forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
+
+      if (on.length > 2){
+        inp.checked = false;
+        showToast('스킬은 정확히 2개만 선택 가능해');
+        return;
+      }
+
+      // 2개일 때만 서버에 저장
+      if (on.length === 2){
         try{
           await fx.updateDoc(fx.doc(db,'chars', char.id), { abilities_equipped: on });
           char.abilities_equipped = on;
@@ -280,9 +296,12 @@ function viewPrep(root, world, site, char){
           console.error('[explore] abilities_equipped update fail', e);
           showToast('저장 실패');
         }
-      });
+      }
+      updateStartEnabled();
     });
-  })();
+  });
+})();
+
 
   
   root.querySelector('#btnBackSites')?.addEventListener('click', ()=> viewSitePick(root, world));
@@ -303,6 +322,15 @@ function viewPrep(root, world, site, char){
   const iv = setInterval(()=>{ tick(); if(cooldownRemain()<=0) clearInterval(iv); }, 500);
 
   root.querySelector('#btnStart')?.addEventListener('click', async ()=>{
+        // 스킬 2개 선택 가드
+    if (Array.isArray(char.abilities_all) && char.abilities_all.length){
+      const eq = Array.isArray(char.abilities_equipped) ? char.abilities_equipped : [];
+      if (eq.length !== 2){
+        showToast('스킬을 딱 2개 선택해줘!');
+        return;
+      }
+    }
+
     if(cooldownRemain()>0) return showToast('쿨타임이 끝나면 시작할 수 있어!');
 
     try{
