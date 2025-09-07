@@ -196,7 +196,8 @@ export async function showEncounter(){
     // 1) 먼저 Cloud Functions(onCall) 시도
     let data = null;
     try{
-      const call = httpsCallable(func, 'requestMatch');
+      const call = httpsCallable(func, 'matchRequest');
+
       ({ data } = await call({ charId: intent.charId, mode: 'encounter' }));
     }catch(_e){
       // onCall이 CORS/요금제/미배포 등으로 막힌 경우 대비해서 넘어감
