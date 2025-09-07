@@ -13,7 +13,7 @@ import {
 import {
   getStorage, ref as sRef, uploadBytes, getDownloadURL
 } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-storage.js';
-
+import { getFunctions } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 // ★★ 여기에 "router.js", "toast.js", "api/..." 같은 프로젝트 파일 import 금지 ★★
 // 이 파일은 Firebase SDK만 import 해야 함
 
@@ -38,7 +38,7 @@ export const db = initializeFirestore(app, {
 
 export const auth    = getAuth(app);
 export const storage = getStorage(app);
-
+export const func = getFunctions(app, 'us-central1');
 // 편의를 위한 네임스페이스 export (기존 코드 호환)
 export const fx = { doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit };
 
