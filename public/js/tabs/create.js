@@ -232,7 +232,8 @@ export async function showCreate(){
           <label>이름 (≤20자)</label>
           <input id="charName" class="input" placeholder="이름" maxlength="20" />
           <label>설명 (≤1000자)</label>
-          <textarea id="charDesc" class="input" rows="8" maxlength="1000" placeholder="캐릭터 소개/설정 (최대 1000자)"></textarea>
+          <textarea id="charDesc" class="input" rows="8" maxlength="1000" required placeholder="캐릭터 소개/설정 (최대 1000자)"></textarea>
+
           <div id="descCount" class="text-dim" style="font-size:12px;text-align:right">0 / 1000</div>
 
           <div style="display:flex; gap:8px; align-items:center;">
@@ -274,10 +275,14 @@ export async function showCreate(){
       if(!key){ showToast('Gemini API Key(BYOK)를 내정보에서 넣어줘'); return; }
 
       const name = document.getElementById('charName').value.trim();
-      const desc = document.getElementById('charDesc').value.trim();
+      const descEl = document.getElementById('charDesc');
+      const desc = descEl.value.trim();
+
       if(!name){ showToast('이름을 입력해줘'); return; }
       if(name.length > 20){ showToast('이름은 20자 이하'); return; }
+      if(!desc){ showToast('설정을 입력해줘'); descEl.focus(); return; }  // ← 이 줄 추가
       if(desc.length > 1000){ showToast('설명은 1000자 이하'); return; }
+
 
       startCooldown();
 
@@ -286,7 +291,18 @@ export async function showCreate(){
 
       try{
         const userInput = `이름: ${name}\n설정:\n${desc}`;
-        const out = await genCharacterFlash2({ world: w, userInput, injectionGuard: '' });
+        const out = await genCharacterFlash2({
+          world: {
+          id: w.id,
+          name: w.name,
+          summary: w.summary || w.intro || '',
+          detail: (w.detail && (w.detail.lore_long || w.detail.lore)) || w.detail || w.summary || '',
+          rawJson: w
+        },
+        userInput,
+        injectionGuard: ''
+      });
+
 
         const payload = buildCharPayloadFromAi(out, w, name, desc);
         if(DEBUG){
