@@ -48,6 +48,27 @@ service cloud.firestore {
         );
     }
 
+
+    // 탐험 런 문서
+    match /explore_runs/{runId} {
+      // 생성: 본인 소유만, 필수 필드 간단 가드
+      allow create: if request.auth != null
+                    && request.resource.data.owner_uid == request.auth.uid
+                    && request.resource.data.charRef.matches('^chars/[^/]+$')
+                    && request.resource.data.status == 'ongoing';
+
+    // 읽기: (원하면 공개로 바꿔도 됨)
+      allow read: if request.auth != null && resource.data.owner_uid == request.auth.uid;
+
+      // 진행 중 갱신(턴/스태미나/이벤트 누적 등): 소유자만
+      allow update: if request.auth != null
+                    && request.resource.data.owner_uid == request.auth.uid;
+    
+      // 삭제는 금지(원하면 && false 유지)
+      allow delete: if false;
+    }
+
+
     // ─────────────────────────────
     // chars (캐릭터)
     // - 열람: 모두
