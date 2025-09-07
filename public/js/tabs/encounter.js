@@ -5,6 +5,10 @@
 import { auth, db, fx, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
+// battle.js와 동일하게 클라이언트 매칭 모듈 추가
+import { autoMatch } from '../api/match_client.js';
+
+
 
 // ---------- utils ----------
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c])); }
@@ -15,7 +19,7 @@ function ensureSpinCss(){
   st.textContent = `
   .spin{width:24px;height:24px;border-radius:50%;
         border:3px solid rgba(255,255,255,.15);border-top-color:#8fb7ff;
-        animation:spin .9s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+        animation:spin .9s linear infinite}@keyframes spin{to{transform:rotate(3deg)}}
   .chip-mini{display:inline-block;padding:.18rem .5rem;border-radius:999px;
              border:1px solid #273247;background:#0b0f15;font-size:12px;margin:2px 4px 0 0}
   .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50}
@@ -26,7 +30,7 @@ function ensureSpinCss(){
 function intentGuard(mode){
   let j=null; try{ j=JSON.parse(sessionStorage.getItem('toh.match.intent')||'null'); }catch(_){}
   if(!j || j.mode!==mode || (Date.now()-(+j.ts||0))>90_000) return null;
-  return j;
+  return j; // {charId, mode, ts}
 }
 
 // --- 내 로드아웃(스킬/아이템) 표시 + 스킬 2개 선택 저장 ---
@@ -68,7 +72,7 @@ async function renderLoadoutForMatch(charId, myChar){
         }).join('')}
       </div>
       <div class="text-dim" style="font-size:12px;margin-top:6px">
-        ※ ‘가방 열기’는 지금은 더미. 아이템 사용/교체는 다음 패치에서!
+        ※ ‘가방 열기’는 지금은 더미. 아이템 교체는 다음 패치에서!
       </div>
     </div>
   `;
@@ -134,7 +138,7 @@ export async function showEncounter(){
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn" id="btnBag">가방 열기</button>
       </div>
-      <div id="bagNote" class="text-dim" style="font-size:12px;margin-top:6px">※ 가방은 현재 더미 데이터야. 협력/배움 시 아이템 사용은 다음 패치에서!</div>
+      <div id="bagNote" class="text-dim" style="font-size:12px;margin-top:6px">※ 가방은 현재 더미 데이터야. 조우 시 아이템 사용은 다음 패치에서!</div>
 
       <hr style="margin:14px 0;border:none;border-top:1px solid rgba(255,255,255,.06)">
 
@@ -189,11 +193,23 @@ export async function showEncounter(){
   const btnStart  = document.getElementById('btnStart');
 
   try{
-    const call = httpsCallable(func, 'requestMatch');
-    const { data } = await call({ charId: intent.charId, mode: 'encounter' });
-    if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
-    matchToken = data.token;
+    // 1) 먼저 Cloud Functions(onCall) 시도
+    let data = null;
+    try{
+      const call = httpsCallable(func, 'requestMatch');
+      ({ data } = await call({ charId: intent.charId, mode: 'encounter' }));
+    }catch(_e){
+      // onCall이 CORS/요금제/미배포 등으로 막힌 경우 대비해서 넘어감
+      data = null;
+    }
 
+    // 2) onCall이 안 되면 → 클라이언트 임시 매칭 (Firestore 읽기만 사용)
+    if(!data?.ok){
+      data = await autoMatch({ db, fx, charId: intent.charId, mode: 'encounter' });
+    }
+    if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
+
+    // 3) 상대 상세 불러와서 카드 렌더
     const oppId = String(data.opponent.id||data.opponent.charId||'').replace(/^chars\//,'');
     const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
     const opp = oppDoc.exists() ? oppDoc.data() : {};
@@ -203,12 +219,12 @@ export async function showEncounter(){
     matchArea.innerHTML = `
       <div id="oppCard" style="display:flex;gap:12px;align-items:center;cursor:pointer">
         <div style="width:72px;aspect-ratio:1/1;border-radius:10px;overflow:hidden;border:1px solid #273247;background:#0b0f15">
-          ${data.opponent.thumb_url ? `<img src="${esc(data.opponent.thumb_url)}" style="width:100%;height:100%;object-fit:cover">` : ''}
+          ${(opp.thumb_url || data.opponent.thumb_url) ? `<img src="${esc(opp.thumb_url || data.opponent.thumb_url)}" style="width:100%;height:100%;object-fit:cover">` : ''}
         </div>
         <div style="flex:1">
           <div style="display:flex;gap:6px;align-items:center">
             <div style="font-weight:900;font-size:16px">${esc(opp.name || data.opponent.name || '상대')}</div>
-            <div class="chip-mini">Elo ${esc((opp.elo ?? data.opponent.elo ?? 1000).toString())}</div>
+            <div class="chip-mini">Elo ${esc(((opp.elo ?? data.opponent.elo) ?? 1000).toString())}</div>
           </div>
           <div class="text-dim" style="margin-top:4px">${esc(intro || '소개가 아직 없어')}</div>
           <div style="margin-top:6px">${abilities.slice(0,4).map(a=>`<span class="chip-mini">${esc(a?.name||'스킬')}</span>`).join('')}</div>
@@ -219,6 +235,8 @@ export async function showEncounter(){
       if(oppId) location.hash = `#/char/${oppId}`;
     });
 
+    // 토큰(있으면 저장) + 시작 버튼 활성화
+    matchToken = data.token || null;
     btnStart.disabled = false;
     btnStart.onclick = async ()=>{
       showToast('조우 로직은 다음 패치에서 이어서 할게!');
