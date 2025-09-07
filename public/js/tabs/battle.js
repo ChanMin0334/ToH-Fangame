@@ -6,6 +6,8 @@ import { auth, db, fx, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
 // 제일 위 import 들 아래에 추가
+import { autoMatch } from '../api/match_client.js';
+
 
 // ---------- utils ----------
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c])); }
@@ -185,61 +187,60 @@ export async function showBattle(){
   renderLoadoutForMatch(intent.charId, myChar);
 
   // 자동 매칭 시작
-    // 자동 매칭 시작
-    let matchToken = null;
-    const matchArea = document.getElementById('matchArea');
-    const btnStart  = document.getElementById('btnStart');
+  let matchToken = null;
+  const matchArea = document.getElementById('matchArea');
+  const btnStart  = document.getElementById('btnStart');
 
+  try{
+    // 1) 먼저 Cloud Functions(onCall) 시도
+    let data = null;
     try{
-      // 서버에서만 매칭 — 이미 잡힌 매칭이 있으면 재사용
-     const call = httpsCallable(func, 'matchRequestV1');
+      const call = httpsCallable(func, 'requestMatch');
+      ({ data } = await call({ charId: intent.charId, mode: 'battle' }));
+    }catch(_e){
+      // onCall이 CORS/요금제/미배포 등으로 막힌 경우 대비해서 넘어감
+      data = null;
+    }
 
+    // 2) onCall이 안 되면 → 클라이언트 임시 매칭 (Firestore 읽기만 사용)
+    if(!data?.ok){
+      data = await autoMatch({ db, fx, charId: intent.charId, mode: 'battle' });
+    }
+    if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
 
-      const { data } = await call({ charId: intent.charId, mode: 'battle' });
-      if(!data?.ok || !data?.opponent) {
-        if (data?.reason==='cooldown') {
-          const t = new Date(data.until).toLocaleTimeString();
-          matchArea.innerHTML = `<div class="text-dim">지금은 쿨타임이야 (~${t})</div>`;
-          return;
-        }
-        throw new Error('no-opponent');
-      }
+    // 3) 상대 상세 불러와서 카드 렌더
+    const oppId = String(data.opponent.id||data.opponent.charId||'').replace(/^chars\//,'');
+    const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
+    const opp = oppDoc.exists() ? oppDoc.data() : {};
+    const intro = truncate(opp.summary || opp.intro || '', 160);
+    const abilities = Array.isArray(opp.abilities_all) ? opp.abilities_all : [];
 
-      const oppId = String(data.opponent.id||'').replace(/^chars\//,'');
-      const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
-      const opp = oppDoc.exists() ? oppDoc.data() : {};
-      const intro = truncate(opp.summary || opp.intro || '', 160);
-      const abilities = Array.isArray(opp.abilities_all) ? opp.abilities_all : [];
-
-      matchArea.innerHTML = `
-        <div id="oppCard" style="display:flex;gap:12px;align-items:center;cursor:pointer">
-          <div style="width:72px;aspect-ratio:1/1;border-radius:10px;overflow:hidden;border:1px solid #273247;background:#0b0f15">
-            ${(opp.thumb_url || data.opponent.thumb_url) ? `<img src="${esc(opp.thumb_url || data.opponent.thumb_url)}" style="width:100%;height:100%;object-fit:cover">` : ''}
-          </div>
-          <div style="flex:1">
-            <div style="display:flex;gap:6px;align-items:center">
-              <div style="font-weight:900;font-size:16px">${esc(opp.name || data.opponent.name || '상대')}</div>
-              <div class="chip-mini">Elo ${esc(((opp.elo ?? data.opponent.elo) ?? 1000).toString())}</div>
-            </div>
-            <div class="text-dim" style="margin-top:4px">${esc(intro || '소개가 아직 없어')}</div>
-            <div style="margin-top:6px">${abilities.slice(0,4).map(a=>`<span class="chip-mini">${esc(a?.name||'스킬')}</span>`).join('')}</div>
-          </div>
+    matchArea.innerHTML = `
+      <div id="oppCard" style="display:flex;gap:12px;align-items:center;cursor:pointer">
+        <div style="width:72px;aspect-ratio:1/1;border-radius:10px;overflow:hidden;border:1px solid #273247;background:#0b0f15">
+          ${(opp.thumb_url || data.opponent.thumb_url) ? `<img src="${esc(opp.thumb_url || data.opponent.thumb_url)}" style="width:100%;height:100%;object-fit:cover">` : ''}
         </div>
-      `;
-      matchArea.querySelector('#oppCard').addEventListener('click', ()=>{
-        if(oppId) location.hash = `#/char/${oppId}`;
-      });
+        <div style="flex:1">
+          <div style="display:flex;gap:6px;align-items:center">
+            <div style="font-weight:900;font-size:16px">${esc(opp.name || data.opponent.name || '상대')}</div>
+            <div class="chip-mini">Elo ${esc(((opp.elo ?? data.opponent.elo) ?? 1000).toString())}</div>
+          </div>
+          <div class="text-dim" style="margin-top:4px">${esc(intro || '소개가 아직 없어')}</div>
+          <div style="margin-top:6px">${abilities.slice(0,4).map(a=>`<span class="chip-mini">${esc(a?.name||'스킬')}</span>`).join('')}</div>
+        </div>
+      </div>
+    `;
+    matchArea.querySelector('#oppCard').addEventListener('click', ()=>{
+      if(oppId) location.hash = `#/char/${oppId}`;
+    });
 
-      matchToken = data.token || null;
-      btnStart.disabled = false;
-      btnStart.onclick = async ()=>{
-        showToast('배틀을 시작할게!');
-        // TODO: 토큰 기반 전투 시작 로직 연결
-        // ex) import('../api/ai.js').then(({startBattleWithToken})=> startBattleWithToken({ token: matchToken }));
-      };
-
-
-  
+    // 토큰(있으면 저장) + 시작 버튼 활성화
+    const matchToken = data.token || null;
+    btnStart.disabled = false;
+    btnStart.onclick = async ()=>{
+      showToast('배틀 로직은 다음 패치에서 이어서 할게!');
+      // TODO: import('../api/ai.js').then(({startBattleWithToken})=> startBattleWithToken({ token: matchToken }));
+    };
 
   }catch(e){
     console.error('[battle] match error', e);
