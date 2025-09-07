@@ -1,3 +1,4 @@
+// functions/index.js
 const { onCall } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
@@ -31,6 +32,7 @@ exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
 
   const myElo = me.elo ?? 1000;
 
+  // 후보군: 내 elo 이상 10명(가까운 순), 이하 10명(가까운 순)
   const upQ = await db.collection('chars')
     .where('elo','>=', Math.floor(myElo)).orderBy('elo','asc').limit(10).get();
   const downQ = await db.collection('chars')
@@ -41,17 +43,20 @@ exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
     if(!snap.exists) continue;
     if(snap.id===id) continue;
     const d=snap.data();
-    if(!d?.owner_uid || d.owner_uid===uid) continue;
-    if(typeof d.name!=='string') continue;
-    if(d.hidden===true) continue;
+    if(!d?.owner_uid || d.owner_uid===uid) continue;       // 내 소유 제외
+    if(typeof d.name!=='string') continue;                  // 깨진 문서 제외
+    if(d.hidden === true) continue;                         // 숨김 시 제외(옵션)
     pool.push({ id:snap.id, name:d.name, elo:d.elo??1000, thumb_url:d.thumb_url||d.image_url||'' });
   }
+  // 중복 제거
   const uniq = Array.from(new Map(pool.map(x=>[x.id,x])).values());
   if(!uniq.length) return { ok:false, reason:'no-candidate' };
 
+  // 가중치 추첨(멀수록 확률 낮음)
   const opp = pickWeighted(uniq, myElo) || uniq[0];
   const oppOwner = (await db.doc(`chars/${opp.id}`).get()).data()?.owner_uid || null;
 
+  // 세션 기록
   const token = crypto.randomBytes(16).toString('hex');
   await db.collection('matchSessions').add({
     mode,
