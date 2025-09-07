@@ -6,8 +6,6 @@ import { auth, db, fx, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
 // 제일 위 import 들 아래에 추가
-import { autoMatch } from '../api/match_client.js';
-
 
 // ---------- utils ----------
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c])); }
@@ -239,39 +237,7 @@ export async function showBattle(){
       };
 
 
-    // 3) 상대 상세 불러와서 카드 렌더
-    const oppId = String(data.opponent.id||data.opponent.charId||'').replace(/^chars\//,'');
-    const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
-    const opp = oppDoc.exists() ? oppDoc.data() : {};
-    const intro = truncate(opp.summary || opp.intro || '', 160);
-    const abilities = Array.isArray(opp.abilities_all) ? opp.abilities_all : [];
-
-    matchArea.innerHTML = `
-      <div id="oppCard" style="display:flex;gap:12px;align-items:center;cursor:pointer">
-        <div style="width:72px;aspect-ratio:1/1;border-radius:10px;overflow:hidden;border:1px solid #273247;background:#0b0f15">
-          ${(opp.thumb_url || data.opponent.thumb_url) ? `<img src="${esc(opp.thumb_url || data.opponent.thumb_url)}" style="width:100%;height:100%;object-fit:cover">` : ''}
-        </div>
-        <div style="flex:1">
-          <div style="display:flex;gap:6px;align-items:center">
-            <div style="font-weight:900;font-size:16px">${esc(opp.name || data.opponent.name || '상대')}</div>
-            <div class="chip-mini">Elo ${esc(((opp.elo ?? data.opponent.elo) ?? 1000).toString())}</div>
-          </div>
-          <div class="text-dim" style="margin-top:4px">${esc(intro || '소개가 아직 없어')}</div>
-          <div style="margin-top:6px">${abilities.slice(0,4).map(a=>`<span class="chip-mini">${esc(a?.name||'스킬')}</span>`).join('')}</div>
-        </div>
-      </div>
-    `;
-    matchArea.querySelector('#oppCard').addEventListener('click', ()=>{
-      if(oppId) location.hash = `#/char/${oppId}`;
-    });
-
-    // 토큰(있으면 저장) + 시작 버튼 활성화
-    const matchToken = data.token || null;
-    btnStart.disabled = false;
-    btnStart.onclick = async ()=>{
-      showToast('배틀 로직은 다음 패치에서 이어서 할게!');
-      // TODO: import('../api/ai.js').then(({startBattleWithToken})=> startBattleWithToken({ token: matchToken }));
-    };
+  
 
   }catch(e){
     console.error('[battle] match error', e);
