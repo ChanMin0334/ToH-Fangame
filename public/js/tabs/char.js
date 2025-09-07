@@ -87,17 +87,26 @@ async function render(c){
   // exp_progress(0~100)가 있으면 사용, 없으면 exp % 100
   const expPct = Math.max(0, Math.min(100, (c.exp_progress ?? ((expVal)%100)) ));
     // 세계관 라벨: id → 이름 매핑
-  const worlds = await fetchWorlds().catch(()=>null);
+  // 세계관 라벨: id → 이름 매핑 (worlds.json = { worlds: [...] } 지원)
+  const _rawWorlds = await fetchWorlds().catch(()=>null);
   let worldName = c.world_id || 'world:default';
   try {
-    if (Array.isArray(worlds)) {
-      const w = worlds.find(x => x.id === c.world_id);
+    // _rawWorlds가 배열이면 그대로, 객체면 .worlds 배열을 우선 사용
+    const ws = Array.isArray(_rawWorlds)
+      ? _rawWorlds
+      : (_rawWorlds && Array.isArray(_rawWorlds.worlds))
+        ? _rawWorlds.worlds
+        : _rawWorlds;
+
+    if (Array.isArray(ws)) {
+      const w = ws.find(x => (x.id === c.world_id) || (x.slug === c.world_id));
       worldName = (w?.name) || worldName;
-    } else if (worlds && typeof worlds === 'object') {
-      const w = worlds[c.world_id];
+    } else if (ws && typeof ws === 'object') {
+      const w = ws[c.world_id];
       worldName = (typeof w === 'string') ? w : (w?.name || worldName);
     }
   } catch (_) {}
+
 
 
   root.innerHTML = `
