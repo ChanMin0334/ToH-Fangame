@@ -118,7 +118,8 @@ async function render(c){
           <span class="tier-chip" style="background:${tier.color}1a; color:#fff; border-color:${tier.color}80;">
             ${tier.name || 'Tier'}
           </span>
-          <span class="chip">${c.world || c.world_id || 'world:default'}</span>
+          <span class="chip">${worldName}</span>
+
 
         </div>
 
