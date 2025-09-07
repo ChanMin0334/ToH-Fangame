@@ -91,12 +91,20 @@ service cloud.firestore {
       function isCharPath(p){ return p.matches('^chars/[^/]+$'); }
       function charOwner(p){ return get(/databases/$(database)/documents/$(p)).data.owner_uid; }
 
-      allow create: if isSignedIn()
-        && isCharPath(request.resource.data.a_charRef)
-        && isCharPath(request.resource.data.b_charRef)
-        && request.resource.data.createdBy == request.auth.uid
-        // 공격자만 생성: a_charRef의 소유자 == 나
-        && charOwner(request.resource.data.a_charRef) == request.auth.uid;
+        allow create: if isSignedIn()
+          && isCharPath(request.resource.data.a_charRef)
+          && isCharPath(request.resource.data.b_charRef)
+          && request.resource.data.createdBy == request.auth.uid
+          && charOwner(request.resource.data.a_charRef) == request.auth.uid
+          // 배틀 로그를 통해 생성하는 경우(선택 필드): 10분 이내만 허용
+          && (
+            !('via_battle_log' in request.resource.data)
+            || (
+              request.resource.data.via_battle_log.matches('^battle_logs/[^/]+$')
+              && request.time < get(/databases/$(database)/documents/$(request.resource.data.via_battle_log)).data.relation_deadline
+            )
+          );
+
 
       // 양측 삭제 가능
       allow delete: if isSignedIn()
