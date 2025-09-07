@@ -1,4 +1,3 @@
-// functions/index.js
 const { onCall } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
@@ -51,6 +50,7 @@ exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
   if(!uniq.length) return { ok:false, reason:'no-candidate' };
 
   const opp = pickWeighted(uniq, myElo) || uniq[0];
+  const oppOwner = (await db.doc(`chars/${opp.id}`).get()).data()?.owner_uid || null;
 
   const token = crypto.randomBytes(16).toString('hex');
   await db.collection('matchSessions').add({
@@ -58,7 +58,7 @@ exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
     a_char:`chars/${id}`,
     b_char:`chars/${opp.id}`,
     a_owner: uid,
-    b_owner: (await db.doc(`chars/${opp.id}`).get()).data()?.owner_uid || null,
+    b_owner: oppOwner,
     status:'paired',
     token,
     createdAt: Date.now(),
