@@ -72,3 +72,19 @@ exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
 
   return { ok:true, token, opponent: opp };
 });
+
+const functions = require('firebase-functions');
+const admin = require('firebase-admin');
+admin.initializeApp();
+
+// 배틀 로그 생성 시 relation_deadline = endedAt(또는 now) + 10분
+exports.onBattleLogCreate = functions.firestore
+  .document('battle_logs/{logId}')
+  .onCreate(async (snap, context) => {
+    const data = snap.data();
+    const endedAt = data.endedAt || admin.firestore.Timestamp.now();
+    const deadlineMs = endedAt.toMillis() + 10 * 60 * 1000;
+    const relation_deadline = admin.firestore.Timestamp.fromMillis(deadlineMs);
+    await snap.ref.update({ endedAt, relation_deadline });
+  });
+
