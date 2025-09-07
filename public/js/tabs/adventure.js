@@ -47,7 +47,10 @@ async function viewWorldPick(root){
           <div class="col" style="gap:10px">
             ${list.map(w=>`
               <button class="kv-card wpick" data-w="${esc(w.id)}" style="display:flex;gap:10px;align-items:center;text-align:left;cursor:pointer">
-                <img src="${esc('/assets/'+(w.img||''))}" style="width:72px;height:72px;border-radius:10px;object-fit:cover;background:#0b0f15">
+                <img src="${w?.img ? esc('/assets/'+w.img) : ''}"
+                     onerror="this.remove()"
+                     style="width:72px;height:72px;border-radius:10px;object-fit:cover;background:#0b0f15">
+
                 <div>
                   <div style="font-weight:900">${esc(w.name||w.id)}</div>
                   <div class="text-dim" style="font-size:12px">${esc(w.intro||'')}</div>
@@ -92,7 +95,10 @@ function viewSitePick(root, world){
                   <span class="chip" style="background:${diffColor(diff)};color:#121316;font-weight:800">${esc(String(diff).toUpperCase())}</span>
                 </div>
                 <div class="text-dim" style="font-size:12px;margin-top:4px">${esc(s.description||'')}</div>
-                ${s.img? `<div style="margin-top:8px"><img src="${esc('/assets/'+s.img)}" style="width:100%;max-height:180px;object-fit:cover;border-radius:10px;border:1px solid #273247;background:#0b0f15"></div>`:''}
+                ${s.img? `<div style="margin-top:8px"><img src="${esc('/assets/'+s.img)}"
+                     onerror="this.parentNode.remove()"
+                     style="width:100%;max-height:180px;object-fit:cover;border-radius:10px;border:1px solid #273247;background:#0b0f15"></div>`:''}
+
               </button>`;
           }).join('')}
         </div>
@@ -119,10 +125,17 @@ async function openCharPicker(root, world, site){
   const qs = await fx.getDocs(fx.query(
     fx.collection(db,'chars'),
     fx.where('owner_uid','==', u.uid),
-    fx.orderBy('createdAt','desc'),
-    fx.limit(20)
+    fx.limit(50)
   ));
+
   const chars=[]; qs.forEach(d=>chars.push({ id:d.id, ...d.data() }));
+
+  chars.sort((a,b)=>{
+    const ta = a?.createdAt?.toMillis?.() ?? 0;
+    const tb = b?.createdAt?.toMillis?.() ?? 0;
+    return tb - ta; // 최신 먼저
+  });
+
 
   const back = document.createElement('div');
   back.className = 'modal-back';
