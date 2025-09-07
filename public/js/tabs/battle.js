@@ -26,6 +26,60 @@ function ensureSpinCss(){
   `;
   document.head.appendChild(st);
 }
+
+// --- [세션 매칭 락] 새로고침/재입장해도 유지 (기본 TTL 3분)
+function _lockKey(mode, charId){ return `toh.match.lock.${mode}.${String(charId).replace(/^chars\//,'')}`; }
+function loadMatchLock(mode, charId){
+  try{
+    const raw = sessionStorage.getItem(_lockKey(mode,charId));
+    if(!raw) return null;
+    const j = JSON.parse(raw);
+    if(+j.expiresAt > Date.now()) return j;
+    sessionStorage.removeItem(_lockKey(mode,charId));
+    return null;
+  }catch(_){ return null; }
+}
+function saveMatchLock(mode, charId, payload){
+  const until = payload.expiresAt || (Date.now() + 3*60*1000);
+  const j = { opponent: payload.opponent, token: payload.token||null, expiresAt: until };
+  sessionStorage.setItem(_lockKey(mode,charId), JSON.stringify(j));
+}
+
+// --- [전역 쿨타임(1분)] 클라 가드 + (선택) 서버에 기록
+function getCooldownRemainMs(){
+  const v = +localStorage.getItem('toh.cooldown.allUntilMs') || 0;
+  return Math.max(0, v - Date.now());
+}
+function applyGlobalCooldown(seconds){
+  const until = Date.now() + (seconds*1000);
+  localStorage.setItem('toh.cooldown.allUntilMs', String(until));
+  // 서버 함수는 선택(없어도 동작). 있어도 실패 무시.
+  try{
+    const call = httpsCallable(func, 'setGlobalCooldown');
+    call({ seconds }).catch(()=>{});
+  }catch(_){}
+}
+function mountCooldownOnButton(btn, labelReady){
+  const tick = ()=>{
+    const r = getCooldownRemainMs();
+    if(r>0){
+      const s = Math.ceil(r/1000);
+      btn.disabled = true;
+      btn.textContent = `${labelReady} (쿨타임 ${s}s)`;
+    }else{
+      btn.disabled = false;
+      btn.textContent = labelReady;
+    }
+  };
+  tick();
+  const id = setInterval(()=>{
+    tick();
+    if(getCooldownRemainMs()<=0) clearInterval(id);
+  }, 500);
+}
+
+
+
 function intentGuard(mode){
   let j=null; try{ j=JSON.parse(sessionStorage.getItem('toh.match.intent')||'null'); }catch(_){}
   if(!j || j.mode!==mode || (Date.now()-(+j.ts||0))>90_000) return null;
@@ -192,21 +246,35 @@ export async function showBattle(){
   const btnStart  = document.getElementById('btnStart');
 
   try{
-    // 1) 먼저 Cloud Functions(onCall) 시도
-    let data = null;
-    try{
-      const call = httpsCallable(func, 'requestMatch');
-      ({ data } = await call({ charId: intent.charId, mode: 'battle' }));
-    }catch(_e){
-      // onCall이 CORS/요금제/미배포 등으로 막힌 경우 대비해서 넘어감
-      data = null;
-    }
+// 1) 세션 락 먼저 확인 → 없으면 기존 로직 수행
+let data = null;
 
-    // 2) onCall이 안 되면 → 클라이언트 임시 매칭 (Firestore 읽기만 사용)
-    if(!data?.ok){
-      data = await autoMatch({ db, fx, charId: intent.charId, mode: 'battle' });
-    }
-    if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
+// (a) 세션에 기존 매칭이 살아있으면 재사용
+const persisted = loadMatchLock('battle', intent.charId);
+if (persisted) {
+  data = { ok:true, token: persisted.token||null, opponent: persisted.opponent };
+} else {
+  // (b) 서버 onCall 시도 → 실패 시 기존 autoMatch 폴백
+  try{
+    const call = httpsCallable(func, 'requestMatch');
+    ({ data } = await call({ charId: intent.charId, mode: 'battle' }));
+  }catch(_e){
+    data = null;
+  }
+  if(!data?.ok){
+    data = await autoMatch({ db, fx, charId: intent.charId, mode: 'battle' });
+  }
+  if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
+
+  // (c) 이번에 잡은 매칭을 세션 락에 저장(3분 TTL)
+  saveMatchLock('battle', intent.charId, {
+    token: data.token || null,
+    opponent: data.opponent,
+    // 서버가 expiresAt 주면 우선 사용(없으면 주석 라인처럼 기본 3분)
+    // expiresAt: data.expiresAt || (Date.now() + 3*60*1000)
+  });
+}
+
 
     // 3) 상대 상세 불러와서 카드 렌더
     const oppId = String(data.opponent.id||data.opponent.charId||'').replace(/^chars\//,'');
@@ -235,9 +303,13 @@ export async function showBattle(){
     });
 
     // 토큰(있으면 저장) + 시작 버튼 활성화
-    const matchToken = data.token || null;
+    matchToken = data.token || null;
     btnStart.disabled = false;
+    mountCooldownOnButton(btnStart, '배틀 시작');
     btnStart.onclick = async ()=>{
+      if (getCooldownRemainMs()>0) return showToast('전역 쿨타임 중이야!');
+      applyGlobalCooldown(60); // 배틀 시작 시 1분 전역 쿨타임
+ 
       showToast('배틀 로직은 다음 패치에서 이어서 할게!');
       // TODO: import('../api/ai.js').then(({startBattleWithToken})=> startBattleWithToken({ token: matchToken }));
     };
