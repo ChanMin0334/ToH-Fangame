@@ -407,10 +407,7 @@ function renderNarrativePage(c, narrId){
       <div class="bookview" id="nView">
         <div class="kv-card">
           <div style="font-weight:900; font-size:18px; margin-bottom:8px">${esc(n.title || '서사')}</div>
-          <div class="kv-label">긴 본문</div>
           <div id="nLong" style="margin-bottom:10px"></div>
-          var nLongNode = document.getElementById('nLong');
-          if(nLongNode){ nLongNode.innerHTML = renderRich(n.long || '-'); }
 
           <div class="kv-label">요약</div>
           <div>${esc(n.short || '(요약이 아직 없어요)')}</div>
@@ -418,6 +415,11 @@ function renderNarrativePage(c, narrId){
       </div>
     </div>
   </section>`;
+
+  // [추가] 긴 본문 리치 렌더 (템플릿 주입 후 실행!)
+  const nLongNode = document.getElementById('nLong');
+  if (nLongNode) nLongNode.innerHTML = renderRich(n.long || '-');
+
 }
 
 function esc(s){
