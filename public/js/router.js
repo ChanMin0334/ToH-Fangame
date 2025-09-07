@@ -8,6 +8,7 @@ import { showRelations } from './tabs/relations.js';
 import { showCreate } from './tabs/create.js';
 import { showBattle } from './tabs/battle.js';
 import { showEncounter } from './tabs/encounter.js';
+import showExploreRun from './tabs/explore_run.js';
 
 
 
@@ -24,7 +25,9 @@ export const routes = {
       ?? console.warn('[router] char.js: export가 없어 실행 못함')),
   '#/create': showCreate,
   '#/battle': showBattle,
-  '#/encounter': showEncounter
+  '#/encounter': showEncounter,
+  '/explore-run': showExploreRun
+
 
 };
 
