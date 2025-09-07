@@ -252,19 +252,22 @@ export async function grantExp(charId, base, mode, note=''){
 }
 
 // ===== Relations / Episodes helpers =====
-export async function createRelation({ aCharId, bCharId, note='' }){
+export async function createRelation({ aCharId, bCharId, note='', viaBattleLogId=null }){
   const uid = auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
   const relId = [aCharId, bCharId].sort().join('__');
   const ref = fx.doc(db, 'relations', relId);
-  await fx.setDoc(ref, {
+  const payload = {
     a_charRef: `chars/${aCharId}`,
     b_charRef: `chars/${bCharId}`,
     createdBy: uid,
     createdAt: Date.now()
-  }, { merge: false });
+  };
+  if (viaBattleLogId) payload.via_battle_log = `battle_logs/${viaBattleLogId}`;
+  await fx.setDoc(ref, payload, { merge: false });
   if(note) await fx.setDoc(fx.doc(db,'relations', relId, 'meta', 'note'), { note, updatedAt: Date.now(), owner_uid: uid }, { merge: true });
   return relId;
 }
+
 
 export async function deleteRelation(relId){
   const uid = auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
@@ -301,6 +304,41 @@ export async function mergeMiniEpisodeIntoLatestNarrative(charId, episodeText){
   await fx.updateDoc(cRef, { narratives: arr, narrative_latest_id: arr[0].id, updatedAt: Date.now() });
   return true;
 }
+
+// ===== Battle Log Utils =====
+export async function saveBattleLog({ attackerId, defenderId, winner, stepsHtml, startedAtMs, endedAtMs }) {
+  const attackerRef = `chars/${attackerId}`;
+  const defenderRef = `chars/${defenderId}`;
+
+  // 소유자 조회
+  const [aSnap, dSnap] = await Promise.all([
+    fx.getDoc(fx.doc(db, attackerRef)),
+    fx.getDoc(fx.doc(db, defenderRef))
+  ]);
+  if (!aSnap.exists() || !dSnap.exists()) throw new Error('캐릭터 조회 실패');
+  const a = aSnap.data(), d = dSnap.data();
+
+  const docRef = await fx.addDoc(fx.collection(db, 'battle_logs'), {
+    attacker_char: attackerRef,
+    defender_char: defenderRef,
+    attacker_owner_uid: a.owner_uid,
+    defender_owner_uid: d.owner_uid,
+    winner, // 'attacker' | 'defender' | 'draw'
+    steps_html: String(stepsHtml || ''),
+    startedAt: startedAtMs ? new Date(startedAtMs) : fx.serverTimestamp(),
+    endedAt: endedAtMs ? new Date(endedAtMs) : fx.serverTimestamp(),
+    createdBy: auth.currentUser?.uid || a.owner_uid || d.owner_uid
+    // relation_deadline: functions가 세팅
+  });
+  return docRef.id;
+}
+
+export async function getBattleLog(logId){
+  const s = await fx.getDoc(fx.doc(db, 'battle_logs', logId));
+  if(!s.exists()) throw new Error('배틀 로그 없음');
+  return { id: s.id, ...s.data() };
+}
+
 
 
 // === 레거시 호환: saveLocal 참조하는 오래된 파일 대비 (no-op) ===
