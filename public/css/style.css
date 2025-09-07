@@ -382,4 +382,5 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
 }
 .fr-photo img{ width:100%; height:100%; object-fit:cover; display:block; }
 
+.fixed-actions { z-index: 1000; }  /* 모달 z-index 1001 */
 
