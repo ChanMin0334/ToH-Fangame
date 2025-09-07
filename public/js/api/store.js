@@ -1,5 +1,7 @@
 // /public/js/api/store.js
 import { db, auth, fx, storage, sx, serverTimestamp } from './firebase.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+
 import { showToast } from '../ui/toast.js';
 
 // ===== 전역 앱 상태 =====
@@ -339,6 +341,22 @@ export async function getBattleLog(logId){
   return { id: s.id, ...s.data() };
 }
 
+// === [탐험 콜러블 래퍼] ===
+export async function startExploreServer({ charId, worldId, siteId, difficulty='normal' }){
+  const call = httpsCallable(func, 'startExplore');
+  const { data } = await call({ charId, worldId, siteId, difficulty });
+  return data;
+}
+export async function stepExploreServer({ runId, choiceKey=null }){
+  const call = httpsCallable(func, 'stepExplore');
+  const { data } = await call({ runId, choiceKey });
+  return data;
+}
+export async function endExploreServer({ runId }){
+  const call = httpsCallable(func, 'endExplore');
+  const { data } = await call({ runId });
+  return data;
+}
 
 
 // === 레거시 호환: saveLocal 참조하는 오래된 파일 대비 (no-op) ===
