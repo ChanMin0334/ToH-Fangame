@@ -193,21 +193,30 @@ export async function showEncounter(){
   const btnStart  = document.getElementById('btnStart');
 
   try{
-    // 1) 먼저 Cloud Functions(onCall) 시도
-    let data = null;
-    try{
-      const call = httpsCallable(func, 'requestMatch');
-      ({ data } = await call({ charId: intent.charId, mode: 'encounter' }));
-    }catch(_e){
-      // onCall이 CORS/요금제/미배포 등으로 막힌 경우 대비해서 넘어감
-      data = null;
-    }
+    // 1) 세션 락 먼저 확인 → 없으면 기존 로직 수행
+let data = null;
+const persisted = loadMatchLock('encounter', intent.charId);
+if (persisted) {
+  data = { ok:true, token: persisted.token||null, opponent: persisted.opponent };
+} else {
+  try{
+    const call = httpsCallable(func, 'requestMatch');
+    ({ data } = await call({ charId: intent.charId, mode: 'encounter' }));
+  }catch(_e){
+    data = null;
+  }
+  if(!data?.ok){
+    data = await autoMatch({ db, fx, charId: intent.charId, mode: 'encounter' });
+  }
+  if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
 
-    // 2) onCall이 안 되면 → 클라이언트 임시 매칭 (Firestore 읽기만 사용)
-    if(!data?.ok){
-      data = await autoMatch({ db, fx, charId: intent.charId, mode: 'encounter' });
-    }
-    if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
+  saveMatchLock('encounter', intent.charId, {
+    token: data.token || null,
+    opponent: data.opponent,
+    // expiresAt: data.expiresAt || (Date.now() + 3*60*1000)
+  });
+}
+
 
     // 3) 상대 상세 불러와서 카드 렌더
     const oppId = String(data.opponent.id||data.opponent.charId||'').replace(/^chars\//,'');
@@ -238,7 +247,11 @@ export async function showEncounter(){
     // 토큰(있으면 저장) + 시작 버튼 활성화
     matchToken = data.token || null;
     btnStart.disabled = false;
+    mountCooldownOnButton(btnStart, '조우 시작');
     btnStart.onclick = async ()=>{
+      if (getCooldownRemainMs()>0) return showToast('전역 쿨타임 중이야!');
+      applyGlobalCooldown(60); // 조우 시작 시 1분 전역 쿨타임
+
       showToast('조우 로직은 다음 패치에서 이어서 할게!');
       // TODO: import('../api/ai.js').then(({startEncounterWithToken})=> startEncounterWithToken({ token: matchToken }));
     };
