@@ -21,9 +21,9 @@ export const routes = {
   '#/char': () => import('./tabs/char.js')
     .then(m => (m.showCharDetail ?? m.default ?? m.showChar)?.()
       ?? console.warn('[router] char.js: export가 없어 실행 못함')),
-  '#/create': showCreate
+  '#/create': showCreate,
   '#/battle': showBattle,
-  '#/encounter': showEncounterTab,
+  '#/encounter': showEncounterTab
 
 };
 
