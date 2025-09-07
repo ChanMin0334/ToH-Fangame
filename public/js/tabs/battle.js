@@ -28,6 +28,77 @@ function intentGuard(mode){
   return j; // {charId, mode, ts}
 }
 
+// --- 내 로드아웃(스킬/아이템) 표시 + 스킬 2개 선택 저장 ---
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c])); }
+function truncate(s, n){ s=String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
+
+async function renderLoadoutForMatch(charId, myChar){
+  const box = document.getElementById('loadoutArea');
+  if(!box) return;
+
+  const abilities = Array.isArray(myChar.abilities_all) ? myChar.abilities_all : [];
+  let equipped = Array.isArray(myChar.abilities_equipped) ? myChar.abilities_equipped.filter(Number.isInteger).slice(0,2) : [];
+  const items = Array.isArray(myChar.items_equipped) ? myChar.items_equipped.slice(0,3) : [];
+
+  box.innerHTML = `
+    <div class="p12">
+      <div style="font-weight:800;margin-bottom:8px">내 스킬 (정확히 2개 선택)</div>
+      ${
+        abilities.length
+        ? `<div class="grid2" id="skillGrid" style="gap:8px">
+            ${abilities.map((ab,i)=>`
+              <label class="kv-card" style="display:flex;gap:8px;align-items:flex-start;padding:10px;cursor:pointer">
+                <input type="checkbox" data-i="${i}" ${equipped.includes(i)?'checked':''}
+                       style="margin-top:3px">
+                <div>
+                  <div style="font-weight:700">${esc(ab?.name || ('스킬 ' + (i+1)))}</div>
+                  <div class="text-dim" style="font-size:12px">${esc(ab?.desc_soft || '')}</div>
+                </div>
+              </label>
+            `).join('')}
+          </div>`
+        : `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
+      }
+
+      <div style="font-weight:800;margin:12px 0 6px">내 아이템 (최대 3개)</div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+        ${[0,1,2].map(s=>{
+          const id = items[s];
+          return `<div class="kv-card" style="min-height:44px;display:flex;align-items:center;justify-content:center">
+            ${id ? esc('#' + String(id).slice(-6)) : '(비어 있음)'}
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="text-dim" style="font-size:12px;margin-top:6px">
+        ※ ‘가방 열기’는 지금은 더미. 아이템 교체는 다음 패치에서 열어줄게.
+      </div>
+    </div>
+  `;
+
+  // 스킬 체크박스 2개 유지 + 저장
+  if(abilities.length){
+    const inputs = box.querySelectorAll('input[type=checkbox][data-i]');
+    inputs.forEach(inp=>{
+      inp.addEventListener('change', async ()=>{
+        let on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
+        if(on.length > 2){
+          inp.checked = false;
+          return window.showToast?.('스킬은 정확히 2개만 선택 가능해');
+        }
+        equipped = on;
+        try{
+          await fx.updateDoc(fx.doc(db,'chars', charId), { abilities_equipped: on });
+          window.showToast?.('스킬 선택 저장 완료');
+        }catch(e){
+          console.error('[battle] abilities_equipped update fail', e);
+          window.showToast?.('저장 실패');
+        }
+      });
+    });
+  }
+}
+
+
 export async function showBattle(){
   ensureSpinCss();
   const intent = intentGuard('battle');
@@ -75,6 +146,26 @@ export async function showBattle(){
     const id=j?.charId||'';
     location.hash = id ? `#/char/${id}` : '#/home';
   };
+
+  // — 매칭 패널 아래에 "내 스킬/아이템" 카드 추가
+  document.getElementById('matchPanel')?.insertAdjacentHTML('afterend', `
+    <div class="card p16 mt12" id="loadoutPanel">
+      <div class="kv-label">내 스킬 / 아이템</div>
+      <div id="loadoutArea"></div>
+    </div>
+  `);
+
+  // 내 캐릭터 불러와서 로드아웃 렌더
+  let myChar = {};
+  try{
+    const meSnap = await fx.getDoc(fx.doc(db,'chars', (intent?.charId||'').replace(/^chars\//,'')));
+    if(meSnap.exists()) myChar = meSnap.data();
+  }catch(e){
+    console.error('[battle] my char load fail', e);
+  }
+  renderLoadoutForMatch(intent.charId, myChar);
+
+
 
   // 가방 모달(더미)
   document.getElementById('btnBag').onclick = ()=>{
