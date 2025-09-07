@@ -6,8 +6,6 @@ import {
   collection, query, where, orderBy, limit
 } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 
-import { getFunctions } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
-
 
 
 
