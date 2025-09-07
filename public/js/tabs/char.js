@@ -2,8 +2,9 @@
 import { db, auth, fx } from '../api/firebase.js';
 import {
   tierOf, uploadAvatarSquare, updateAbilitiesEquipped, updateItemsEquipped,
-  getCharMainImageUrl
+  getCharMainImageUrl, fetchWorlds
 } from '../api/store.js';
+
 import { showToast } from '../ui/toast.js';
 
 // ---------- utils ----------
@@ -64,7 +65,7 @@ export async function showCharDetail(){
     // 서사 상세 라우팅이면 전용 페이지 렌더
     if (narrId) { renderNarrativePage(c, narrId); return; }
 
-    else{ render(c); }
+    else{ await render(c); }
   }catch(e){
     console.error('[char] load error', e);
     const msg = e?.code==='permission-denied'
@@ -77,13 +78,26 @@ export async function showCharDetail(){
 
 
 // ---------- render ----------
-function render(c){
+async function render(c){
+
   const root = document.getElementById('view');
   const tier = tierOf(c.elo||1000);
   const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
   const expVal = Number.isFinite(c.exp) ? c.exp : 0;
   // exp_progress(0~100)가 있으면 사용, 없으면 exp % 100
   const expPct = Math.max(0, Math.min(100, (c.exp_progress ?? ((expVal)%100)) ));
+    // 세계관 라벨: id → 이름 매핑
+  const worlds = await fetchWorlds().catch(()=>null);
+  let worldName = c.world_id || 'world:default';
+  try {
+    if (Array.isArray(worlds)) {
+      const w = worlds.find(x => x.id === c.world_id);
+      worldName = (w?.name) || worldName;
+    } else if (worlds && typeof worlds === 'object') {
+      const w = worlds[c.world_id];
+      worldName = (typeof w === 'string') ? w : (w?.name || worldName);
+    }
+  } catch (_) {}
 
 
   root.innerHTML = `
@@ -104,10 +118,9 @@ function render(c){
           <span class="tier-chip" style="background:${tier.color}1a; color:#fff; border-color:${tier.color}80;">
             ${tier.name || 'Tier'}
           </span>
-          <span class="chip">${c.world_id || 'world:default'}</span>
-          <!-- 관계 보기 버튼 -->
-          <button class="chip" id="btnRelations" style="cursor:pointer">관계</button>
+          <span class="chip">${worldName}</span>
         </div>
+
 
 
                 <!-- EXP bar -->
@@ -167,9 +180,6 @@ function render(c){
     });
   }
   root.querySelector('#btnLike')?.addEventListener('click', ()=> showToast('좋아요는 다음 패치!'));
-  root.querySelector('#btnRelations')?.addEventListener('click', ()=> {
-    location.hash = `#/relations/${c.id}`;
-  });
 
 
   // 탭
@@ -283,9 +293,15 @@ function renderBioSub(which, c, sv){
     sv.innerHTML = `
       <div class="kv-label">미니 에피소드</div>
       <div class="kv-card text-dim">조우/배틀에서 생성된 에피소드가 여기에 쌓일 예정이야.</div>
+      <div style="margin-top:8px; display:flex; justify-content:flex-end">
+        <button class="btn" id="btnGoRelations">관계 보기 / 생성</button>
+      </div>
     `;
+    sv.querySelector('#btnGoRelations')?.addEventListener('click', ()=>{
+      location.hash = `#/relations/${c.id}`;
+    });
   }
-}
+
 
 // 스킬/아이템 탭
 async function renderLoadout(c, view){
@@ -509,13 +525,43 @@ function renderHistory(c, view){
     <div class="p12">
       <h4>전적</h4>
       <div class="grid3 mt8">
-        <div class="kv-card"><div class="kv-label">배틀</div><div>${c.battle_count||0}</div></div>
-        <div class="kv-card"><div class="kv-label">조우</div><div>${c.encounter_count||0}</div></div>
-        <div class="kv-card"><div class="kv-label">탐험</div><div>${c.explore_count||0}</div></div>
+        <button class="kv-card" id="cardBattle" style="text-align:left;cursor:pointer">
+          <div class="kv-label">배틀</div><div>${c.battle_count||0}</div>
+          <div class="text-dim" style="font-size:12px;margin-top:4px">클릭하면 최근 기록 요약을 보여줄게</div>
+        </button>
+        <button class="kv-card" id="cardEncounter" style="text-align:left;cursor:pointer">
+          <div class="kv-label">조우</div><div>${c.encounter_count||0}</div>
+          <div class="text-dim" style="font-size:12px;margin-top:4px">클릭하면 최근 기록 요약을 보여줄게</div>
+        </button>
+        <button class="kv-card" id="cardExplore" style="text-align:left;cursor:pointer">
+          <div class="kv-label">탐험</div><div>${c.explore_count||0}</div>
+          <div class="text-dim" style="font-size:12px;margin-top:4px">클릭하면 최근 기록 요약을 보여줄게</div>
+        </button>
       </div>
       <div class="kv-card mt12 text-dim">상세 타임라인은 추후 추가될 예정이야.</div>
     </div>
   `;
+
+  const openInfo = (title, note)=>{
+    const back = document.createElement('div');
+    back.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50';
+    const card = document.createElement('div');
+    card.style.cssText = 'background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:520px;width:92vw';
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-weight:900">${title}</div>
+        <button class="btn ghost" id="mClose">닫기</button>
+      </div>
+      <div class="kv-card">${note}</div>`;
+    back.appendChild(card);
+    back.addEventListener('click', (e)=>{ if(e.target===back) back.remove(); });
+    card.querySelector('#mClose').onclick = ()=> back.remove();
+    document.body.appendChild(back);
+  };
+
+  view.querySelector('#cardBattle')?.addEventListener('click', ()=> openInfo('배틀 전적', '상세 타임라인은 추후 추가될 예정이야.'));
+  view.querySelector('#cardEncounter')?.addEventListener('click', ()=> openInfo('조우 전적', '상세 타임라인은 추후 추가될 예정이야.'));
+  view.querySelector('#cardExplore')?.addEventListener('click', ()=> openInfo('탐험 전적', '상세 타임라인은 추후 추가될 예정이야.'));
 }
 
 function closeMatchOverlay(){
