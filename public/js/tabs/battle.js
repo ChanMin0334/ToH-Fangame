@@ -247,7 +247,6 @@ export async function showBattle(){
     matchArea.innerHTML = `<div class="text-dim">지금은 매칭이 어려워. 잠시 후 다시 시도해줘</div>`;
   }
 
-  }
 }
 
 export default showBattle;
