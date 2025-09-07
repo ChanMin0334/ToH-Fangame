@@ -17,11 +17,21 @@ exports.onBattleLogCreate = functions.firestore
 
 // === requestMatch: 캐릭터 기준 매칭 락 생성(배틀/조우 공용) ===
 // 입력: { charId: string, mode: 'battle'|'encounter' }
-exports.requestMatch = functions.region('us-central1').https.onCall(async (data, ctx) => {
+exports.requestMatch = onCall({
+  region: 'us-central1',
+  cors: ['https://tale-of-heros---fangame.firebaseapp.com',
+         'https://tale-of-heros---fangame.web.app',
+         'http://localhost:5000']
+}, async (req) => {
+  try {
+    const data = req.data || {};
+    const uid  = req.auth?.uid;
+
   try {
 
+// (이미 위에서 uid를 만들었으니 이 줄은 지우거나 아래처럼 맞춰도 됨)
+// const uid = req.auth?.uid;
 
-  const uid = ctx.auth?.uid;
   if(!uid) throw new functions.https.HttpsError('unauthenticated','로그인이 필요해');
 
   const mode = (data?.mode==='encounter') ? 'encounter' : 'battle';
