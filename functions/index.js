@@ -72,3 +72,32 @@ exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
 
   return { ok:true, token, opponent: opp };
 });
+
+// 전역 쿨타임(초) 설정 — 서버 시간 기준, 기존보다 "연장만" 가능(단축 불가)
+exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
+  try{
+    const uid = req.auth?.uid;
+    if(!uid) throw new functions.https.HttpsError('unauthenticated','로그인이 필요해');
+
+    const seconds = Math.max(1, Math.min(600, Number(req.data?.seconds || 60)));
+    const dbx = admin.firestore();
+    const userRef = dbx.doc(`users/${uid}`);
+
+    await dbx.runTransaction(async (tx)=>{
+      const now = admin.firestore.Timestamp.now();
+      const snap = await tx.get(userRef);
+      const exist = snap.exists ? snap.get('cooldown_all_until') : null;
+      const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis()); // 절대 단축 불가
+      const until = admin.firestore.Timestamp.fromMillis(baseMs + seconds*1000);
+      tx.set(userRef, { cooldown_all_until: until }, { merge:true });
+    });
+
+    return { ok:true };
+  }catch(err){
+    functions.logger.error('[setGlobalCooldown] fail', err);
+    if (err instanceof functions.https.HttpsError) throw err;
+    throw new functions.https.HttpsError('internal','cooldown-internal-error',{message:err?.message||String(err)});
+  }
+});
+
+
