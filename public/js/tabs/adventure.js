@@ -35,6 +35,118 @@ function ensureLocalCss(){
   document.head.appendChild(st);
 }
 
+
+
+
+/* === 탐험 쿨타임 & 진행 락 유틸 (P0, Functions 없이 Firestore만) === */
+const EXPLORE_COOLDOWN_MS = 60*60*1000; // 1시간
+
+function getExploreCooldownRemainMs(){
+  const v = +localStorage.getItem('toh.cooldown.exploreUntilMs') || 0;
+  return Math.max(0, v - Date.now());
+}
+async function setExploreCooldown(uid, untilMs){
+  try{ localStorage.setItem('toh.cooldown.exploreUntilMs', String(untilMs)); }catch(_){}
+  try{
+    // users/{uid} 에 병행 기록(다중 기기 대비) — 규칙에서 본인만 쓰기 허용 필요
+    const ref = fx.doc(db,'users', uid);
+    await fx.setDoc(ref, { cooldown_explore_until_ms: untilMs }, { merge:true });
+  }catch(_){}
+}
+function mountExploreCooldownOnButton(btn){
+  const label = '탐험 시작';
+  const tick = ()=>{
+    const r = getExploreCooldownRemainMs();
+    if(r>0){
+      const s = Math.ceil(r/1000);
+      btn.disabled = true;
+      btn.textContent = `${label} (쿨타임 ${s}s)`;
+    }else{
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  };
+  tick();
+  const id = setInterval(()=>{
+    tick();
+    if(getExploreCooldownRemainMs()<=0) clearInterval(id);
+  }, 500);
+}
+
+// === 캐릭터별 진행 락(한 번에 하나) + 런 생성 ===
+async function getActiveRunForChar(charId){
+  try{
+    const ref = fx.doc(db,'explore_active', String(charId));
+    const snap = await fx.getDoc(ref);
+    if(!snap.exists()) return null;
+    const d = snap.data()||{};
+    return (d.status === 'active') ? d : null;
+  }catch(_){ return null; }
+}
+
+async function createExploreRun({ char, world, site, difficulty, equippedSkillIdxs }){
+  const u = auth.currentUser;
+  if(!u) throw new Error('로그인이 필요해');
+
+  // 중복 진행 가드
+  const existing = await getActiveRunForChar(char.id);
+  if(existing) return { reused:true, runId: existing.runId };
+
+  // 새 run 문서 id 생성
+  const runRef = fx.doc(fx.collection(db,'explore_runs'));
+  const actRef = fx.doc(db,'explore_active', String(char.id));
+  const nowMs = Date.now();
+
+  const runDoc = {
+    runId: runRef.id,
+    owner_uid: u.uid,
+    charRef: `chars/${char.id}`,
+    world: { id: world.id, name: world.name||world.id },
+    site:  { id: site.id,  name: site.name||'명소', difficulty },
+    stamina_start: 10,
+    stamina: 10,
+    turn: 0,
+    summary3: '',
+    startedAt: fx.serverTimestamp(),
+    status: 'active',
+    equipped_skills: Array.isArray(equippedSkillIdxs) ? equippedSkillIdxs.slice(0,2) : []
+  };
+
+  const actDoc = {
+    runId: runRef.id,
+    owner_uid: u.uid,
+    charRef: `chars/${char.id}`,
+    status: 'active',
+    createdAt: fx.serverTimestamp()
+  };
+
+  const batch = fx.writeBatch(db);
+  batch.set(runRef, runDoc);
+  batch.set(actRef, actDoc);
+  await batch.commit();
+
+  // 전역(탐험) 쿨타임 1시간 기록
+  await setExploreCooldown(u.uid, nowMs + EXPLORE_COOLDOWN_MS);
+
+  // 이어가기용 의도 캐시
+  try{
+    sessionStorage.setItem('toh.explore.intent', JSON.stringify({
+      runId: runRef.id, charId: char.id,
+      worldId: world.id, siteId: site.id, difficulty
+    }));
+  }catch(_){}
+
+  return { reused:false, runId: runRef.id };
+}
+
+
+
+
+
+
+
+
+
 // 난이도 라벨 색(이지→레전드: 푸른→노란→붉은)
 function diffChipStyle(d){
   const map = {
@@ -311,6 +423,8 @@ async function renderPrep(view, { world, site, char }){
         ※ 지금은 UI 준비 단계(P0)야. 실제 진행/보상은 다음 패치에서 이어서 붙일게!
       </div>
     </div>
+      mountExploreCooldownOnButton(view.querySelector('#btnStart'));
+
   `;
 
   // 뒤로가기(명소로)
@@ -346,28 +460,42 @@ async function renderPrep(view, { world, site, char }){
     });
   }
 
-  // 시작(다음 패치에서 실제 진행 화면 연결 예정) — 현재는 의도 저장만
-  view.querySelector('#btnStart')?.addEventListener('click', ()=>{
+   const btnStart = view.querySelector('#btnStart');
+  btnStart?.addEventListener('click', async ()=>{
+    // 스킬 2개 강제
     if(abilities.length && equipped.length!==2){
       return showToast('스킬을 딱 2개 선택해줘!');
     }
-    const intent = {
-      charId: char.id,
-      worldId: world.id,
-      siteId: site.id,
-      difficulty: site.difficulty||'normal',
-      ts: Date.now()
-    };
-    sessionStorage.setItem('toh.explore.intent', JSON.stringify(intent));
-    showToast('탐험 준비 완료! 다음 패치에서 이어서 진행할게');
-  });
 
-  view.querySelector('#btnCancel')?.addEventListener('click', ()=>{
-    renderSiteList(view, (JSON.parse(sessionStorage.getItem('adv.worlds.raw')||'{}').worlds)||[], world);
-  });
+    // 전역(탐험) 쿨타임 가드
+    if(getExploreCooldownRemainMs()>0){
+      return showToast('탐험 전역 쿨타임 중이야!');
+    }
 
-  // 세계관 캐시(뒤로가기에 사용)
-  try{ sessionStorage.setItem('adv.worlds.raw', JSON.stringify(await fetchWorlds())); }catch(_){}
-}
+    try{
+      // 진행 중 런 있으면 재사용(이어하기)
+      const active = await getActiveRunForChar(char.id);
+      if(active){
+        showToast('이미 진행 중인 탐험이 있어. 이어서 들어갈게!');
+        // 다음 패치에서 진행 화면으로 라우팅 연결:
+        // location.hash = `#/explore-run/${active.runId}`;
+        return;
+      }
+
+      // 새 런 생성
+      const { runId } = await createExploreRun({
+        char, world, site,
+        difficulty: (site.difficulty||'normal'),
+        equippedSkillIdxs: equipped
+      });
+
+      showToast('탐험을 시작했어! 다음 패치에서 진행 화면으로 이어줄게.');
+      // 다음 패치에서 라우팅 연결:
+      // location.hash = `#/explore-run/${runId}`;
+    }catch(e){
+      console.error('[explore] start fail', e);
+      showToast('탐험 시작에 실패했어. 잠시 후 다시 시도해줘');
+    }
+  });
 
 export default showAdventure;
