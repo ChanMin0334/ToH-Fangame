@@ -3,6 +3,28 @@ import { db, auth, fx } from '../api/firebase.js';
 import { fetchWorlds } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 
+
+
+
+
+// ===== modal css (adventure 전용) =====
+function ensureModalCss(){
+  if (document.getElementById('toh-modal-css')) return;
+  const st = document.createElement('style');
+  st.id = 'toh-modal-css';
+  st.textContent = `
+    .modal-back{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+                background:rgba(0,0,0,.45)}
+    .modal-card{background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:720px;width:92vw;
+                max-height:80vh;overflow:auto}
+  `;
+  document.head.appendChild(st);
+}
+
+
+
+
+
 // ===== 공용 유틸 =====
 const LS_EXPLORE_CD = 'toh.cooldown.exploreUntilMs';
 const EXPLORE_CD_MS = 60 * 60 * 1000;   // 1시간
@@ -120,6 +142,8 @@ function viewSitePick(root, world){
 // ===== 3단계: 캐릭터 선택(모달) → 4단계: 준비 화면 =====
 async function openCharPicker(root, world, site){
   const u = auth.currentUser;
+  ensureModalCss();
+
   if(!u){ showToast('로그인이 필요해'); return; }
 
   const qs = await fx.getDocs(fx.query(
@@ -196,20 +220,71 @@ function viewPrep(root, world, site, char){
           </div>
         </div>
 
-        <div class="kv-label mt12">스킬 / 아이템(요약)</div>
-        <div class="kv-card text-dim" style="font-size:12px">
-          스킬 ${Array.isArray(char.abilities_equipped)? char.abilities_equipped.length : 0}개 장착 / 아이템 ${Array.isArray(char.items_equipped)? char.items_equipped.length:0}개
-          <div style="margin-top:6px">※ P0: 아이템은 더미, 탐험 중 사용 UI는 추후 패치</div>
-        </div>
+        <div class="kv-label mt12">스킬 선택 (정확히 2개)</div>
+<div id="skillBox">
+  ${
+    Array.isArray(char.abilities_all) && char.abilities_all.length
+    ? `<div class="grid2 mt8" id="skillGrid" style="gap:8px">
+        ${char.abilities_all.map((ab,i)=>`
+          <label class="kv-card" style="display:flex;gap:8px;align-items:flex-start;padding:10px;cursor:pointer">
+            <input type="checkbox" data-i="${i}" ${(Array.isArray(char.abilities_equipped)&&char.abilities_equipped.includes(i))?'checked':''}
+                   style="margin-top:3px">
+            <div>
+              <div style="font-weight:700">${esc(ab?.name || ('스킬 ' + (i+1)))}</div>
+              <div class="text-dim" style="font-size:12px">${esc(ab?.desc_soft || '')}</div>
+            </div>
+          </label>
+        `).join('')}
+      </div>`
+    : `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
+  }
+</div>
 
-        <div class="row" style="gap:8px;justify-content:flex-end;margin-top:12px">
-          <button class="btn" id="btnStart"${remain>0?' disabled':''}>탐험 시작</button>
-        </div>
-        <div class="text-dim" id="cdNote" style="font-size:12px;margin-top:6px"></div>
+<div class="kv-label mt12">아이템 (요약)</div>
+<div class="kv-card text-dim" style="font-size:12px">
+  슬롯 3개 — ${
+    Array.isArray(char.items_equipped)&&char.items_equipped.length
+    ? `${char.items_equipped.length}개 장착`
+    : '비어 있음'
+  }
+  <div style="margin-top:6px">※ P0: 아이템은 더미, 탐험 중 사용 UI는 추후 패치</div>
+</div>
+
+<div class="row" style="gap:8px;justify-content:flex-end;margin-top:12px">
+  <button class="btn" id="btnStart"${remain>0?' disabled':''}>탐험 시작</button>
+</div>
+<div class="text-dim" id="cdNote" style="font-size:12px;margin-top:6px"></div>
+
       </div>
     </section>
   `;
 
+    // 스킬 체크박스 2개 유지 + 저장
+  (function bindSkillSelection(){
+    const abilities = Array.isArray(char.abilities_all) ? char.abilities_all : [];
+    if (!abilities.length) return;
+
+    const inputs = root.querySelectorAll('#skillGrid input[type=checkbox][data-i]');
+    inputs.forEach(inp=>{
+      inp.addEventListener('change', async ()=>{
+        const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
+        if (on.length > 2){
+          inp.checked = false;
+          return showToast('스킬은 정확히 2개만 선택 가능해');
+        }
+        try{
+          await fx.updateDoc(fx.doc(db,'chars', char.id), { abilities_equipped: on });
+          char.abilities_equipped = on;
+          showToast('스킬 선택 저장 완료');
+        }catch(e){
+          console.error('[explore] abilities_equipped update fail', e);
+          showToast('저장 실패');
+        }
+      });
+    });
+  })();
+
+  
   root.querySelector('#btnBackSites')?.addEventListener('click', ()=> viewSitePick(root, world));
 
   const cdNote = root.querySelector('#cdNote');
