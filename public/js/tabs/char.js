@@ -221,7 +221,8 @@ function renderBioSub(which, c, sv){
   if(which==='summary'){
     sv.innerHTML = `
       <div class="kv-label">기본 소개</div>
-      <div class="kv-card">${c.summary||'-'}</div>
+      <div class="kv-card" style="white-space:pre-line">${c.summary||'-'}</div>
+
     `;
   }else if(which==='narr'){
   // 표준 narratives 우선, 없으면 legacy narrative_items를 긴 본문으로 취급
@@ -407,7 +408,7 @@ function renderNarrativePage(c, narrId){
         <div class="kv-card">
           <div style="font-weight:900; font-size:18px; margin-bottom:8px">${esc(n.title || '서사')}</div>
           <div class="kv-label">긴 본문</div>
-          <div style="margin-bottom:10px">${esc(n.long || '-')}</div>
+          <div style="margin-bottom:10px; white-space:pre-line">${esc(n.long || '-')}</div>
           <div class="kv-label">요약</div>
           <div>${esc(n.short || '(요약이 아직 없어요)')}</div>
         </div>
