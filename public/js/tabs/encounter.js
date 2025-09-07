@@ -249,6 +249,14 @@ if (persisted) {
     btnStart.disabled = false;
     mountCooldownOnButton(btnStart, '조우 시작');
     btnStart.onclick = async ()=>{
+      try{
+        const callCD = httpsCallable(func, 'setGlobalCooldown');
+        await callCD({ seconds: 60 }); // 서버가 쿨타임 고정(연장만)
+      }catch(e){
+        showToast('쿨타임 설정에 실패했어. 잠시 후 다시 시도해줘');
+        return; // 서버가 못 박으면 진행 금지
+      }
+
       if (getCooldownRemainMs()>0) return showToast('전역 쿨타임 중이야!');
       applyGlobalCooldown(60); // 조우 시작 시 1분 전역 쿨타임
 
