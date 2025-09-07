@@ -232,9 +232,11 @@ function renderBio(c, view){
       <button class="sub active" data-s="summary">기본 소개</button>
       <button class="sub" data-s="narr">서사</button>
       <button class="sub" data-s="epis">미니 에피소드</button>
+      <button class="sub" data-s="rel">관계</button>
     </div>
     <div id="subview" class="p12"></div>
   `;
+
   const sv = view.querySelector('#subview');
   const subs = view.querySelectorAll('.subtabs .sub');
   subs.forEach(b=>b.onclick=()=>{
@@ -290,17 +292,43 @@ function renderBioSub(which, c, sv){
   });
 
   }else if(which==='epis'){
-    sv.innerHTML = `
-      <div class="kv-label">미니 에피소드</div>
-      <div class="kv-card text-dim">조우/배틀에서 생성된 에피소드가 여기에 쌓일 예정이야.</div>
-      <div style="margin-top:8px; display:flex; justify-content:flex-end">
-        <button class="btn" id="btnGoRelations">관계 보기 / 생성</button>
-      </div>
-    `;
-    sv.querySelector('#btnGoRelations')?.addEventListener('click', ()=>{
-      location.hash = `#/relations/${c.id}`;
-    });
-  }
+  sv.innerHTML = `
+    <div class="kv-label">미니 에피소드</div>
+    <div class="kv-card text-dim">조우/배틀에서 생성된 에피소드가 여기에 쌓일 예정이야.</div>
+  `;
+}else if(which==='rel'){
+  sv.innerHTML = `
+    <div class="kv-label">관계</div>
+    <div id="relList" class="col" style="gap:8px"></div>
+    <div id="relSentinel" style="height:1px"></div>
+    <div class="text-dim" id="relHint" style="margin-top:6px;font-size:12px">더미 데이터를 15개씩 불러오고 있어.</div>
+  `;
+  // 더미 무한 스크롤(60개까지)
+  (function(){
+    const box = sv.querySelector('#relList');
+    const sent = sv.querySelector('#relSentinel');
+    let loaded = 0, total = 60, page = 15, busy = false, done = false;
+    async function loadMore(){
+      if (busy || done) return; busy = true;
+      const n = Math.min(page, total - loaded);
+      for(let i=0;i<n;i++){
+        const idx = loaded + i + 1;
+        const el = document.createElement('div');
+        el.className = 'kv-card';
+        el.innerHTML = `<div style="font-weight:700">관계 더미 #${idx}</div><div class="text-dim" style="font-size:12px">상세는 다음 패치에서!</div>`;
+        box.appendChild(el);
+      }
+      loaded += n;
+      if (loaded >= total){ done = true; sv.querySelector('#relHint').textContent = '마지막까지 다 봤어.'; obs.disconnect(); }
+      busy = false;
+    }
+    const obs = new IntersectionObserver((es)=>{ es.forEach(e=>{ if(e.isIntersecting) loadMore(); }); });
+    obs.observe(sent);
+    loadMore();
+  })();
+}
+
+
 }  
 
 
@@ -520,7 +548,6 @@ function renderRich(text){
 }
 
 
-
 function renderHistory(c, view){
   view.innerHTML = `
     <div class="p12">
@@ -528,42 +555,227 @@ function renderHistory(c, view){
       <div class="grid3 mt8">
         <button class="kv-card" id="cardBattle" style="text-align:left;cursor:pointer">
           <div class="kv-label">배틀</div><div>${c.battle_count||0}</div>
-          <div class="text-dim" style="font-size:12px;margin-top:4px">클릭하면 최근 기록 요약을 보여줄게</div>
+          <div class="text-dim" style="font-size:12px;margin-top:4px">클릭하면 아래에 타임라인이 나와</div>
         </button>
         <button class="kv-card" id="cardEncounter" style="text-align:left;cursor:pointer">
           <div class="kv-label">조우</div><div>${c.encounter_count||0}</div>
-          <div class="text-dim" style="font-size:12px;margin-top:4px">클릭하면 최근 기록 요약을 보여줄게</div>
+          <div class="text-dim" style="font-size:12px;margin-top:4px">클릭하면 아래에 타임라인이 나와</div>
         </button>
         <button class="kv-card" id="cardExplore" style="text-align:left;cursor:pointer">
           <div class="kv-label">탐험</div><div>${c.explore_count||0}</div>
-          <div class="text-dim" style="font-size:12px;margin-top:4px">클릭하면 최근 기록 요약을 보여줄게</div>
+          <div class="text-dim" style="font-size:12px;margin-top:4px">클릭하면 아래에 타임라인이 나와</div>
         </button>
       </div>
-      <div class="kv-card mt12 text-dim">상세 타임라인은 추후 추가될 예정이야.</div>
+
+      <div class="kv-card mt12">
+        <div class="kv-label" id="tlTitle">상세 타임라인</div>
+        <div id="timelineBox" class="col" style="gap:8px"></div>
+        <div id="tlSentinel" style="height:1px"></div>
+        <div id="tlEmpty" class="text-dim" style="margin-top:8px">상세 타임라인은 추후 추가될 예정이야.</div>
+      </div>
     </div>
   `;
 
-  const openInfo = (title, note)=>{
-    const back = document.createElement('div');
-    back.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50';
-    const card = document.createElement('div');
-    card.style.cssText = 'background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:520px;width:92vw';
-    card.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div style="font-weight:900">${title}</div>
-        <button class="btn ghost" id="mClose">닫기</button>
-      </div>
-      <div class="kv-card">${note}</div>`;
-    back.appendChild(card);
-    back.addEventListener('click', (e)=>{ if(e.target===back) back.remove(); });
-    card.querySelector('#mClose').onclick = ()=> back.remove();
-    document.body.appendChild(back);
+  const box   = view.querySelector('#timelineBox');
+  const sent  = view.querySelector('#tlSentinel');
+  const empty = view.querySelector('#tlEmpty');
+  const setTitle = (m)=> view.querySelector('#tlTitle').textContent =
+    (m==='battle'?'배틀 타임라인': m==='encounter'?'조우 타임라인':'탐험 타임라인');
+
+  // 상태
+  let mode = null;
+  let busy = false;
+  let done = false;
+
+  // 배틀/조우는 공격자/방어자 두 쿼리를 병합 페이징
+  let lastA=null, lastD=null, doneA=false, doneD=false;   // battle/encounter
+  // 탐험은 단일 커서
+  let lastE=null, doneE=false;
+
+  // 유틸
+  const t = (ts)=> {
+    try{
+      if(!ts) return '';
+      if (typeof ts.toMillis === 'function') return new Date(ts.toMillis());
+      if (typeof ts === 'number') return new Date(ts);
+      return new Date(ts);
+    }catch{ return new Date(); }
   };
 
-  view.querySelector('#cardBattle')?.addEventListener('click', ()=> openInfo('배틀 전적', '상세 타임라인은 추후 추가될 예정이야.'));
-  view.querySelector('#cardEncounter')?.addEventListener('click', ()=> openInfo('조우 전적', '상세 타임라인은 추후 추가될 예정이야.'));
-  view.querySelector('#cardExplore')?.addEventListener('click', ()=> openInfo('탐험 전적', '상세 타임라인은 추후 추가될 예정이야.'));
+  function appendItems(items){
+    if(items.length) empty.style.display = 'none';
+    const frag = document.createDocumentFragment();
+    items.forEach(it=>{
+      let go = '#';
+      let html = '';
+      if(mode==='battle'){
+        const who = it.winner==='attacker' ? '공격자 승' : it.winner==='defender' ? '방어자 승' : '무승부';
+        const when = t(it.endedAt).toLocaleString();
+        go = `#/battle-log/${it.id}`;
+        html = `
+          <div class="kv-card tl-go" data-go="${go}" style="border-left:3px solid ${it.winner==='attacker'?'#3a8bff':it.winner==='defender'?'#ff425a':'#777'};padding-left:10px">
+            <div style="font-weight:700">${who}</div>
+            <div class="text-dim" style="font-size:12px">${when}</div>
+            <div class="text-dim" style="font-size:12px">id: ${it.id}</div>
+          </div>`;
+      }else if(mode==='encounter'){
+        const when = t(it.endedAt).toLocaleString();
+        go = `#/encounter-log/${it.id}`;
+        html = `
+          <div class="kv-card tl-go" data-go="${go}">
+            <div style="font-weight:700">협력/배움 이벤트</div>
+            <div class="text-dim" style="font-size:12px">${when}</div>
+            <div class="text-dim" style="font-size:12px">id: ${it.id}</div>
+          </div>`;
+      }else{
+        const when = t(it.at || it.endedAt).toLocaleString();
+        go = `#/explore-run/${it.id}`;
+        html = `
+          <div class="kv-card tl-go" data-go="${go}">
+            <div style="font-weight:700">탐험 기록</div>
+            <div class="text-dim" style="font-size:12px">${when}</div>
+            <div class="text-dim" style="font-size:12px">id: ${it.id}</div>
+          </div>`;
+      }
+      const wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      const el = wrap.firstElementChild;
+      el.addEventListener('click', ()=>{ location.hash = el.getAttribute('data-go'); });
+      frag.appendChild(el);
+    });
+    box.appendChild(frag);
+  }
+
+  async function fetchNext(){
+    if(busy || done || !mode) return;
+    busy = true;
+    const out = [];
+    try{
+      const charRef = `chars/${c.id}`;
+
+      if(mode==='battle'){
+        // attacker 쿼리
+        if(!doneA){
+          const partsA = [
+            fx.where('attacker_char','==', charRef),
+            fx.orderBy('endedAt','desc'),
+          ];
+          if(lastA) partsA.push(fx.startAfter(lastA));
+          partsA.push(fx.limit(15));
+          const qA = fx.query(fx.collection(db,'battle_logs'), ...partsA);
+          const sA = await fx.getDocs(qA);
+          const arrA=[]; sA.forEach(d=>arrA.push({ id:d.id, ...d.data() }));
+          if(arrA.length < 15) doneA = true;
+          if(sA.docs.length) lastA = sA.docs[sA.docs.length-1];
+          out.push(...arrA);
+        }
+        // defender 쿼리
+        if(!doneD){
+          const partsD = [
+            fx.where('defender_char','==', charRef),
+            fx.orderBy('endedAt','desc'),
+          ];
+          if(lastD) partsD.push(fx.startAfter(lastD));
+          partsD.push(fx.limit(15));
+          const qD = fx.query(fx.collection(db,'battle_logs'), ...partsD);
+          const sD = await fx.getDocs(qD);
+          const arrD=[]; sD.forEach(d=>arrD.push({ id:d.id, ...d.data() }));
+          if(arrD.length < 15) doneD = true;
+          if(sD.docs.length) lastD = sD.docs[sD.docs.length-1];
+          out.push(...arrD);
+        }
+        // 병합 정렬 (최신순)
+        out.sort((a,b)=>((b.endedAt?.toMillis?.()??0)-(a.endedAt?.toMillis?.()??0)));
+        if(doneA && doneD && out.length===0) done = true;
+      }
+      else if(mode==='encounter'){
+        // a_char
+        if(!doneA){
+          const partsA = [
+            fx.where('a_char','==', charRef),
+            fx.orderBy('endedAt','desc'),
+          ];
+          if(lastA) partsA.push(fx.startAfter(lastA));
+          partsA.push(fx.limit(15));
+          const qA = fx.query(fx.collection(db,'encounter_logs'), ...partsA);
+          const sA = await fx.getDocs(qA);
+          const arrA=[]; sA.forEach(d=>arrA.push({ id:d.id, ...d.data() }));
+          if(arrA.length < 15) doneA = true;
+          if(sA.docs.length) lastA = sA.docs[sA.docs.length-1];
+          out.push(...arrA);
+        }
+        // b_char
+        if(!doneD){
+          const partsB = [
+            fx.where('b_char','==', charRef),
+            fx.orderBy('endedAt','desc'),
+          ];
+          if(lastD) partsB.push(fx.startAfter(lastD));
+          partsB.push(fx.limit(15));
+          const qB = fx.query(fx.collection(db,'encounter_logs'), ...partsB);
+          const sB = await fx.getDocs(qB);
+          const arrB=[]; sB.forEach(d=>arrB.push({ id:d.id, ...d.data() }));
+          if(arrB.length < 15) doneD = true;
+          if(sB.docs.length) lastD = sB.docs[sB.docs.length-1];
+          out.push(...arrB);
+        }
+        out.sort((a,b)=>((b.endedAt?.toMillis?.()??0)-(a.endedAt?.toMillis?.()??0)));
+        if(doneA && doneD && out.length===0) done = true;
+      }
+      else if(mode==='explore'){
+        if(!doneE){
+          const parts = [ fx.orderBy('at','desc') ];
+          if(lastE) parts.push(fx.startAfter(lastE));
+          parts.push(fx.limit(15));
+          const q = fx.query(
+            fx.collection(db,'explore_runs'),
+            fx.where('charRef','==', `chars/${c.id}`),
+            ...parts
+          );
+          const s = await fx.getDocs(q);
+          const arr=[]; s.forEach(d=>arr.push({ id:d.id, ...d.data() }));
+          if(arr.length < 15) doneE = true;
+          if(s.docs.length) lastE = s.docs[s.docs.length-1];
+          out.push(...arr);
+          if(doneE && out.length===0) done = true;
+        } else {
+          done = true;
+        }
+      }
+
+      appendItems(out);
+    }catch(e){
+      console.error('[timeline] fetch error', e);
+    }finally{
+      busy = false;
+    }
+  }
+
+  function resetAndLoad(newMode){
+    mode = newMode;
+    setTitle(mode);
+    box.innerHTML = '';
+    empty.style.display = '';
+    busy = false; done = false;
+    lastA = lastD = lastE = null;
+    doneA = doneD = doneE = false;
+    fetchNext();
+  }
+
+  // 스크롤 감시(무한 스크롤)
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach((en)=>{
+      if(en.isIntersecting) fetchNext();
+    });
+  }, { root: null, rootMargin: '600px 0px', threshold: 0 });
+  io.observe(sent);
+
+  // 카드 클릭 → 해당 타임라인 로드
+  view.querySelector('#cardBattle')?.addEventListener('click', ()=> resetAndLoad('battle'));
+  view.querySelector('#cardEncounter')?.addEventListener('click', ()=> resetAndLoad('encounter'));
+  view.querySelector('#cardExplore')?.addEventListener('click', ()=> resetAndLoad('explore'));
 }
+
 
 function closeMatchOverlay(){
   document.querySelector('.modal-wrap')?.remove();
