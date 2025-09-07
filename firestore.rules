@@ -223,6 +223,37 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────
+    // Exploration Runs
+    // ─────────────────────────────
+    match /explore_runs/{runId} {
+      // 내 기록만 읽기
+      allow read: if isSignedIn() && resource.data.owner_uid == request.auth.uid;
+
+      // 생성: 내 캐릭으로 시작만 허용
+      allow create: if isSignedIn()
+        && request.resource.data.owner_uid == request.auth.uid
+        && isCharPath(request.resource.data.charRef)
+        && charOwner(request.resource.data.charRef) == request.auth.uid
+        && request.resource.data.status == 'ongoing'
+        && request.resource.data.startedAt is timestamp;
+
+      // 진행/완료 업데이트: 소유자만
+      allow update: if isSignedIn()
+        && resource.data.owner_uid == request.auth.uid
+        && (
+          // 상태 필드는 ongoing → completed 정도만 허용
+          (!('status' in request.resource.data))
+          || (request.resource.data.status in ['ongoing','completed'])
+        )
+        // owner_uid/charRef 위조 방지
+        && (!('owner_uid' in request.resource.data) || request.resource.data.owner_uid == resource.data.owner_uid)
+        && (!('charRef'   in request.resource.data) || request.resource.data.charRef   == resource.data.charRef);
+
+      // 삭제 금지(보존)
+      allow delete: if false;
+    }
+   
+    // ─────────────────────────────
     // 기본 차단
     // ─────────────────────────────
     match /{document=**} {
