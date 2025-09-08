@@ -10,84 +10,67 @@ service cloud.firestore {
     function isOwner(data) {
       return isSignedIn() && data.owner_uid == request.auth.uid;
     }
-    // charRef가 "chars/문서ID" 형식인지 확인
     function isCharPath(p) {
       return p is string && p.matches('^chars/[^/]+$');
     }
-    // charRef를 통해 실제 캐릭터 문서의 소유자 UID를 가져옴
     function charOwner(charPath) {
       return get(/databases/$(database)/documents/$(charPath)).data.owner_uid;
     }
-    // 탐험 쿨타임 (1시간)
     function exploreCooldown(){
       return duration.value(1, 'h');
     }
 
     // ===== 캐릭터 (chars) =====
     match /chars/{charId} {
-      // 열람은 모두 허용
       allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
 
-      // 생성: 소유자 자신만
-      allow create: if isSignedIn()
-                    && request.resource.data.owner_uid == request.auth.uid;
-
-      // 수정/삭제: 소유자만. 핵심 정보(owner_uid, createdAt) 수정 방지
-      allow update: if isOwner(resource.data)
+      // ⚠️ 최종 수정: 소유자라면 핵심 필드를 제외하고 자유롭게 수정 가능하도록 규칙을 단순화하고 명확하게 변경
+      allow update: if isSignedIn()
+                    && resource.data.owner_uid == request.auth.uid
                     && !('owner_uid' in request.resource.data)
                     && !('createdAt' in request.resource.data);
+
       allow delete: if isOwner(resource.data);
 
       // --- 캐릭터 이미지 서브문서 ---
       match /images/{imageDoc} {
         allow read: if true;
         allow create, update, delete: if isSignedIn()
-          && get(/databases/$(database)/documents/chars/$(charId)).data.owner_uid
-             == request.auth.uid;
+          && get(/databases/$(database)/documents/chars/$(charId)).data.owner_uid == request.auth.uid;
       }
     }
 
     // ===== 캐릭터 인벤토리 (char_items) =====
-    // ⚠️ 수정됨: isCharPath와 charOwner 헬퍼를 사용해 더 안전하고 일관성 있게 변경
     match /char_items/{itemId} {
-      allow read: if true;
-      allow create: if isSignedIn()
-        && isCharPath(request.resource.data.char_id)
-        && charOwner(request.resource.data.char_id) == request.auth.uid;
-
-      allow update, delete: if isSignedIn()
-        && isCharPath(resource.data.char_id)
-        && charOwner(resource.data.char_id) == request.auth.uid;
+        allow read: if true;
+        allow create: if isSignedIn()
+            && isCharPath(request.resource.data.char_id)
+            && charOwner(request.resource.data.char_id) == request.auth.uid;
+        allow update, delete: if isSignedIn()
+            && isCharPath(resource.data.char_id)
+            && charOwner(resource.data.char_id) == request.auth.uid;
     }
     
     // ===== 탐험 (explore_runs) =====
     match /explore_runs/{runId} {
-      // 내 기록만 읽기
       allow read: if isOwner(resource.data);
-
-      // 생성: 내 캐릭으로 시작, 서버에서 쿨타임 강제
       allow create: if isSignedIn()
         && request.resource.data.owner_uid == request.auth.uid
         && isCharPath(request.resource.data.charRef)
         && charOwner(request.resource.data.charRef) == request.auth.uid
         && request.resource.data.status == 'ongoing'
         && (
-            // 캐릭터에 마지막 탐험 시간이 기록되지 않았거나 (첫 탐험)
             !('last_explore_startedAt' in get(/databases/$(database)/documents/$(request.resource.data.charRef)).data)
-            // 마지막 탐험 시간 + 쿨타임 < 현재 시간 이어야 함
             || get(/databases/$(database)/documents/$(request.resource.data.charRef)).data.last_explore_startedAt + exploreCooldown() < request.time
         );
-
-      // 업데이트: 소유자만, 'ongoing' -> 'ended' 상태 변경만 허용
       allow update: if isOwner(resource.data)
-        && !('owner_uid' in request.resource.data) // 핵심 정보 수정 방지
+        && !('owner_uid' in request.resource.data)
         && !('charRef' in request.resource.data)
         && (
             !('status' in request.resource.data)
             || (resource.data.status == 'ongoing' && request.resource.data.status == 'ended')
         );
-
-      // 삭제는 불가 (기록 보존)
       allow delete: if false;
     }
 
@@ -96,47 +79,34 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.auth.uid == uid;
       allow update: if isSignedIn() && request.auth.uid == uid
-        && (
-          !('nickname' in request.resource.data)
-          || request.resource.data.nickname.size() <= 20
-        )
+        && (!('nickname' in request.resource.data) || request.resource.data.nickname.size() <= 20)
         && (
           !('nickname' in request.resource.data)
           || !('nickname' in resource.data)
           || request.resource.data.nickname == resource.data.nickname
           || !('lastNicknameChangeAt' in resource.data)
-          || (request.time.toMillis() - resource.data.lastNicknameChangeAt >
-              7 * 24 * 60 * 60 * 1000)
+          || (request.time.toMillis() - resource.data.lastNicknameChangeAt > 7 * 24 * 60 * 60 * 1000)
         );
     }
 
     // ===== 친구 요청(friendRequests) =====
     match /friendRequests/{reqId} {
-      allow read: if isSignedIn()
-        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
-      allow create: if isSignedIn()
-        && request.auth.uid == request.resource.data.from;
-      allow update: if isSignedIn()
-        && request.auth.uid == resource.data.to;
-      allow delete: if isSignedIn()
-        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.from;
+      allow update: if isSignedIn() && request.auth.uid == resource.data.to;
+      allow delete: if isSignedIn() && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
     }
 
     // ===== 친구 관계(friendships) =====
     match /friendships/{pairId} {
-      allow read, delete: if isSignedIn()
-        && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
-      allow create: if isSignedIn()
-        && (request.auth.uid == request.resource.data.a
-            || request.auth.uid == request.resource.data.b);
+      allow read, delete: if isSignedIn() && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
+      allow create: if isSignedIn() && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
     }
     
     // ===== 매칭 세션(matchSessions) =====
     match /matchSessions/{sid} {
-      allow read: if isSignedIn()
-        && (request.auth.uid == resource.data.a_owner
-            || request.auth.uid == resource.data.b_owner);
-      allow write: if false; // Functions만 쓰기 가능
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.a_owner || request.auth.uid == resource.data.b_owner);
+      allow write: if false;
     }
     
     // ===== 매칭 대기열(matchRequests) =====
@@ -147,23 +117,18 @@ service cloud.firestore {
         && request.resource.data.status == "open"
         && request.resource.data.lockedBy == null
         && request.resource.data.char_ref.matches('^chars/[^/]+$');
-      
-      // ⚠️ 수정됨: 두 개의 allow update를 OR(||) 연산자로 합쳐 문법 오류 해결
       allow update: if isSignedIn()
         && (
-          // 조건 1) 내가 만든 대기열의 상태를 직접 변경하는 경우
           ( resource.data.owner_uid == request.auth.uid
             && (request.resource.data.status in ["open","paired","cancelled"])
-            && request.resource.data.lockedBy == resource.data.lockedBy // lockedBy는 내가 수정 불가
-          )
-          // 또는, 조건 2) 다른 사람이 내 대기열을 '찜'하는 경우
-          || ( resource.data.owner_uid != request.auth.uid
-            && resource.data.lockedBy == null // 비어있을 때만
-            && request.resource.data.lockedBy != null // 한 번만 찜하기 가능
-            && request.resource.data.status == resource.data.status // 다른 정보는 수정 불가
+            && request.resource.data.lockedBy == resource.data.lockedBy
+          ) || ( 
+            resource.data.owner_uid != request.auth.uid
+            && resource.data.lockedBy == null
+            && request.resource.data.lockedBy != null
+            && request.resource.data.status == resource.data.status
           )
         );
-        
       allow delete: if isSignedIn()
         && (
           resource.data.owner_uid == request.auth.uid
@@ -186,11 +151,8 @@ service cloud.firestore {
     }
 
     // ===== 기본 차단 =====
-    // 위에 명시되지 않은 모든 경로는 접근 불가
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-
-
