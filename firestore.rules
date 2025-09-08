@@ -24,14 +24,11 @@ service cloud.firestore {
     match /chars/{charId} {
       allow read: if true;
       allow create: if isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
-
-      // ⚠️ 최종 수정: 소유자라면 핵심 필드를 제외하고 자유롭게 수정 가능하도록 규칙을 단순화하고 명확하게 변경
-      allow update: if isSignedIn()
-                    && resource.data.owner_uid == request.auth.uid
-                    && !('owner_uid' in request.resource.data)
-                    && !('createdAt' in request.resource.data);
-
       allow delete: if isOwner(resource.data);
+
+      // ⚠️ 최종 수정: 소유자라면 어떤 필드든 수정할 수 있도록 허용합니다.
+      // 이것이 가장 간단하고 확실한 해결책입니다.
+      allow update: if isOwner(resource.data);
 
       // --- 캐릭터 이미지 서브문서 ---
       match /images/{imageDoc} {
@@ -100,7 +97,7 @@ service cloud.firestore {
     // ===== 친구 관계(friendships) =====
     match /friendships/{pairId} {
       allow read, delete: if isSignedIn() && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
-      allow create: if isSignedIn() && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
+      allow create: if isSignedIn() && (request.auth.uid == request.resource.data.a || request.auth.uid == resource.data.b);
     }
     
     // ===== 매칭 세션(matchSessions) =====
