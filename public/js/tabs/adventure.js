@@ -21,6 +21,37 @@ function ensureModalCss(){
   document.head.appendChild(st);
 }
 
+
+// ===== 🐞 최종 디버깅용 테스트 함수 =====
+async function testFirestoreWrite() {
+  console.log('%c[DEBUG] Running Firestore Write Test...', 'color: #1abc9c; font-weight: bold;');
+  const u = auth.currentUser;
+
+  if (!u) {
+    console.error('🔴 Test FAILED: auth.currentUser is null.');
+    showToast('Test FAILED: Not logged in.');
+    return;
+  }
+  
+  console.log('[DEBUG] Current User Object:', u);
+  console.log('[DEBUG] Current User UID:', u.uid);
+
+  try {
+    const docRef = await fx.addDoc(fx.collection(db, 'test_writes'), {
+      uid: u.uid,
+      createdAt: fx.serverTimestamp(),
+      message: 'This is a test write to verify authentication.'
+    });
+    console.log(`%c✅ SUCCESS! Test write successful!`, 'color: #2ecc71; font-weight: bold;');
+    console.log('   - Document ID:', docRef.id);
+    showToast('DB 쓰기 테스트 성공!');
+  } catch (e) {
+    console.error(`%c🔴 FAILED! Test write failed!`, 'color: #e74c3c; font-weight: bold;');
+    console.error('   - Detailed Error:', e);
+    showToast('DB 쓰기 테스트 실패. 콘솔을 확인해주세요.');
+  }
+}
+
 // ===== 공용 유틸 =====
 const STAMINA_BASE  = 10;
 const cooldownRemain = ()=> getCdRemain(EXPLORE_COOLDOWN_KEY);
@@ -230,6 +261,7 @@ function viewPrep(root, world, site, char){
         </div>
 
         <div class="row" style="gap:8px;justify-content:flex-end;margin-top:12px">
+          <button class="btn ghost" id="btnTestWrite">DB 쓰기 테스트</button>
           <button class="btn" id="btnStart"${remain>0?' disabled':''}>탐험 시작</button>
         </div>
         <div class="text-dim" id="cdNote" style="font-size:12px;margin-top:6px"></div>
@@ -304,6 +336,9 @@ function viewPrep(root, world, site, char){
   };
   intervalId = setInterval(tick, 500);
   tick();
+
+    // --- 🐞 테스트 버튼에 이벤트 리스너 추가 ---
+  root.querySelector('#btnTestWrite')?.addEventListener('click', testFirestoreWrite);
 
   btnStart?.addEventListener('click', async ()=>{
     if (btnStart.disabled) return;
