@@ -1,10 +1,6 @@
 // /public/js/tabs/battle.js
-// 들어오자마자 자동 매칭 → 상단에 상대 카드(이름/intro 요약/스킬 라벨) → 하단에 '배틀 시작'
-// 내 캐릭터 카드는 표시하지 않음. '가방 열기'는 모달(더미 데이터).
-
 import { auth, db, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
-// 제일 위 import 들 아래에 추가
 import { autoMatch } from '../api/match_client.js';
 
 
@@ -125,27 +121,46 @@ async function renderLoadoutForMatch(charId, myChar){
     </div>
   `;
 
+  // ===== ⚠️ 수정된 부분 시작 =====
   // 스킬 체크박스 2개 유지 + 저장
   if(abilities.length){
     const inputs = box.querySelectorAll('input[type=checkbox][data-i]');
     inputs.forEach(inp=>{
       inp.addEventListener('change', async ()=>{
-        let on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
+        const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
+
         if(on.length > 2){
           inp.checked = false;
-          return showToast('스킬은 정확히 2개만 선택 가능해');
+          showToast('스킬은 정확히 2개만 선택 가능해');
+          return;
         }
-        equipped = on;
-        try{
-          await fx.updateDoc(fx.doc(db,'chars', charId), { abilities_equipped: on });
-          showToast('스킬 선택 저장 완료');
-        }catch(e){
-          console.error('[battle] abilities_equipped update fail', e);
-          showToast('저장 실패');
+
+        // adventure.js와 일관되게, 2개가 선택되었을 때만 저장합니다.
+        if (on.length === 2) {
+            if (!charId) {
+                console.error('[battle] Character ID is missing, cannot save skills.');
+                showToast('캐릭터 정보가 없어 저장할 수 없어.');
+                return;
+            }
+            try{
+                const charRef = fx.doc(db, 'chars', charId);
+                await fx.updateDoc(charRef, { abilities_equipped: on });
+                
+                // 로컬 데이터도 업데이트
+                equipped = on;
+                if (myChar) {
+                    myChar.abilities_equipped = on;
+                }
+                showToast('스킬 선택 저장 완료');
+            }catch(e){
+                console.error('[battle] abilities_equipped update fail', e);
+                showToast('저장 실패: ' + e.message);
+            }
         }
       });
     });
   }
+  // ===== 수정된 부분 끝 =====
 }
 
 // ---------- entry ----------
@@ -241,26 +256,23 @@ export async function showBattle(){
   const btnStart  = document.getElementById('btnStart');
 
   try{
-// 1) 세션 락 먼저 확인 → 없으면 기존 로직 수행
-let data = null;
+    let data = null;
 
-// (a) 세션에 기존 매칭이 살아있으면 재사용
-const persisted = loadMatchLock('battle', intent.charId);
-if (persisted) {
-  data = { ok:true, token: persisted.token||null, opponent: persisted.opponent };
-} else {
-   // (b) 서버 함수 없이 → 클라 임시 매칭만 사용
-  data = await autoMatch({ db, fx, charId: intent.charId, mode: 'battle' });
-  if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
+    // (a) 세션에 기존 매칭이 살아있으면 재사용
+    const persisted = loadMatchLock('battle', intent.charId);
+    if (persisted) {
+      data = { ok:true, token: persisted.token||null, opponent: persisted.opponent };
+    } else {
+      // (b) 서버 함수 없이 → 클라 임시 매칭만 사용
+      data = await autoMatch({ db, fx, charId: intent.charId, mode: 'battle' });
+      if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
 
-  // (c) 세션 락 저장(3분 TTL)
-  saveMatchLock('battle', intent.charId, {
-    token: data.token || null,
-    opponent: data.opponent
-  });
-
-}
-
+      // (c) 세션 락 저장(3분 TTL)
+      saveMatchLock('battle', intent.charId, {
+        token: data.token || null,
+        opponent: data.opponent
+      });
+    }
 
     // 3) 상대 상세 불러와서 카드 렌더
     const oppId = String(data.opponent.id||data.opponent.charId||'').replace(/^chars\//,'');
@@ -293,11 +305,10 @@ if (persisted) {
     btnStart.disabled = false;
     mountCooldownOnButton(btnStart, '배틀 시작');
     btnStart.onclick = async ()=>{
-  if (getCooldownRemainMs()>0) return showToast('전역 쿨타임 중이야!');
-  applyGlobalCooldown(60); // 배틀 시작 시 1분 전역 쿨타임(로컬)
-  showToast('배틀 로직은 다음 패치에서 이어서 할게!');
-  // TODO: import('../api/ai.js').then(({startBattleWithToken})=> startBattleWithToken({ token: matchToken }));
-};
+      if (getCooldownRemainMs()>0) return showToast('전역 쿨타임 중이야!');
+      applyGlobalCooldown(60); // 배틀 시작 시 1분 전역 쿨타임(로컬)
+      showToast('배틀 로직은 다음 패치에서 이어서 할게!');
+    };
 
 
   }catch(e){
