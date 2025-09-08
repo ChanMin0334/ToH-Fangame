@@ -3,10 +3,6 @@ import { db, auth, fx } from '../api/firebase.js';
 import { fetchWorlds } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 
-
-
-
-
 // ===== modal css (adventure 전용) =====
 function ensureModalCss(){
   if (document.getElementById('toh-modal-css')) return;
@@ -20,10 +16,6 @@ function ensureModalCss(){
   `;
   document.head.appendChild(st);
 }
-
-
-
-
 
 // ===== 공용 유틸 =====
 const LS_EXPLORE_CD = 'toh.cooldown.exploreUntilMs';
@@ -301,8 +293,6 @@ function viewPrep(root, world, site, char){
     });
   });
 })();
-
-
   
   root.querySelector('#btnBackSites')?.addEventListener('click', ()=> viewSitePick(root, world));
 
@@ -322,7 +312,7 @@ function viewPrep(root, world, site, char){
   const iv = setInterval(()=>{ tick(); if(cooldownRemain()<=0) clearInterval(iv); }, 500);
 
   root.querySelector('#btnStart')?.addEventListener('click', async ()=>{
-        // 스킬 2개 선택 가드
+    // 스킬 2개 선택 가드
     if (Array.isArray(char.abilities_all) && char.abilities_all.length){
       const eq = Array.isArray(char.abilities_equipped) ? char.abilities_equipped : [];
       if (eq.length !== 2){
@@ -334,18 +324,11 @@ function viewPrep(root, world, site, char){
     if(cooldownRemain()>0) return showToast('쿨타임이 끝나면 시작할 수 있어!');
 
     try{
-      // 진행 중 탐험이 있는지(최근 1시간) 간단 체크
+      // 진행 중 탐험이 있는지 간단 체크
       const q = fx.query(
         fx.collection(db,'explore_runs'),
         fx.where('charRef','==', `chars/${char.id}`),
         fx.where('status','==','ongoing'),
-        const q = fx.query(
-          fx.collection(db,'explore_runs'),
-          fx.where('charRef','==', `chars/${char.id}`),
-          fx.where('status','==','ongoing'),
-          fx.limit(1) // ← orderBy 없이 1개만 봅니다 (캐릭터당 동시 1런 가정)
-        );
-
         fx.limit(1)
       );
       const s = await fx.getDocs(q);
@@ -365,20 +348,16 @@ function viewPrep(root, world, site, char){
       world_id: world.id, world_name: world.name,
       site_id: site.id,  site_name: site.name,
       difficulty: site.difficulty || 'normal',
-      // (위쪽에) const now = Date.now();  // expiresAt 계산용은 그대로 둡니다.
-
-      startedAt: fx.serverTimestamp(),   // ← 여기만 숫자 → serverTimestamp()로
+      startedAt: fx.serverTimestamp(),
       expiresAt: now + EXPLORE_CD_MS,
-
       stamina_start: STAMINA_BASE,
       stamina: STAMINA_BASE,
       turn: 0,
       status: 'ongoing',
       summary3: '', // 3문장 요약은 추후 누적
-      // P0: 재현성은 일단 포기, 대신 미리 50개 난수 채워 저장 (resume 시 동일한 순서로 소비)
       prerolls: Array.from({length:50}, ()=> Math.floor(Math.random()*1000)+1),
-      events: [],  // {t, kind, note, deltaStamina, loot?}
-      rewards: []  // {type:'item'|'exp', ...}
+      events: [],
+      rewards: []
     };
 
     let runId = '';
