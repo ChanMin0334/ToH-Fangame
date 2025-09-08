@@ -26,9 +26,8 @@ export const routes = {
   '#/create': showCreate,
   '#/battle': showBattle,
   '#/encounter': showEncounter,
-  '/explore-run': showExploreRun
-
-
+  // 수정됨: 키(key)에 '#'를 추가하여 다른 라우트와 형식을 통일
+  '#/explore-run': showExploreRun
 };
 
 export function highlightTab(){
@@ -43,10 +42,13 @@ export function router(){
   // 고정 액션바가 남아있으면 제거 (다른 화면 가릴 수 있음)
   document.querySelector('.fixed-actions')?.remove();
   const hash = location.hash || '#/home';
+  
   // 상세 페이지는 :id 필요
   if(hash.startsWith('#/char/')) return routes['#/char']();
   if(hash.startsWith('#/relations/')) return routes['#/relations']();
-  if(hash.startsWith('#/explore-run/')) return (await import('./tabs/explore_run.js')).showExploreRun?.();
+  // 수정됨: 불필요한 dynamic import를 제거하고 다른 동적 라우트와 동일한 패턴으로 변경
+  if(hash.startsWith('#/explore-run/')) return routes['#/explore-run']();
+
   (routes[hash] || routes['#/home'])();
 }
 
