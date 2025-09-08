@@ -7,6 +7,7 @@ service cloud.firestore {
     function isSignedIn() {
       return request.auth != null;
     }
+    // isOwner 헬퍼는 기존 문서(resource.data)를 기반으로 소유권을 확인합니다.
     function isOwner(data) {
       return isSignedIn() && data.owner_uid == request.auth.uid;
     }
@@ -24,11 +25,12 @@ service cloud.firestore {
     match /chars/{charId} {
       allow read: if true;
       allow create: if isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
-      allow delete: if isOwner(resource.data);
-
-      // ⚠️ 최종 수정: 소유자라면 어떤 필드든 수정할 수 있도록 허용합니다.
-      // 이것이 가장 간단하고 확실한 해결책입니다.
+      
+      // 최종 수정: 기존 문서(resource.data)의 소유자만 수정을 허용합니다.
+      // 이것이 char.js, adventure.js, battle.js 모두에서 작동하는 가장 표준적인 방식입니다.
       allow update: if isOwner(resource.data);
+      
+      allow delete: if isOwner(resource.data);
 
       // --- 캐릭터 이미지 서브문서 ---
       match /images/{imageDoc} {
@@ -37,6 +39,8 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/chars/$(charId)).data.owner_uid == request.auth.uid;
       }
     }
+    
+    // (이하 규칙들은 이전과 동일하지만, 완전한 파일을 위해 모두 포함합니다)
 
     // ===== 캐릭터 인벤토리 (char_items) =====
     match /char_items/{itemId} {
