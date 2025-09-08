@@ -1,8 +1,11 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── helpers (전역에서 쓰게 루트에 둠)
+    // ─────────────────────────────
+    // 공통 헬퍼
+    // ─────────────────────────────
     function isSignedIn() {
       return request.auth != null;
     }
@@ -12,55 +15,217 @@ service cloud.firestore {
     function isCharPath(p) {
       return p is string && p.matches('^chars/[^/]+$');
     }
-    function charOwner(p) {
-      return get(/databases/$(database)/documents/$(p)).data.owner_uid;
+    function charOwner(charPath) {
+      return get(/databases/$(database)/documents/$(charPath)).data.owner_uid;
     }
 
-    // chars
+    // ─────────────────────────────
+    // users (프로필)
+    // ─────────────────────────────
+    match /users/{uid} {
+      // 로그인 사용자만 열람 가능
+      allow read: if isSignedIn();
+
+      // 본인만 생성/수정
+      allow create: if isSignedIn() && request.auth.uid == uid;
+
+      // 닉네임 길이 가드(선택)
+      allow update: if isSignedIn()
+        && request.auth.uid == uid
+        && (
+          !('nickname' in request.resource.data)
+          || (request.resource.data.nickname is string
+              && request.resource.data.nickname.size() <= 20)
+        );
+    }
+
+    // ─────────────────────────────
+    // chars (캐릭터)
+    // ─────────────────────────────
     match /chars/{charId} {
+      // 캐릭터 열람은 공개
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.owner_uid == request.auth.uid;
+
+      // 생성: owner_uid == 본인
+      allow create: if isSignedIn()
+        && request.resource.data.owner_uid == request.auth.uid;
+
+      // 수정/삭제: 기존 문서의 소유자만
+      allow update, delete: if isSignedIn()
+        && resource.data.owner_uid == request.auth.uid;
     }
 
-    // char_items
+    // ─────────────────────────────
+    // char_items (캐릭터 인벤토리)
+    // - char_id 는 "chars/{id}" 문자열
+    // - 소유자만 쓰기
+    // ─────────────────────────────
     match /char_items/{itemId} {
       allow read: if true;
+
       allow create: if isSignedIn()
         && ('char_id' in request.resource.data)
-        && get(/databases/$(database)/documents/chars/$(request.resource.data.char_id)).data.owner_uid == request.auth.uid;
+        && isCharPath(request.resource.data.char_id)
+        && charOwner(request.resource.data.char_id) == request.auth.uid;
+
       allow update, delete: if isSignedIn()
         && ('char_id' in resource.data)
-        && get(/databases/$(database)/documents/chars/$(resource.data.char_id)).data.owner_uid == request.auth.uid;
+        && isCharPath(resource.data.char_id)
+        && charOwner(resource.data.char_id) == request.auth.uid;
     }
 
-    // explore_runs (단일 선언)
+    // ─────────────────────────────
+    // relations (관계)
+    // via_battle_log 로 생성하는 경우: battle_logs.relation_deadline 내에서만 허용
+    // ─────────────────────────────
+    match /relations/{relId} {
+      allow read: if true;
+
+      allow create: if isSignedIn()
+        && isCharPath(request.resource.data.a_charRef)
+        && isCharPath(request.resource.data.b_charRef)
+        && request.resource.data.createdBy == request.auth.uid
+        && charOwner(request.resource.data.a_charRef) == request.auth.uid
+        && (
+          !('via_battle_log' in request.resource.data)
+          || (
+            request.resource.data.via_battle_log is string
+            && request.resource.data.via_battle_log.matches('^battle_logs/[^/]+$')
+            && request.time
+               < get(/databases/$(database)/documents/$(request.resource.data.via_battle_log)).data.relation_deadline
+          )
+        );
+
+      // 양측 소유자 중 한 명이면 삭제 가능
+      allow delete: if isSignedIn()
+        && (
+          charOwner(resource.data.a_charRef) == request.auth.uid
+          || charOwner(resource.data.b_charRef) == request.auth.uid
+        );
+
+      allow update: if false; // 업데이트는 비활성 (메모 등은 서브문서로)
+    }
+
+    // ─────────────────────────────
+    // relation_daily/{relId}/episodes/{date}
+    // 하루 1개 에피소드 저장용
+    // ─────────────────────────────
+    match /relation_daily/{relId}/episodes/{date} {
+      allow read: if true;
+
+      function canWrite() {
+        return isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
+      }
+
+      allow create: if canWrite();
+      allow update: if canWrite();
+      allow delete: if canWrite();
+    }
+
+    // ─────────────────────────────
+    // battle_logs
+    // ─────────────────────────────
+    match /battle_logs/{logId} {
+      allow read: if true;
+
+      // 생성: 공격자(생성자)만
+      allow create: if isSignedIn()
+        && isCharPath(request.resource.data.attacker_char)
+        && isCharPath(request.resource.data.defender_char)
+        && request.resource.data.createdBy == request.auth.uid;
+
+      allow update, delete: if false;
+
+      // 선택적 서브액션 (ex: relation 마킹)
+      match /actions/{actId} {
+        allow read: if true;
+        allow create: if isSignedIn()
+          && get(/databases/$(database)/documents/battle_logs/$(logId)).data.createdBy == request.auth.uid
+          && request.time
+             < get(/databases/$(database)/documents/battle_logs/$(logId)).data.relation_deadline;
+        allow update, delete: if false;
+      }
+    }
+
+    // ─────────────────────────────
+    // friendRequests (친구 요청)
+    // ─────────────────────────────
+    match /friendRequests/{reqId} {
+      allow read: if isSignedIn()
+        && (request.auth.uid == resource.data.from
+            || request.auth.uid == resource.data.to);
+
+      allow create: if isSignedIn()
+        && request.auth.uid == request.resource.data.from
+        && request.resource.data.from != request.resource.data.to;
+
+      allow update: if isSignedIn()
+        && request.auth.uid == resource.data.to;
+
+      allow delete: if isSignedIn()
+        && (request.auth.uid == resource.data.from
+            || request.auth.uid == resource.data.to);
+    }
+
+    // ─────────────────────────────
+    // friendships (친구 쌍)
+    // ─────────────────────────────
+    match /friendships/{pairId} {
+      allow read, delete: if isSignedIn()
+        && (request.auth.uid == resource.data.a
+            || request.auth.uid == resource.data.b);
+
+      allow create: if isSignedIn()
+        && (request.auth.uid == request.resource.data.a
+            || request.auth.uid == request.resource.data.b);
+    }
+
+    // ─────────────────────────────
+    // rankings / configs
+    // ─────────────────────────────
+    match /rankings/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /configs/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ─────────────────────────────
+    // explore_runs (탐험 런)
+    // ─────────────────────────────
     match /explore_runs/{runId} {
-      // 읽기: 내 것만
+      // 내 기록만 읽기
       allow read: if isSignedIn() && resource.data.owner_uid == request.auth.uid;
 
-      // 생성: 내 캐릭으로만, 상태 ongoing, startedAt/expiresAt은 숫자(ms) 허용
+      // 생성: 내 캐릭으로 시작만 허용
+      // - charRef: "chars/{id}"
+      // - startedAt: timestamp (클라이언트에서는 serverTimestamp() 사용 권장)
+      // - status: 'ongoing'
       allow create: if isSignedIn()
         && request.resource.data.owner_uid == request.auth.uid
         && isCharPath(request.resource.data.charRef)
         && charOwner(request.resource.data.charRef) == request.auth.uid
         && request.resource.data.status == 'ongoing'
-        && request.resource.data.startedAt is int
-        && request.resource.data.expiresAt is int;
+        && request.resource.data.startedAt is timestamp;
 
-      // 갱신: 소유자만, owner_uid/charRef 위조 금지, status는 ongoing|completed 만
+      // 진행/완료 업데이트: 소유자만
+      // - owner_uid/charRef 위조 금지
+      // - status 는 'ongoing' 또는 'completed'만 허용
       allow update: if isSignedIn()
         && resource.data.owner_uid == request.auth.uid
         && (!('owner_uid' in request.resource.data) || request.resource.data.owner_uid == resource.data.owner_uid)
         && (!('charRef'   in request.resource.data) || request.resource.data.charRef   == resource.data.charRef)
         && (!('status'    in request.resource.data) || (request.resource.data.status in ['ongoing','completed']));
 
+      // 보존: 삭제 불가
       allow delete: if false;
     }
 
-    // 나머지 컬렉션 규칙(친구/랭킹/설정/배틀 등)은 지금 쓰던 그대로 두되, 중복/스코프 내 함수 정의만 정리
-
-    // 기본 차단
+    // ─────────────────────────────
+    // 그 외 모두 차단
+    // ─────────────────────────────
     match /{document=**} {
       allow read, write: if false;
     }
