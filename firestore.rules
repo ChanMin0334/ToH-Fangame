@@ -5,6 +5,12 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ===== 🐞 최종 디버깅용 테스트 규칙 =====
+    // 이 규칙은 오직 인증 상태가 정상인지만 확인합니다.
+    match /test_writes/{docId} {
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+    }
+
     // ===== 공통 헬퍼 함수 =====
     function isSignedIn() {
       return request.auth != null;
