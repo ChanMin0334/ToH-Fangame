@@ -2,6 +2,11 @@
 import { db, auth, fx } from '../api/firebase.js';
 import { fetchWorlds } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
+import { EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS, getRemain as getCdRemain, apply as applyCd } from '../api/cooldown.js';
+import { createRun } from '../api/explore.js';
+import { formatRemain } from '../api/cooldown.js'; // 상단 import에 함께 추가
+
+
 
 // ===== modal css (adventure 전용) =====
 function ensureModalCss(){
@@ -18,10 +23,9 @@ function ensureModalCss(){
 }
 
 // ===== 공용 유틸 =====
-const LS_EXPLORE_CD = 'toh.cooldown.exploreUntilMs';
-const EXPLORE_CD_MS = 60 * 60 * 1000;   // 1시간
 const STAMINA_BASE  = 10;
-
+const STAMINA_BASE = 10;
+const cooldownRemain = ()=> getCdRemain(EXPLORE_COOLDOWN_KEY);
 const diffColor = (d)=>{
   const v = String(d||'').toLowerCase();
   // 이지 → 블루, 노말/하드 → 옐로우, 레전드/헬 → 레드 계열
@@ -34,9 +38,6 @@ const esc = (s)=> String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;'
 function cooldownRemain(){
   const until = +localStorage.getItem(LS_EXPLORE_CD) || 0;
   return Math.max(0, until - Date.now());
-}
-function applyExploreCooldown(){
-  localStorage.setItem(LS_EXPLORE_CD, String(Date.now()+EXPLORE_CD_MS));
 }
 
 // 의도 저장(새로고침/이탈 복원용)
@@ -300,8 +301,7 @@ function viewPrep(root, world, site, char){
   const tick = ()=>{
     const r = cooldownRemain();
     if(r>0){
-      const s = Math.ceil(r/1000), m = Math.floor(s/60), ss = s%60;
-      cdNote.textContent = `탐험 쿨타임: ${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+      cdNote.textContent = `탐험 쿨타임: ${formatRemain(r)}`;
       root.querySelector('#btnStart').disabled = true;
     }else{
       cdNote.textContent = '';
@@ -341,41 +341,20 @@ function viewPrep(root, world, site, char){
     }catch(_){ /* 권한/인덱스 이슈면 새로 생성으로 진행 */ }
 
     // 새 탐험 런 문서 생성
-    const now = Date.now();
-    const payload = {
-      charRef: `chars/${char.id}`,
-      owner_uid: auth.currentUser.uid,
-      world_id: world.id, world_name: world.name,
-      site_id: site.id,  site_name: site.name,
-      difficulty: site.difficulty || 'normal',
-      startedAt: fx.serverTimestamp(),
-      expiresAt: now + EXPLORE_CD_MS,
-      stamina_start: STAMINA_BASE,
-      stamina: STAMINA_BASE,
-      turn: 0,
-      status: 'ongoing',
-      summary3: '', // 3문장 요약은 추후 누적
-      prerolls: Array.from({length:50}, ()=> Math.floor(Math.random()*1000)+1),
-      events: [],
-      rewards: []
-    };
-
+    // 새 탐험 런 문서 생성
     let runId = '';
     try{
-      const ref = await fx.addDoc(fx.collection(db,'explore_runs'), payload);
-      runId = ref.id;
+      runId = await createRun({ world, site, char }); // api/explore.js 사용
     }catch(e){
       console.error('[explore] create run fail', e);
-      showToast('탐험 시작에 실패했어');
+      showToast(e?.message || '탐험 시작에 실패했어');
       return;
     }
 
-    // 로컬 쿨타임 적용(서버 함수는 안 씀)
-    applyExploreCooldown();
-
-    // 의도 저장 + 이동
+    // 의도 저장 + 이동 (쿨타임은 모듈에서 이미 적용됨)
     setExploreIntent({ charId: char.id, runId, world:world.id, site:site.id, ts:Date.now() });
     location.hash = `#/explore-run/${runId}`;
+
   });
 }
 
