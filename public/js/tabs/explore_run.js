@@ -2,6 +2,9 @@
 import { db, auth, fx } from '../api/firebase.js';
 import { grantExp } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
+import { rollStep, appendEvent, getActiveRun } from '../api/explore.js';
+import { requestAdventureNarrative } from '../api/ai.js';
+
 
 const STAMINA_MIN = 0;
 
@@ -17,24 +20,7 @@ function fmtLeft(ms){
   return (hh? hh+':' : '') + String(mm).padStart(2,'0') + ':' + String(ss).padStart(2,'0');
 }
 
-function takeRoll(state, mod=1000){
-  if(!Array.isArray(state.prerolls) || state.prerolls.length===0){
-    // 비상용
-    return (Math.floor(Math.random()*mod)+1);
-  }
-  const v = state.prerolls.shift();
-  return ((v%mod)+1);
-}
 
-function decideEvent(state){
-  // P0 간단 테이블:
-  // d6 (1~2: 함정/피해, 3~4: 보상상자, 5: 안전/정보, 6: 우호적 만남)
-  const r = (takeRoll(state, 6));
-  if(r<=2) return { kind:'hazard' };
-  if(r<=4) return { kind:'chest' };
-  if(r===5) return { kind:'lore' };
-  return { kind:'ally' };
-}
 
 function renderHeader(box, run, leftMs){
   box.innerHTML = `
@@ -157,63 +143,61 @@ export async function showExploreRun(){
   btnGive.addEventListener('click', ()=> endRun('giveup'));
 
   btnMove.addEventListener('click', async ()=>{
-    if(state.status!=='ongoing') return;
-    if(state.stamina<=STAMINA_MIN) return;
+  btnMove.addEventListener('click', async ()=>{
+  if(state.status!=='ongoing') return;
+  if(state.stamina<=STAMINA_MIN) return;
 
-    // 턴 소비 + 이벤트 결정
-    const ev = decideEvent(state);
-    let delta = 0, note='';
+  // 1) 주사위로 결과값 먼저 확정
+  const dice = rollStep(state); // state.prerolls가 내부에서 소비/갱신됨
 
-    if(ev.kind==='hazard'){
-      const dmg = Math.max(1, (takeRoll(state, 3))); // 1~3
-      delta = -dmg;
-      note = `함정 피해로 체력 ${dmg} 감소`;
-    }else if(ev.kind==='chest'){
-      // P0: 더미 아이템
-      note = '낡은 상자에서 아이템을 얻었다 (더미: 치유약 1회)';
-      state.rewards = state.rewards || [];
-      state.rewards.push({ type:'item', name:'치유약', rarity:'common', uses:1 });
-      // 소소한 회복(주사위)
-      const heal = (takeRoll(state, 2)===2 ? 2 : 1);
-      delta = +heal;
-      note += ` / 체력 +${heal}`;
-    }else if(ev.kind==='ally'){
-      // 소소한 도움 → 체력 +1
-      delta = +1;
-      note = '우호적인 만남으로 작은 도움을 받았다 (체력 +1)';
-    }else{
-      // lore
-      delta = 0;
-      note = '이 장소의 숨은 단서를 발견했다.';
-    }
+  // 2) AI 서술/선택지 요청
+  const charSnap = await fx.getDoc(fx.doc(db, state.charRef));
+  const c = charSnap.exists() ? charSnap.data() : {};
+  const latest = Array.isArray(c.narratives) ? [...c.narratives].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0] : null;
 
-    ev.note = note;
-    ev.deltaStamina = delta;
-    ev.t = Date.now();
+  const world = { name: state.world_name, loreLong: (await (async ()=>{
+    // worlds.json은 adventure 탭에서 이미 로드했을 수 있으나, 여기선 간단히 생략/빈값 허용
+    return '';
+  })()) };
+  const site  = { name: state.site_name, description: '' };
 
-    // 상태 반영
-    state.stamina = Math.max(STAMINA_MIN, Math.min(state.stamina_start, (state.stamina||0) + delta));
-    state.turn = (state.turn||0) + 1;
-    state.events = Array.isArray(state.events) ? state.events.concat(ev) : [ev];
+  const character = {
+    name: c.name || '(이름 없음)',
+    latestLong: latest?.long || '',
+    shortConcat: Array.isArray(c.narratives) ? c.narratives.map(n=>n?.short||'').join(' / ') : '',
+    skills: (Array.isArray(c.abilities_all) ? (c.abilities_equipped||[]).slice(0,2).map(i=>{
+      const ab = c.abilities_all[i]; return { name: ab?.name||`스킬${i+1}`, desc: ab?.desc_soft||'' };
+    }) : [])
+  };
 
-    // 저장
-    try{
-      await fx.updateDoc(fx.doc(db,'explore_runs', state.id), {
-        stamina: state.stamina, turn: state.turn,
-        events: state.events, prerolls: state.prerolls, updatedAt: Date.now()
-      });
-    }catch(e){
-      console.error('[explore] save turn fail', e);
-    }
-
-    // 종료 조건: 체력 바닥
-    if(state.stamina<=STAMINA_MIN){
-      await endRun('exhaust');
-      return;
-    }
-
-    paint();
+  const ai = await requestAdventureNarrative({
+    character,
+    world,
+    site,
+    run: { summary3: state.summary3||'', turn: state.turn||0, difficulty: state.difficulty||'normal' },
+    dice
   });
+
+  // 3) 이벤트 저장(턴 커밋)
+  state = await appendEvent({
+    runId: state.id,
+    runBefore: state,
+    narrative: ai.narrative_text,
+    choices: ai.choices,
+    delta: dice.deltaStamina,
+    dice,
+    summary3: ai.summary3_update || state.summary3
+  });
+
+  // 4) 종료 조건
+  if(state.stamina<=STAMINA_MIN){
+    await fx.updateDoc(fx.doc(db,'explore_runs', state.id), { status:'ended', endedAt: Date.now(), updatedAt: Date.now(), reason:'exhaust' });
+    state.status='ended';
+  }
+
+  paint();
+});
+
 
   async function endRun(reason){
     if(state.status!=='ongoing') return;
