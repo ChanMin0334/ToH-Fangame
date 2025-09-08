@@ -4,6 +4,8 @@ import { grantExp } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 import { rollStep, appendEvent, getActiveRun } from '../api/explore.js';
 import { requestAdventureNarrative } from '../api/ai.js';
+import { getCharForAI } from '../api/store.js';
+
 
 
 const STAMINA_MIN = 0;
@@ -151,23 +153,15 @@ export async function showExploreRun(){
 
   // 2) AI 서술/선택지 요청
   const charSnap = await fx.getDoc(fx.doc(db, state.charRef));
-  const c = charSnap.exists() ? charSnap.data() : {};
-  const latest = Array.isArray(c.narratives) ? [...c.narratives].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0] : null;
+  // (새) 캐릭터 상태를 매 턴 즉시 조회 — 전투 중 스킬 변경도 즉시 반영됨
+const cInfo = await getCharForAI(state.charRef);
+const character = {
+  name: cInfo?.name || '(이름 없음)',
+  latestLong: cInfo?.latestLong || '',
+  shortConcat: cInfo?.shortConcat || '',
+  skills: Array.isArray(cInfo?.skills) ? cInfo.skills : []
+};
 
-  const world = { name: state.world_name, loreLong: (await (async ()=>{
-    // worlds.json은 adventure 탭에서 이미 로드했을 수 있으나, 여기선 간단히 생략/빈값 허용
-    return '';
-  })()) };
-  const site  = { name: state.site_name, description: '' };
-
-  const character = {
-    name: c.name || '(이름 없음)',
-    latestLong: latest?.long || '',
-    shortConcat: Array.isArray(c.narratives) ? c.narratives.map(n=>n?.short||'').join(' / ') : '',
-    skills: (Array.isArray(c.abilities_all) ? (c.abilities_equipped||[]).slice(0,2).map(i=>{
-      const ab = c.abilities_all[i]; return { name: ab?.name||`스킬${i+1}`, desc: ab?.desc_soft||'' };
-    }) : [])
-  };
 
   const ai = await requestAdventureNarrative({
     character,
