@@ -4,7 +4,7 @@ import { EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS, apply as applyCooldown } fro
 
 const STAMINA_BASE = 10;
 
-// (이벤트/아이템 테이블 등은 이전과 동일...)
+// (이벤트/아이템 테이블 등은 가독성을 위해 생략)
 const EVENT_TABLE = {
   easy:   { safe:400, item:250, narrative:200, risk:100, combat:50 },
   normal: { safe:300, item:200, narrative:200, risk:150, combat:150 },
@@ -75,25 +75,15 @@ export async function createRun({ world, site, char }){
 
   const batch = fx.writeBatch(db);
   batch.set(runRef, payload);
-  // --- 🐞 디버그: 캐릭터 업데이트를 잠시 비활성화하여 문제 분리 ---
-  // batch.update(charRef, { last_explore_startedAt: fx.serverTimestamp() });
-
-  console.log('%c[DEBUG] Firestore 쓰기 작업 시작 전 데이터 확인 (캐릭터 업데이트 제외됨)', 'color: #e67e22; font-weight: bold;');
-  console.log('  - Current User UID:', u.uid);
-  console.log('  - New Explore Run Ref Path:', runRef.path);
-  const replacer = (key, value) => {
-    if (value && typeof value === 'object' && value.hasOwnProperty('seconds') && value.hasOwnProperty('nanoseconds')) {
-      return `Timestamp(seconds=${value.seconds}, nanoseconds=${value.nanoseconds})`;
-    }
-    return value;
-  };
-  console.log('  - Payload for new explore_run:', JSON.stringify(payload, replacer, 2));
+  // ⚠️ 디버깅을 위해 주석 처리했던 코드를 다시 활성화합니다.
+  batch.update(charRef, { last_explore_startedAt: fx.serverTimestamp() });
 
   try {
     await batch.commit();
   } catch (e) {
     console.error('[explore] createRun batch commit fail', e);
-    throw new Error('탐험 시작 실패 (서버 쿨타임 또는 규칙 위반)');
+    // 사용자에게 보여주는 에러 메시지를 조금 더 명확하게 수정
+    throw new Error('탐험 시작에 실패했습니다. 잠시 후 다시 시도해주세요.');
   }
 
   applyCooldown(EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS);
@@ -101,8 +91,7 @@ export async function createRun({ world, site, char }){
   return runRef.id;
 }
 
-
-// (endRun, getActiveRun, rollStep, appendEvent 등 나머지 함수는 이전과 동일...)
+// (이하 endRun, rollStep 등 나머지 함수들은 변경사항 없음)
 export async function endRun({ runId, reason='ended' }){
   const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
   const ref = fx.doc(db,'explore_runs', runId);
@@ -134,7 +123,6 @@ function popRoll(run, mod=1000){
   return { value: ((v-1)%mod)+1, next: arr };
 }
 
-
 export function rollStep(run){
   const diff = (run?.difficulty||'normal');
   const eRoll = popRoll(run, 1000); run.prerolls = eRoll.next;
@@ -147,9 +135,7 @@ export function rollStep(run){
   const mul = { easy:.8, normal:1.0, hard:1.15, vhard:1.3, legend:1.5 }[diff] || 1.0;
   const lo = Math.round(baseDelta[0]*mul), hi = Math.round(baseDelta[1]*mul);
   const deltaStamina = (lo===hi) ? lo : (lo<0 ? -((sRoll.value%(-lo+ -hi+1)) + -hi) : (sRoll.value%(hi-lo+1))+lo);
-
   const out = { eventKind: kind, deltaStamina };
-
   if(kind==='item'){
     const r = popRoll(run, 1000); run.prerolls = r.next;
     const rarity = (RARITY_TABLE.find(x=> r.value<=x.upto) || RARITY_TABLE.at(-1)).rarity;
@@ -169,7 +155,6 @@ export async function appendEvent({ runId, runBefore, narrative, choices, delta,
   const snap = await fx.getDoc(ref);
   if(!snap.exists()) throw new Error('런이 없어');
   const cur = snap.data();
-
   const stamina = Math.max(0, Math.min(cur.stamina_start, (cur.stamina||0) + (delta||0)));
   const next = {
     stamina,
@@ -189,4 +174,3 @@ export async function appendEvent({ runId, runBefore, narrative, choices, delta,
   await fx.updateDoc(ref, next);
   return { ...cur, ...next, id: runId };
 }
-
