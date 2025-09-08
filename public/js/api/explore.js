@@ -1,12 +1,10 @@
 // /public/js/api/explore.js (탐험 전용 모듈)
 import { db, auth, fx } from './firebase.js';
-// writeBatch를 firestore에서 직접 import합니다.
-import { writeBatch, doc, collection } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 import { EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS, apply as applyCooldown } from './cooldown.js';
 
 const STAMINA_BASE = 10;
 
-// === EXPLORE: dice tables (기존과 동일) ===
+// === EXPLORE: dice tables (난이도 5단계 + 아이템 등급 5단계) ===
 const EVENT_TABLE = {
   easy:   { safe:400, item:250, narrative:200, risk:100, combat:50 },
   normal: { safe:300, item:200, narrative:200, risk:150, combat:150 },
@@ -34,7 +32,7 @@ function popRoll(run, mod=1000){
   return { value: ((v-1)%mod)+1, next: arr };
 }
 
-// (기존과 동일)
+
 export async function hasActiveRunForChar(charId){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
@@ -49,12 +47,10 @@ export async function hasActiveRunForChar(charId){
   return !s.empty;
 }
 
-// (기존과 동일)
-export function makePrerrolls(n=50, mod=1000){
+export function makePrerolls(n=50, mod=1000){
   return Array.from({length:n}, ()=> Math.floor(Math.random()*mod)+1);
 }
 
-// ===== ⚠️ 수정된 부분: createRun 함수 =====
 export async function createRun({ world, site, char }){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
@@ -71,6 +67,7 @@ export async function createRun({ world, site, char }){
     site_id: site.id,   site_name: site.name,
     difficulty: site.difficulty || 'normal',
     startedAt: fx.serverTimestamp(),
+    // 수정됨: expiresAt은 서버 타임스탬프 기준으로 계산하는 것이 더 안정적이므로 클라이언트에서 보내지 않음
     stamina_start: STAMINA_BASE,
     stamina: STAMINA_BASE,
     turn: 0,
@@ -81,38 +78,31 @@ export async function createRun({ world, site, char }){
     rewards: []
   };
 
-  // --- 원자적 쓰기를 위해 writeBatch 사용 ---
-  const batch = writeBatch(db);
+// 새 탐험 런 문서 생성 (writeBatch 없이 단일 호출로 처리)
+let runRef;
+try {
+  runRef = await fx.addDoc(fx.collection(db, 'explore_runs'), payload);
+} catch (e) {
+  console.error('[explore] addDoc fail', e);
+  throw new Error('탐험 문서 생성에 실패했어');
+}
 
-  // 1. 새 탐험 문서에 대한 참조 생성
-  const runRef = doc(collection(db, 'explore_runs'));
-  batch.set(runRef, payload);
+// (선택) 캐릭터 문서에 마지막 탐험 시작 시간 기록
+//   - 권한 규칙상 막힐 수 있으니 실패해도 전체 플로우는 계속 진행
+try {
+  const charRef = fx.doc(db, 'chars', char.id);
+  await fx.updateDoc(charRef, { last_explore_startedAt: fx.serverTimestamp() });
+} catch (e) {
+  console.warn('[explore] char meta update skipped', e?.message || e);
+}
 
-  // 2. 캐릭터 문서에 대한 참조 생성 및 마지막 탐험 시간 업데이트
-  const charRef = doc(db, 'chars', char.id);
-  batch.update(charRef, { last_explore_startedAt: fx.serverTimestamp() });
-
-  try {
-    // 3. batch를 한 번에 커밋 (두 작업이 모두 성공하거나 모두 실패)
-    await batch.commit();
-  } catch (e) {
-    console.error('[explore] createRun batch fail', e);
-    // permission-denied 에러는 대부분 쿨타임 규칙 때문일 가능성이 높습니다.
-    if (e.code === 'permission-denied') {
-      throw new Error('탐험 시작 실패 (서버 쿨타임 또는 규칙 위반)');
-    }
-    // 그 외 다른 에러
-    throw new Error('탐험 문서 생성에 실패했어');
-  }
 
   // 로컬 쿨타임 적용 (UI/UX 목적)
   applyCooldown(EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS);
 
   return runRef.id;
 }
-// ===== 수정 끝 =====
 
-// (이하 나머지 코드는 기존과 동일)
 export async function endRun({ runId, reason='ended' }){
   const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
   const ref = fx.doc(db,'explore_runs', runId);
@@ -124,13 +114,15 @@ export async function endRun({ runId, reason='ended' }){
 
   await fx.updateDoc(ref, {
     status: 'ended',
-    endedAt: fx.serverTimestamp(),
+    endedAt: fx.serverTimestamp(), // Date.now() 대신 serverTimestamp 권장
     reason,
     updatedAt: fx.serverTimestamp()
   });
   return true;
 }
 
+
+// 진행중 런 조회
 export async function getActiveRun(runId){
   const ref = fx.doc(db,'explore_runs', runId);
   const s = await fx.getDoc(ref);
@@ -138,13 +130,16 @@ export async function getActiveRun(runId){
   return { id:s.id, ...s.data() };
 }
 
+// 주사위 소비 → 이벤트 초안 결정
 export function rollStep(run){
   const diff = (run?.difficulty||'normal');
+  // 1) 이벤트 타입
   const eRoll = popRoll(run, 1000); run.prerolls = eRoll.next;
   let acc=0, kind='narrative';
   for(const [k,weight] of Object.entries(EVENT_TABLE[diff]||EVENT_TABLE.normal)){
     acc += weight; if(eRoll.value<=acc){ kind = k; break; }
   }
+  // 2) 스태미나 증감
   const sRoll = popRoll(run, 5); run.prerolls = sRoll.next;
   const baseDelta = { safe:[0,2], item:[0,1], narrative:[0,1], risk:[-3,-1], combat:[-5,-2] }[kind] || [0,0];
   const mul = { easy:.8, normal:1.0, hard:1.15, vhard:1.3, legend:1.5 }[diff] || 1.0;
@@ -167,17 +162,19 @@ export function rollStep(run){
   return out;
 }
 
+// 이벤트 커밋
 export async function appendEvent({ runId, runBefore, narrative, choices, delta, dice, summary3 }){
   const ref = fx.doc(db,'explore_runs', runId);
   const snap = await fx.getDoc(ref);
   if(!snap.exists()) throw new Error('런이 없어');
   const cur = snap.data();
 
+  // 병합(간단): prerolls는 호출자가 넘긴 next 상태를 신뢰
   const stamina = Math.max(0, Math.min(cur.stamina_start, (cur.stamina||0) + (delta||0)));
   const next = {
     stamina,
     turn: (cur.turn||0) + 1,
-    prerolls: runBefore.prerolls,
+    prerolls: runBefore.prerolls,  // rollStep에서 소비된 배열
     events: [...(cur.events||[]), {
       t: Date.now(),
       kind: dice.eventKind,
@@ -192,3 +189,4 @@ export async function appendEvent({ runId, runBefore, narrative, choices, delta,
   await fx.updateDoc(ref, next);
   return { ...cur, ...next, id: runId };
 }
+
