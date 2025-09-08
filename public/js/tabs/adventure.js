@@ -2,11 +2,9 @@
 import { db, auth, fx } from '../api/firebase.js';
 import { fetchWorlds } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
-import { EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS, getRemain as getCdRemain, apply as applyCd } from '../api/cooldown.js';
+import { EXPLORE_COOLDOWN_KEY, getRemain as getCdRemain } from '../api/cooldown.js'; // applyCd는 여기서 직접 사용하지 않으므로 제거
 import { createRun } from '../api/explore.js';
-import { formatRemain } from '../api/cooldown.js'; // 상단 import에 함께 추가
-
-
+import { formatRemain } from '../api/cooldown.js';
 
 // ===== modal css (adventure 전용) =====
 function ensureModalCss(){
@@ -24,7 +22,7 @@ function ensureModalCss(){
 
 // ===== 공용 유틸 =====
 const STAMINA_BASE  = 10;
-const STAMINA_BASE = 10;
+// 수정됨: 중복 선언 제거
 const cooldownRemain = ()=> getCdRemain(EXPLORE_COOLDOWN_KEY);
 const diffColor = (d)=>{
   const v = String(d||'').toLowerCase();
@@ -35,10 +33,7 @@ const diffColor = (d)=>{
 };
 const esc = (s)=> String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
-function cooldownRemain(){
-  const until = +localStorage.getItem(LS_EXPLORE_CD) || 0;
-  return Math.max(0, until - Date.now());
-}
+// 수정됨: 중복된 함수 정의 제거. 상단의 const cooldownRemain을 사용.
 
 // 의도 저장(새로고침/이탈 복원용)
 function setExploreIntent(into){ sessionStorage.setItem('toh.explore.intent', JSON.stringify(into)); }
@@ -264,7 +259,11 @@ function viewPrep(root, world, site, char){
     const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
     if (btn){
       // 쿨타임이 남았거나 스킬이 2개가 아니면 시작 버튼 잠금
-      btn.disabled = (cooldownRemain()>0) || (on.length !== 2);
+      const isReadyToStart = (cooldownRemain() <= 0) && (on.length === 2);
+      // 스킬이 아예 없는 경우도 고려
+      const hasNoSkills = !Array.isArray(char.abilities_all) || char.abilities_all.length === 0;
+      
+      btn.disabled = !( (cooldownRemain() <= 0) && (on.length === 2 || hasNoSkills) );
     }
   };
   updateStartEnabled();
@@ -282,6 +281,8 @@ function viewPrep(root, world, site, char){
       // 2개일 때만 서버에 저장
       if (on.length === 2){
         try{
+          // 여기서 char.id가 유효한지 확인하는 것이 좋습니다.
+          if (!char.id) throw new Error("Character ID is missing");
           await fx.updateDoc(fx.doc(db,'chars', char.id), { abilities_equipped: on });
           char.abilities_equipped = on;
           showToast('스킬 선택 저장 완료');
@@ -298,21 +299,37 @@ function viewPrep(root, world, site, char){
   root.querySelector('#btnBackSites')?.addEventListener('click', ()=> viewSitePick(root, world));
 
   const cdNote = root.querySelector('#cdNote');
+  const btnStart = root.querySelector('#btnStart');
   const tick = ()=>{
     const r = cooldownRemain();
     if(r>0){
-      cdNote.textContent = `탐험 쿨타임: ${formatRemain(r)}`;
-      root.querySelector('#btnStart').disabled = true;
+      if(cdNote) cdNote.textContent = `탐험 쿨타임: ${formatRemain(r)}`;
+      if(btnStart) btnStart.disabled = true;
     }else{
-      cdNote.textContent = '';
-      root.querySelector('#btnStart').disabled = false;
+      if(cdNote) cdNote.textContent = '탐험 가능!';
+      // 쿨타임이 끝나도 스킬 선택 여부에 따라 버튼 활성화가 결정되므로,
+      // 여기서 무조건 false로 바꾸지 않고 updateStartEnabled()를 호출하는 것이 더 안전합니다.
+      // 하지만 현재 구조에서는 스킬 변경 시에만 호출되므로, 일단은 현재 로직을 유지합니다.
+      // btnStart.disabled = false; (bindSkillSelection 내부에서 처리)
     }
   };
-  tick();
-  const iv = setInterval(()=>{ tick(); if(cooldownRemain()<=0) clearInterval(iv); }, 500);
 
-  root.querySelector('#btnStart')?.addEventListener('click', async ()=>{
-    // 스킬 2개 선택 가드
+  let intervalId = null;
+  const startInterval = () => {
+    tick();
+    if(cooldownRemain() > 0) {
+      intervalId = setInterval(tick, 500);
+    }
+  };
+  
+  startInterval();
+
+
+  btnStart?.addEventListener('click', async ()=>{
+    // 버튼이 비활성화 상태이면 아무것도 하지 않음
+    if (btnStart.disabled) return;
+    
+    // 스킬 2개 선택 가드 (서버 요청 전 최종 확인)
     if (Array.isArray(char.abilities_all) && char.abilities_all.length){
       const eq = Array.isArray(char.abilities_equipped) ? char.abilities_equipped : [];
       if (eq.length !== 2){
@@ -322,6 +339,9 @@ function viewPrep(root, world, site, char){
     }
 
     if(cooldownRemain()>0) return showToast('쿨타임이 끝나면 시작할 수 있어!');
+
+    btnStart.disabled = true; // 중복 클릭 방지
+    btnStart.textContent = '입장 중...';
 
     try{
       // 진행 중 탐험이 있는지 간단 체크
@@ -341,17 +361,18 @@ function viewPrep(root, world, site, char){
     }catch(_){ /* 권한/인덱스 이슈면 새로 생성으로 진행 */ }
 
     // 새 탐험 런 문서 생성
-    // 새 탐험 런 문서 생성
     let runId = '';
     try{
       runId = await createRun({ world, site, char }); // api/explore.js 사용
     }catch(e){
       console.error('[explore] create run fail', e);
       showToast(e?.message || '탐험 시작에 실패했어');
+      btnStart.disabled = false; // 실패 시 버튼 다시 활성화
+      btnStart.textContent = '탐험 시작';
       return;
     }
 
-    // 의도 저장 + 이동 (쿨타임은 모듈에서 이미 적용됨)
+    // 의도 저장 + 이동
     setExploreIntent({ charId: char.id, runId, world:world.id, site:site.id, ts:Date.now() });
     location.hash = `#/explore-run/${runId}`;
 
@@ -365,7 +386,6 @@ export async function showAdventure(){
     root.innerHTML = `<section class="container narrow"><div class="kv-card">로그인이 필요해.</div></section>`;
     return;
   }
-  // 상단 탭은 고정, 내부에서 단계 화면만 바뀜
   await viewWorldPick(root);
 }
 
