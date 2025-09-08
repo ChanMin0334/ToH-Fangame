@@ -1,5 +1,8 @@
 // /public/js/api/cooldown.js
-const DEFAULT_MS = 60 * 60 * 1000; // 1시간
+// const DEFAULT_MS = 60 * 60 * 1000; // 1시간
+
+const DEFAULT_MS = 60 * 1000; // 테스트용, 1분
+
 
 function now(){ return Date.now(); }
 
