@@ -2,13 +2,9 @@
 import { db, auth, fx } from './firebase.js';
 import { EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS, apply as applyCooldown } from './cooldown.js';
 
-// writeBatch를 사용하기 위해 필요한 함수들을 직접 import합니다.
-// 기존 fx 네임스페이스와 충돌하지 않으며, 이 파일 내에서만 사용됩니다.
-import { writeBatch, doc, collection } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
-
 const STAMINA_BASE = 10;
 
-// === EXPLORE: dice tables (기존과 동일) ===
+// (이벤트/아이템 테이블 등은 이전과 동일...)
 const EVENT_TABLE = {
   easy:   { safe:400, item:250, narrative:200, risk:100, combat:50 },
   normal: { safe:300, item:200, narrative:200, risk:150, combat:150 },
@@ -30,12 +26,10 @@ const COMBAT_TIER = {
   vhard:  [{p:150,t:'trash'},{p:550,t:'normal'},{p:900,t:'elite'},{p:1000,t:'boss'}],
   legend: [{p:80, t:'trash'},{p:380,t:'normal'},{p:800,t:'elite'},{p:1000,t:'boss'}],
 };
-function popRoll(run, mod=1000){
-  const arr = Array.isArray(run.prerolls) ? run.prerolls.slice() : [];
-  const v = arr.length ? arr.shift() : (Math.floor(Math.random()*mod)+1);
-  return { value: ((v-1)%mod)+1, next: arr };
-}
 
+function makePrerolls(n=50, mod=1000){
+  return Array.from({length:n}, ()=> Math.floor(Math.random()*mod)+1);
+}
 
 export async function hasActiveRunForChar(charId){
   const u = auth.currentUser;
@@ -51,13 +45,6 @@ export async function hasActiveRunForChar(charId){
   return !s.empty;
 }
 
-export function makePrerolls(n=50, mod=1000){
-  return Array.from({length:n}, ()=> Math.floor(Math.random()*mod)+1);
-}
-
-// ===== ⚠️ 수정된 부분: createRun 함수 =====
-// writeBatch를 사용하여 데이터 일관성을 보장하도록 개선되었습니다.
-// 하지만 함수의 호출 방식과 반환값은 이전과 완전히 동일하여 호환성이 유지됩니다.
 export async function createRun({ world, site, char }){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
@@ -66,7 +53,6 @@ export async function createRun({ world, site, char }){
     throw new Error('이미 진행 중인 탐험이 있어');
   }
 
-  // 서버에 보낼 데이터 (기존과 동일)
   const payload = {
     charRef: `chars/${char.id}`,
     owner_uid: u.uid,
@@ -84,45 +70,44 @@ export async function createRun({ world, site, char }){
     rewards: []
   };
 
-  // --- 원자적 쓰기를 위해 writeBatch 사용 ---
-  // 1. batch 객체를 생성합니다.
-  const batch = writeBatch(db);
+  const charRef = fx.doc(db, 'chars', char.id);
+  // writeBatch를 위해 미리 문서 참조를 생성합니다. (자동 ID)
+  const runRef = fx.doc(fx.collection(db, 'explore_runs'));
 
-  // 2. 새로 생성할 explore_runs 문서의 참조를 미리 만듭니다.
-  const runRef = doc(collection(db, 'explore_runs'));
-
-  // 3. 캐릭터 문서의 참조를 가져옵니다.
-  const charRef = doc(db, 'chars', char.id);
-
-  // 4. batch에 두 가지 작업을 예약합니다.
-  //   - 작업 1: 새 탐험 문서를 생성합니다.
+  const batch = fx.writeBatch(db);
   batch.set(runRef, payload);
-  //   - 작업 2: 캐릭터 문서의 마지막 탐험 시간을 업데이트합니다.
   batch.update(charRef, { last_explore_startedAt: fx.serverTimestamp() });
 
+  // --- 🐞 디버그 로그 추가 ---
+  console.log('%c[DEBUG] Firestore 쓰기 작업 시작 전 데이터 확인', 'color: #e67e22; font-weight: bold;');
+  console.log('  - Current User UID:', u.uid);
+  console.log('  - Target Char Ref Path:', charRef.path);
+  console.log('  - New Explore Run Ref Path:', runRef.path);
+  // JSON.stringify의 2번째 인자(replacer)를 사용해 Timestamp 객체를 문자열로 변환
+  const replacer = (key, value) => {
+    if (value && typeof value === 'object' && value.hasOwnProperty('seconds') && value.hasOwnProperty('nanoseconds')) {
+      return `Timestamp(seconds=${value.seconds}, nanoseconds=${value.nanoseconds})`;
+    }
+    return value;
+  };
+  console.log('  - Payload for new explore_run:', JSON.stringify(payload, replacer, 2));
+  // --- 🐞 디버그 로그 끝 ---
+
   try {
-    // 5. 예약된 모든 작업을 한 번에 실행(commit)합니다.
-    //    이 과정에서 하나라도 실패하면 모든 작업이 취소됩니다.
     await batch.commit();
   } catch (e) {
     console.error('[explore] createRun batch commit fail', e);
-    // permission-denied 에러는 대부분 서버의 쿨타임 규칙 때문일 가능성이 높습니다.
-    if (e.code === 'permission-denied') {
-      throw new Error('탐험 시작 실패 (서버 쿨타임 또는 규칙 위반)');
-    }
-    // 그 외 다른 에러
-    throw new Error('탐험 문서 생성에 실패했어');
+    // 사용자에게 보여줄 에러 메시지를 좀 더 구체적으로 변경
+    throw new Error('탐험 시작 실패 (서버 쿨타임 또는 규칙 위반)');
   }
 
-  // 성공 시, 클라이언트(브라우저)에도 쿨타임을 적용합니다. (기존과 동일)
   applyCooldown(EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS);
 
-  // 생성된 탐험 문서의 ID를 반환합니다. (기존과 동일)
   return runRef.id;
 }
-// ===== 수정 끝 =====
 
 
+// (endRun, getActiveRun, rollStep, appendEvent 등 나머지 함수는 이전과 동일...)
 export async function endRun({ runId, reason='ended' }){
   const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
   const ref = fx.doc(db,'explore_runs', runId);
@@ -141,13 +126,19 @@ export async function endRun({ runId, reason='ended' }){
   return true;
 }
 
-
 export async function getActiveRun(runId){
   const ref = fx.doc(db,'explore_runs', runId);
   const s = await fx.getDoc(ref);
   if(!s.exists()) throw new Error('런이 없어');
   return { id:s.id, ...s.data() };
 }
+
+function popRoll(run, mod=1000){
+  const arr = Array.isArray(run.prerolls) ? run.prerolls.slice() : [];
+  const v = arr.length ? arr.shift() : (Math.floor(Math.random()*mod)+1);
+  return { value: ((v-1)%mod)+1, next: arr };
+}
+
 
 export function rollStep(run){
   const diff = (run?.difficulty||'normal');
@@ -198,7 +189,7 @@ export async function appendEvent({ runId, runBefore, narrative, choices, delta,
       rolls_used: [], tags: []
     }],
     summary3: summary3 ?? (cur.summary3||''),
-    updatedAt: Date.now()
+    updatedAt: fx.serverTimestamp()
   };
   await fx.updateDoc(ref, next);
   return { ...cur, ...next, id: runId };
