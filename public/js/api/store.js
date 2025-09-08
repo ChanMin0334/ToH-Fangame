@@ -167,11 +167,20 @@ export async function createCharMinimal({ world_id, name, input_info }){
 
 // ===== 스킬/아이템 =====
 export async function updateAbilitiesEquipped(charId, indices){
-  const u = auth.currentUser; if(!u) return;
-  if(!Array.isArray(indices) || indices.length !== 2) return;
-  await fx.updateDoc(fx.doc(db,'chars',charId), { abilities_equipped: indices, updatedAt: Date.now() });
-  showToast('스킬 장착 변경');
+  const u = auth.currentUser;
+  if(!u) throw new Error('로그인이 필요해');
+
+  const two = [...new Set((indices||[]).map(n=>+n))].slice(0,2);
+  if(two.length !== 2) throw new Error('스킬은 정확히 2개여야 해');
+
+  try{
+    await fx.updateDoc(fx.doc(db,'chars',charId), { abilities_equipped: two, updatedAt: Date.now() });
+  }catch(e){
+    // 여기서 에러를 다시 던져서 호출부(토스트 처리)로 전달
+    throw e;
+  }
 }
+
 
 export async function updateItemsEquipped(charId, ids){
   const u = auth.currentUser; if(!u) return;
