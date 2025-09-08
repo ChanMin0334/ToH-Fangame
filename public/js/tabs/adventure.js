@@ -247,6 +247,7 @@ function viewPrep(root, world, site, char){
     </section>
   `;
 
+// ===== ⚠️ 수정된 부분 시작 =====
 // 스킬 체크박스 2개 유지 + 저장
 (function bindSkillSelection(){
   const abilities = Array.isArray(char.abilities_all) ? char.abilities_all : [];
@@ -258,12 +259,9 @@ function viewPrep(root, world, site, char){
   const updateStartEnabled = ()=>{
     const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
     if (btn){
-      // 쿨타임이 남았거나 스킬이 2개가 아니면 시작 버튼 잠금
-      const isReadyToStart = (cooldownRemain() <= 0) && (on.length === 2);
-      // 스킬이 아예 없는 경우도 고려
       const hasNoSkills = !Array.isArray(char.abilities_all) || char.abilities_all.length === 0;
-      
-      btn.disabled = !( (cooldownRemain() <= 0) && (on.length === 2 || hasNoSkills) );
+      // 쿨타임이 없어야 하고, (스킬이 2개 선택됐거나 || 스킬이 아예 없거나)
+      btn.disabled = !(cooldownRemain() <= 0 && (on.length === 2 || hasNoSkills));
     }
   };
   updateStartEnabled();
@@ -280,21 +278,31 @@ function viewPrep(root, world, site, char){
 
       // 2개일 때만 서버에 저장
       if (on.length === 2){
+        // char 객체나 char.id가 유효한지 다시 한번 확인합니다.
+        if (!char || !char.id) {
+            console.error('[adventure] Invalid character data for saving skills.', char);
+            showToast('캐릭터 정보가 올바르지 않아 저장할 수 없어.');
+            return;
+        }
+        
         try{
-          // 여기서 char.id가 유효한지 확인하는 것이 좋습니다.
-          if (!char.id) throw new Error("Character ID is missing");
-          await fx.updateDoc(fx.doc(db,'chars', char.id), { abilities_equipped: on });
+          // 오래된 char 객체를 참조하지 않고, 문서 경로와 업데이트할 데이터만 명확히 전달합니다.
+          const charRef = fx.doc(db, 'chars', char.id);
+          await fx.updateDoc(charRef, { abilities_equipped: on });
+          
+          // 로컬에 저장된 char 객체도 최신 상태로 업데이트 해줍니다.
           char.abilities_equipped = on;
           showToast('스킬 선택 저장 완료');
         }catch(e){
-          console.error('[explore] abilities_equipped update fail', e);
-          showToast('저장 실패');
+          console.error('[adventure] abilities_equipped update fail', e);
+          showToast('저장 실패: ' + e.message);
         }
       }
       updateStartEnabled();
     });
   });
 })();
+// ===== 수정된 부분 끝 =====
   
   root.querySelector('#btnBackSites')?.addEventListener('click', ()=> viewSitePick(root, world));
 
@@ -307,19 +315,28 @@ function viewPrep(root, world, site, char){
       if(btnStart) btnStart.disabled = true;
     }else{
       if(cdNote) cdNote.textContent = '탐험 가능!';
-      // 쿨타임이 끝나도 스킬 선택 여부에 따라 버튼 활성화가 결정되므로,
-      // 여기서 무조건 false로 바꾸지 않고 updateStartEnabled()를 호출하는 것이 더 안전합니다.
-      // 하지만 현재 구조에서는 스킬 변경 시에만 호출되므로, 일단은 현재 로직을 유지합니다.
-      // btnStart.disabled = false; (bindSkillSelection 내부에서 처리)
+      // cooldown이 0이 되어도 스킬 선택 여부에 따라 버튼이 비활성화될 수 있으므로
+      // updateStartEnabled()를 호출하여 상태를 다시 계산해주는 것이 가장 안전합니다.
+      if (typeof updateStartEnabled === 'function') {
+        updateStartEnabled();
+      } else if(btnStart) {
+        btnStart.disabled = false;
+      }
     }
   };
 
   let intervalId = null;
   const startInterval = () => {
     tick();
-    if(cooldownRemain() > 0) {
-      intervalId = setInterval(tick, 500);
-    }
+    const interval = setInterval(()=>{
+        const r = cooldownRemain();
+        if (r > 0) {
+            tick();
+        } else {
+            tick(); // 마지막으로 한 번 더 호출해서 "탐험 가능!"으로 바꿈
+            clearInterval(interval);
+        }
+    }, 500);
   };
   
   startInterval();
