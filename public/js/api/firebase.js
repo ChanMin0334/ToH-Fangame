@@ -49,3 +49,4 @@ export { serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.3/fire
 export const sx = { ref: sRef, uploadBytes, getDownloadURL };
 
 export * as ax from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
+
