@@ -6,7 +6,6 @@ import { EXPLORE_COOLDOWN_KEY, getRemain as getCdRemain } from '../api/cooldown.
 import { createRun } from '../api/explore.js';
 import { formatRemain } from '../api/cooldown.js';
 
-// (CSS 및 다른 함수들은 이전과 동일...)
 // ===== modal css (adventure 전용) =====
 function ensureModalCss(){
   if (document.getElementById('toh-modal-css')) return;
@@ -19,37 +18,6 @@ function ensureModalCss(){
                 max-height:80vh;overflow:auto}
   `;
   document.head.appendChild(st);
-}
-
-
-// ===== 🐞 최종 디버깅용 테스트 함수 =====
-async function testFirestoreWrite() {
-  console.log('%c[DEBUG] Running Firestore Write Test...', 'color: #1abc9c; font-weight: bold;');
-  const u = auth.currentUser;
-
-  if (!u) {
-    console.error('🔴 Test FAILED: auth.currentUser is null.');
-    showToast('Test FAILED: Not logged in.');
-    return;
-  }
-  
-  console.log('[DEBUG] Current User Object:', u);
-  console.log('[DEBUG] Current User UID:', u.uid);
-
-  try {
-    const docRef = await fx.addDoc(fx.collection(db, 'test_writes'), {
-      uid: u.uid,
-      createdAt: fx.serverTimestamp(),
-      message: 'This is a test write to verify authentication.'
-    });
-    console.log(`%c✅ SUCCESS! Test write successful!`, 'color: #2ecc71; font-weight: bold;');
-    console.log('   - Document ID:', docRef.id);
-    showToast('DB 쓰기 테스트 성공!');
-  } catch (e) {
-    console.error(`%c🔴 FAILED! Test write failed!`, 'color: #e74c3c; font-weight: bold;');
-    console.error('   - Detailed Error:', e);
-    showToast('DB 쓰기 테스트 실패. 콘솔을 확인해주세요.');
-  }
 }
 
 // ===== 공용 유틸 =====
@@ -65,7 +33,7 @@ const esc = (s)=> String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;'
 function setExploreIntent(into){ sessionStorage.setItem('toh.explore.intent', JSON.stringify(into)); }
 function getExploreIntent(){ try{ return JSON.parse(sessionStorage.getItem('toh.explore.intent')||'null'); }catch{ return null; } }
 
-// (viewWorldPick, viewSitePick, openCharPicker 함수들은 이전과 동일...)
+// ===== 1단계: 세계관 선택 =====
 async function viewWorldPick(root){
   const worlds = await fetchWorlds().catch(()=>({ worlds: [] }));
   const list = Array.isArray(worlds?.worlds) ? worlds.worlds : [];
@@ -109,6 +77,7 @@ async function viewWorldPick(root){
   });
 }
 
+// ===== 2단계: 명소(사이트) 선택 =====
 function viewSitePick(root, world){
   const sites = Array.isArray(world?.detail?.sites) ? world.detail.sites : [];
 
@@ -152,6 +121,7 @@ function viewSitePick(root, world){
   });
 }
 
+// ===== 3단계: 캐릭터 선택(모달) =====
 async function openCharPicker(root, world, site){
   const u = auth.currentUser;
   ensureModalCss();
@@ -208,6 +178,7 @@ async function openCharPicker(root, world, site){
   });
 }
 
+// ===== 4단계: 준비 화면(스킬/아이템 요약 + 시작 버튼) =====
 function viewPrep(root, world, site, char){
   const remain = cooldownRemain();
   const diff = site.difficulty || 'normal';
@@ -261,7 +232,6 @@ function viewPrep(root, world, site, char){
         </div>
 
         <div class="row" style="gap:8px;justify-content:flex-end;margin-top:12px">
-          <button class="btn ghost" id="btnTestWrite">DB 쓰기 테스트</button>
           <button class="btn" id="btnStart"${remain>0?' disabled':''}>탐험 시작</button>
         </div>
         <div class="text-dim" id="cdNote" style="font-size:12px;margin-top:6px"></div>
@@ -270,7 +240,6 @@ function viewPrep(root, world, site, char){
     </section>
   `;
 
-  // (스킬 선택 및 쿨타임 로직은 이전과 동일...)
   (function bindSkillSelection(){
     const abilities = Array.isArray(char.abilities_all) ? char.abilities_all : [];
     if (!abilities.length) return;
@@ -337,9 +306,6 @@ function viewPrep(root, world, site, char){
   intervalId = setInterval(tick, 500);
   tick();
 
-    // --- 🐞 테스트 버튼에 이벤트 리스너 추가 ---
-  root.querySelector('#btnTestWrite')?.addEventListener('click', testFirestoreWrite);
-
   btnStart?.addEventListener('click', async ()=>{
     if (btnStart.disabled) return;
     
@@ -355,20 +321,6 @@ function viewPrep(root, world, site, char){
 
     btnStart.disabled = true;
     btnStart.textContent = '입장 중...';
-
-    // --- 🐞 디버그 로그 추가 ---
-    console.log('%c[DEBUG] createRun 호출 직전 데이터 확인', 'color: #3498db; font-weight: bold;');
-    // JSON.stringify의 2번째 인자(replacer)를 사용해 Timestamp 객체를 문자열로 변환
-    const replacer = (key, value) => {
-      if (value && typeof value === 'object' && value.hasOwnProperty('seconds') && value.hasOwnProperty('nanoseconds')) {
-        return `Timestamp(seconds=${value.seconds}, nanoseconds=${value.nanoseconds})`;
-      }
-      return value;
-    };
-    console.log('  - World:', JSON.stringify(world, replacer, 2));
-    console.log('  - Site:', JSON.stringify(site, replacer, 2));
-    console.log('  - Char:', JSON.stringify(char, replacer, 2));
-    // --- 🐞 디버그 로그 끝 ---
 
     try{
       const q = fx.query(
@@ -390,7 +342,7 @@ function viewPrep(root, world, site, char){
       runId = await createRun({ world, site, char });
     }catch(e){
       console.error('[explore] create run fail', e);
-      showToast(e?.message || '탐험 시작에 실패했어');
+      showToast(e?.message || '탐험 시작에 실패했습니다. 잠시 후 다시 시도해주세요.');
       btnStart.disabled = false;
       btnStart.textContent = '탐험 시작';
       return;
@@ -402,6 +354,7 @@ function viewPrep(root, world, site, char){
   });
 }
 
+// ===== 엔트리 =====
 export async function showAdventure(){
   const root = document.getElementById('view');
   if(!auth.currentUser){
