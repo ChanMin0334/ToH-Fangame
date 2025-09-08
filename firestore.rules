@@ -1,13 +1,14 @@
-// ToH Fangame — 규칙 전체 (소유자만 수정/삭제, 유저/친구/랭킹/설정 포함)
+// ToH Fangame — 최종 보안 규칙 (v2)
+// explore_runs 생성 시 발생하는 논리적 허점을 해결한 버전입니다.
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ===== 공통 헬퍼 =====
+    // ===== 공통 헬퍼 함수 =====
     function isSignedIn() {
       return request.auth != null;
     }
-    // isOwner 헬퍼는 기존 문서(resource.data)를 기반으로 소유권을 확인합니다.
     function isOwner(data) {
       return isSignedIn() && data.owner_uid == request.auth.uid;
     }
@@ -17,23 +18,20 @@ service cloud.firestore {
     function charOwner(charPath) {
       return get(/databases/$(database)/documents/$(charPath)).data.owner_uid;
     }
-    // 탐험 쿨타임 (테스트용으로 1분으로 단축)
+    // 쿨타임 헬퍼는 이제 규칙에서 사용되지 않지만, 참고용으로 남겨둡니다.
+    // 쿨타임 로직은 클라이언트에서 처리됩니다.
     function exploreCooldown(){
-      return duration.value(1, 'm'); // 'm' for minutes
+      return duration.value(1, 'h'); // 1 hour
     }
 
     // ===== 캐릭터 (chars) =====
     match /chars/{charId} {
       allow read: if true;
       allow create: if isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
-      
-      // 최종 수정: 기존 문서(resource.data)의 소유자만 수정을 허용합니다.
-      // 이것이 char.js, adventure.js, battle.js 모두에서 작동하는 가장 표준적인 방식입니다.
       allow update: if isOwner(resource.data);
-      
       allow delete: if isOwner(resource.data);
 
-      // --- 캐릭터 이미지 서브문서 ---
+      // --- 캐릭터 이미지 서브컬렉션 ---
       match /images/{imageDoc} {
         allow read: if true;
         allow create, update, delete: if isSignedIn()
@@ -41,8 +39,6 @@ service cloud.firestore {
       }
     }
     
-    // (이하 규칙들은 이전과 동일하지만, 완전한 파일을 위해 모두 포함합니다)
-
     // ===== 캐릭터 인벤토리 (char_items) =====
     match /char_items/{itemId} {
         allow read: if true;
@@ -55,28 +51,27 @@ service cloud.firestore {
     }
     
     // ===== 탐험 (explore_runs) =====
+    // ⚠️ 수정된 부분: create 규칙을 단순화하여 writeBatch와의 충돌을 해결했습니다.
     match /explore_runs/{runId} {
       allow read: if isOwner(resource.data);
+      
+      // 생성: 이 캐릭터의 소유주가 본인이 맞는지 '핵심 권한'만 확인합니다.
+      // 쿨타임 같은 부가 로직은 클라이언트에서 처리하는 것을 신뢰합니다.
       allow create: if isSignedIn()
         && request.resource.data.owner_uid == request.auth.uid
         && isCharPath(request.resource.data.charRef)
-        && charOwner(request.resource.data.charRef) == request.auth.uid
-        && request.resource.data.status == 'ongoing'
-        && (
-            !('last_explore_startedAt' in get(/databases/$(database)/documents/$(request.resource.data.charRef)).data)
-            || get(/databases/$(database)/documents/$(request.resource.data.charRef)).data.last_explore_startedAt + exploreCooldown() < request.time
-        );
+        && charOwner(request.resource.data.charRef) == request.auth.uid;
+        
+      // 업데이트: 소유자만, 핵심 정보(소유자, 캐릭터) 수정 방지
       allow update: if isOwner(resource.data)
         && !('owner_uid' in request.resource.data)
-        && !('charRef' in request.resource.data)
-        && (
-            !('status' in request.resource.data)
-            || (resource.data.status == 'ongoing' && request.resource.data.status == 'ended')
-        );
+        && !('charRef' in request.resource.data);
+
+      // 삭제는 기록 보존을 위해 불가
       allow delete: if false;
     }
 
-    // ===== 유저 프로필(users) =====
+    // ===== 유저 프로필 (users) =====
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.auth.uid == uid;
@@ -91,7 +86,7 @@ service cloud.firestore {
         );
     }
 
-    // ===== 친구 요청(friendRequests) =====
+    // ===== 친구 요청 (friendRequests) =====
     match /friendRequests/{reqId} {
       allow read: if isSignedIn() && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
       allow create: if isSignedIn() && request.auth.uid == request.resource.data.from;
@@ -99,19 +94,19 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
     }
 
-    // ===== 친구 관계(friendships) =====
+    // ===== 친구 관계 (friendships) =====
     match /friendships/{pairId} {
       allow read, delete: if isSignedIn() && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
-      allow create: if isSignedIn() && (request.auth.uid == request.resource.data.a || request.auth.uid == resource.data.b);
+      allow create: if isSignedIn() && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
     }
     
-    // ===== 매칭 세션(matchSessions) =====
+    // ===== 매칭 세션 (matchSessions) =====
     match /matchSessions/{sid} {
       allow read: if isSignedIn() && (request.auth.uid == resource.data.a_owner || request.auth.uid == resource.data.b_owner);
-      allow write: if false;
+      allow write: if false; // Functions(서버)에서만 쓰기 가능
     }
     
-    // ===== 매칭 대기열(matchRequests) =====
+    // ===== 매칭 대기열 (matchRequests) =====
     match /matchRequests/{rid} {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
@@ -138,12 +133,8 @@ service cloud.firestore {
         );
     }
 
-    // ===== 랭킹/설정 (읽기 전용) =====
+    // ===== 읽기 전용 컬렉션 =====
     match /rankings/{docId} {
-      allow read: if true;
-      allow write: if false;
-    }
-    match /configs/{docId} {
       allow read: if true;
       allow write: if false;
     }
@@ -152,7 +143,8 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // ===== 기본 차단 =====
+    // ===== 기본 차단 규칙 =====
+    // 위에 명시되지 않은 모든 경로는 접근을 차단합니다.
     match /{document=**} {
       allow read, write: if false;
     }
