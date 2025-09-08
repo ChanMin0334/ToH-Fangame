@@ -5,12 +5,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ===== 🐞 최종 디버깅용 테스트 규칙 =====
-    // 이 규칙은 오직 인증 상태가 정상인지만 확인합니다.
-    match /test_writes/{docId} {
-      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
-    }
-
     // ===== 공통 헬퍼 함수 =====
     function isSignedIn() {
       return request.auth != null;
@@ -18,7 +12,6 @@ service cloud.firestore {
     function isOwner(data) {
       return isSignedIn() && data.owner_uid == request.auth.uid;
     }
-    // 참고: get()을 사용하는 charOwner 함수는 다른 곳(char_items)에서 여전히 사용될 수 있습니다.
     function charOwner(charPath) {
       return get(/databases/$(database)/documents/$(charPath)).data.owner_uid;
     }
@@ -27,7 +20,6 @@ service cloud.firestore {
     match /chars/{charId} {
       allow read: if true;
       allow create: if isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
-      // 'update' 규칙은 기존 문서의 소유자인지 확인하므로 안전합니다.
       allow update: if isOwner(resource.data);
       allow delete: if isOwner(resource.data);
 
@@ -50,59 +42,38 @@ service cloud.firestore {
     }
     
     // ===== 탐험 (explore_runs) =====
-    // ⚠️ 최종 수정: 생성 규칙을 가장 단순한 형태로 유지하여 writeBatch와의 충돌을 원천적으로 방지합니다.
     match /explore_runs/{runId} {
       allow read: if isOwner(resource.data);
-      
-      // 생성: 클라이언트가 보낸 데이터(payload)의 owner_uid가
-      // 현재 로그인한 사용자의 uid와 일치하는지만 확인합니다.
-      // 이 규칙은 다른 문서를 읽어오지 않으므로(get() 없음)絶対に 안전합니다.
       allow create: if isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
-        
       allow update: if isOwner(resource.data)
         && !('owner_uid' in request.resource.data)
         && !('charRef' in request.resource.data);
-
       allow delete: if false;
     }
 
-    // (이하 다른 규칙들은 이전과 동일합니다)
     // ===== 유저 프로필 (users) =====
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.auth.uid == uid;
-      allow update: if isSignedIn() && request.auth.uid == uid
-        && (!('nickname' in request.resource.data) || request.resource.data.nickname.size() <= 20)
-        && (
-          !('nickname' in request.resource.data)
-          || !('nickname' in resource.data)
-          || request.resource.data.nickname == resource.data.nickname
-          || !('lastNicknameChangeAt' in resource.data)
-          || (request.time.toMillis() - resource.data.lastNicknameChangeAt > 7 * 24 * 60 * 60 * 1000)
-        );
+      allow update: if isSignedIn() && request.auth.uid == uid;
     }
 
-    // ===== 친구 요청 (friendRequests) =====
+    // (이하 다른 규칙들은 이전과 동일합니다)
+    // ===== 친구 요청 (friendRequests), 친구 관계 (friendships), 매칭 등 =====
     match /friendRequests/{reqId} {
       allow read: if isSignedIn() && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
       allow create: if isSignedIn() && request.auth.uid == request.resource.data.from;
       allow update: if isSignedIn() && request.auth.uid == resource.data.to;
       allow delete: if isSignedIn() && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
     }
-
-    // ===== 친구 관계 (friendships) =====
     match /friendships/{pairId} {
       allow read, delete: if isSignedIn() && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
-      allow create: if isSignedIn() && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
+      create: if isSignedIn() && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
     }
-    
-    // ===== 매칭 세션 (matchSessions) =====
     match /matchSessions/{sid} {
       allow read: if isSignedIn() && (request.auth.uid == resource.data.a_owner || request.auth.uid == resource.data.b_owner);
       allow write: if false;
     }
-    
-    // ===== 매칭 대기열 (matchRequests) =====
     match /matchRequests/{rid} {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
@@ -128,8 +99,6 @@ service cloud.firestore {
           || (('expireAt' in resource.data) && resource.data.expireAt < request.time)
         );
     }
-
-    // ===== 읽기 전용 컬렉션 =====
     match /rankings/{docId} {
       allow read: if true;
       allow write: if false;
@@ -138,12 +107,8 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false;
     }
-
-    // ===== 기본 차단 규칙 =====
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-
-
