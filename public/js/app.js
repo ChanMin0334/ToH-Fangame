@@ -1,46 +1,54 @@
-// /public/js/app.js  (로그인/로그아웃 고정판)
+// /public/js/app.js (최종 수정본)
 import { auth } from './api/firebase.js';
 import { fetchWorlds, App } from './api/store.js';
 import { ensureUserDoc } from './api/user.js';
 import { routeOnce, highlightTab } from './router.js';
 import { showToast } from './ui/toast.js';
 
-// firebase-auth는 동적 import로 확실히 불러온다 (버전 고정)
-let AuthMod;
-async function ensureAuth() {
-  AuthMod ??= await import('https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js');
-  return AuthMod;
-}
+// firebase-auth 모듈을 미리 import 합니다.
+import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, GoogleAuthProvider, getRedirectResult } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
 
 async function boot() {
+  // 1. 월드 데이터를 먼저 로드합니다.
   await fetchWorlds();
 
-  const { onAuthStateChanged } = await ensureAuth();
-    onAuthStateChanged(auth, async (u) => {
-    App.state.user = u || null;
-    toggleAuthButton(!!u);
-    if (u) {
+  // 2. 🔐 Firebase 인증 상태 감시자를 설정합니다.
+  // 이 함수는 Firebase가 사용자의 로그인 상태를 완전히 파악했을 때,
+  // 그리고 그 이후에 로그인/로그아웃 할 때마다 실행됩니다.
+  onAuthStateChanged(auth, async (user) => {
+    App.state.user = user || null;
+    toggleAuthButton(!!user);
+    
+    if (user) {
+      // ✅ 사용자가 로그인한 것이 "확실히" 확인된 상태!
+      console.log('✅ Auth state confirmed. User:', user.uid);
       try {
-        await ensureUserDoc(); // 로그인 시 유저 문서 생성/병합 보장
+        await ensureUserDoc(); // 유저 문서 생성/병합
       } catch (e) {
         console.warn('[ensureUserDoc] 실패', e);
       }
+    } else {
+      // ❌ 사용자가 로그아웃했거나, 로그인하지 않은 상태
+      console.log('❌ No user is signed in.');
     }
-    routeOnce();
+
+    // 3. ✅ 인증 상태가 확정된 후에만 라우팅을 시작합니다.
+    // 이것이 모든 권한 문제의 핵심 해결책입니다.
+    routeOnce(); 
     highlightTab();
   });
 
-
+  // 4. 해시 변경 이벤트 리스너와 인증 버튼을 연결합니다.
   window.addEventListener('hashchange', () => { routeOnce(); highlightTab(); });
-
   wireAuthButton();
 }
+
+// 앱 부팅 시작!
 boot();
 
 // ===== helpers =====
+// (onClickAuthButton, wireAuthButton, toggleAuthButton 함수는 변경사항 없습니다)
 async function onClickAuthButton() {
-  const { signInWithPopup, signInWithRedirect, signOut, GoogleAuthProvider, getRedirectResult } = await ensureAuth();
-
   try {
     if (auth.currentUser) {
       await signOut(auth);
@@ -63,7 +71,6 @@ async function onClickAuthButton() {
     showToast(auth.currentUser ? '로그아웃 실패' : '로그인 실패');
   } finally {
     try {
-      const { getRedirectResult } = await ensureAuth();
       await getRedirectResult(auth);
     } catch {}
   }
