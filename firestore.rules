@@ -208,7 +208,10 @@ service cloud.firestore {
         && isCharPath(request.resource.data.charRef)
         && charOwner(request.resource.data.charRef) == request.auth.uid
         && request.resource.data.status == 'ongoing'
-        && request.resource.data.startedAt is timestamp;
+        && (
+            request.resource.data.startedAt is timestamp
+            || request.resource.data.startedAt is number
+        );
 
       // 진행/완료 업데이트: 소유자만
       // - owner_uid/charRef 위조 금지
