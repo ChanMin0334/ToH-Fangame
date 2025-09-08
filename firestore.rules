@@ -215,12 +215,18 @@ service cloud.firestore {
 
       // 진행/완료 업데이트: 소유자만
       // - owner_uid/charRef 위조 금지
-      // - status 는 'ongoing' 또는 'completed'만 허용
+      // - status 는 'ongoing' → 'ended' 전이만 허용
       allow update: if isSignedIn()
         && resource.data.owner_uid == request.auth.uid
         && (!('owner_uid' in request.resource.data) || request.resource.data.owner_uid == resource.data.owner_uid)
         && (!('charRef'   in request.resource.data) || request.resource.data.charRef   == resource.data.charRef)
-        && (!('status'    in request.resource.data) || (request.resource.data.status in ['ongoing','completed']));
+        && (
+            // 상태값을 건드리지 않는 경우
+            !('status' in request.resource.data)
+            // 또는 ongoing → ended 로만 바꾸는 경우
+            || (resource.data.status == 'ongoing' && request.resource.data.status == 'ended')
+        );
+
 
       // 보존: 삭제 불가
       allow delete: if false;
