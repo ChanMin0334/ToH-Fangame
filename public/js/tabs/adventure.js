@@ -2,10 +2,11 @@
 import { db, auth, fx } from '../api/firebase.js';
 import { fetchWorlds } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
-import { EXPLORE_COOLDOWN_KEY, getRemain as getCdRemain } from '../api/cooldown.js'; // applyCd는 여기서 직접 사용하지 않으므로 제거
+import { EXPLORE_COOLDOWN_KEY, getRemain as getCdRemain } from '../api/cooldown.js';
 import { createRun } from '../api/explore.js';
 import { formatRemain } from '../api/cooldown.js';
 
+// (CSS 및 다른 함수들은 이전과 동일...)
 // ===== modal css (adventure 전용) =====
 function ensureModalCss(){
   if (document.getElementById('toh-modal-css')) return;
@@ -22,24 +23,18 @@ function ensureModalCss(){
 
 // ===== 공용 유틸 =====
 const STAMINA_BASE  = 10;
-// 수정됨: 중복 선언 제거
 const cooldownRemain = ()=> getCdRemain(EXPLORE_COOLDOWN_KEY);
 const diffColor = (d)=>{
   const v = String(d||'').toLowerCase();
-  // 이지 → 블루, 노말/하드 → 옐로우, 레전드/헬 → 레드 계열
   if(['easy','이지','normal','노말'].includes(v)) return '#4aa3ff';
   if(['hard','하드','expert','익스퍼트','rare'].includes(v)) return '#f3c34f';
-  return '#ff5b66'; // legend 등
+  return '#ff5b66';
 };
 const esc = (s)=> String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-
-// 수정됨: 중복된 함수 정의 제거. 상단의 const cooldownRemain을 사용.
-
-// 의도 저장(새로고침/이탈 복원용)
 function setExploreIntent(into){ sessionStorage.setItem('toh.explore.intent', JSON.stringify(into)); }
 function getExploreIntent(){ try{ return JSON.parse(sessionStorage.getItem('toh.explore.intent')||'null'); }catch{ return null; } }
 
-// ===== 1단계: 세계관 선택 =====
+// (viewWorldPick, viewSitePick, openCharPicker 함수들은 이전과 동일...)
 async function viewWorldPick(root){
   const worlds = await fetchWorlds().catch(()=>({ worlds: [] }));
   const list = Array.isArray(worlds?.worlds) ? worlds.worlds : [];
@@ -83,7 +78,6 @@ async function viewWorldPick(root){
   });
 }
 
-// ===== 2단계: 명소(사이트) 선택 =====
 function viewSitePick(root, world){
   const sites = Array.isArray(world?.detail?.sites) ? world.detail.sites : [];
 
@@ -127,7 +121,6 @@ function viewSitePick(root, world){
   });
 }
 
-// ===== 3단계: 캐릭터 선택(모달) → 4단계: 준비 화면 =====
 async function openCharPicker(root, world, site){
   const u = auth.currentUser;
   ensureModalCss();
@@ -145,7 +138,7 @@ async function openCharPicker(root, world, site){
   chars.sort((a,b)=>{
     const ta = a?.createdAt?.toMillis?.() ?? 0;
     const tb = b?.createdAt?.toMillis?.() ?? 0;
-    return tb - ta; // 최신 먼저
+    return tb - ta;
   });
 
 
@@ -184,7 +177,6 @@ async function openCharPicker(root, world, site){
   });
 }
 
-// ===== 4단계: 준비 화면(스킬/아이템 요약 + 시작 버튼) =====
 function viewPrep(root, world, site, char){
   const remain = cooldownRemain();
   const diff = site.difficulty || 'normal';
@@ -209,144 +201,113 @@ function viewPrep(root, world, site, char){
         </div>
 
         <div class="kv-label mt12">스킬 선택 (정확히 2개)</div>
-<div id="skillBox">
-  ${
-    Array.isArray(char.abilities_all) && char.abilities_all.length
-    ? `<div class="grid2 mt8" id="skillGrid" style="gap:8px">
-        ${char.abilities_all.map((ab,i)=>`
-          <label class="kv-card" style="display:flex;gap:8px;align-items:flex-start;padding:10px;cursor:pointer">
-            <input type="checkbox" data-i="${i}" ${(Array.isArray(char.abilities_equipped)&&char.abilities_equipped.includes(i))?'checked':''}
-                   style="margin-top:3px">
-            <div>
-              <div style="font-weight:700">${esc(ab?.name || ('스킬 ' + (i+1)))}</div>
-              <div class="text-dim" style="font-size:12px">${esc(ab?.desc_soft || '')}</div>
-            </div>
-          </label>
-        `).join('')}
-      </div>`
-    : `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
-  }
-</div>
+        <div id="skillBox">
+          ${
+            Array.isArray(char.abilities_all) && char.abilities_all.length
+            ? `<div class="grid2 mt8" id="skillGrid" style="gap:8px">
+                ${char.abilities_all.map((ab,i)=>`
+                  <label class="kv-card" style="display:flex;gap:8px;align-items:flex-start;padding:10px;cursor:pointer">
+                    <input type="checkbox" data-i="${i}" ${(Array.isArray(char.abilities_equipped)&&char.abilities_equipped.includes(i))?'checked':''}
+                           style="margin-top:3px">
+                    <div>
+                      <div style="font-weight:700">${esc(ab?.name || ('스킬 ' + (i+1)))}</div>
+                      <div class="text-dim" style="font-size:12px">${esc(ab?.desc_soft || '')}</div>
+                    </div>
+                  </label>
+                `).join('')}
+              </div>`
+            : `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
+          }
+        </div>
 
-<div class="kv-label mt12">아이템 (요약)</div>
-<div class="kv-card text-dim" style="font-size:12px">
-  슬롯 3개 — ${
-    Array.isArray(char.items_equipped)&&char.items_equipped.length
-    ? `${char.items_equipped.length}개 장착`
-    : '비어 있음'
-  }
-  <div style="margin-top:6px">※ P0: 아이템은 더미, 탐험 중 사용 UI는 추후 패치</div>
-</div>
+        <div class="kv-label mt12">아이템 (요약)</div>
+        <div class="kv-card text-dim" style="font-size:12px">
+          슬롯 3개 — ${
+            Array.isArray(char.items_equipped)&&char.items_equipped.length
+            ? `${char.items_equipped.length}개 장착`
+            : '비어 있음'
+          }
+        </div>
 
-<div class="row" style="gap:8px;justify-content:flex-end;margin-top:12px">
-  <button class="btn" id="btnStart"${remain>0?' disabled':''}>탐험 시작</button>
-</div>
-<div class="text-dim" id="cdNote" style="font-size:12px;margin-top:6px"></div>
+        <div class="row" style="gap:8px;justify-content:flex-end;margin-top:12px">
+          <button class="btn" id="btnStart"${remain>0?' disabled':''}>탐험 시작</button>
+        </div>
+        <div class="text-dim" id="cdNote" style="font-size:12px;margin-top:6px"></div>
 
       </div>
     </section>
   `;
 
-// ===== ⚠️ 수정된 부분 시작 =====
-// 스킬 체크박스 2개 유지 + 저장
-(function bindSkillSelection(){
-  const abilities = Array.isArray(char.abilities_all) ? char.abilities_all : [];
-  if (!abilities.length) return;
+  // (스킬 선택 및 쿨타임 로직은 이전과 동일...)
+  (function bindSkillSelection(){
+    const abilities = Array.isArray(char.abilities_all) ? char.abilities_all : [];
+    if (!abilities.length) return;
 
-  const inputs = root.querySelectorAll('#skillGrid input[type=checkbox][data-i]');
-  const btn    = root.querySelector('#btnStart');
+    const inputs = root.querySelectorAll('#skillGrid input[type=checkbox][data-i]');
+    const btn    = root.querySelector('#btnStart');
 
-  const updateStartEnabled = ()=>{
-    const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
-    if (btn){
-      const hasNoSkills = !Array.isArray(char.abilities_all) || char.abilities_all.length === 0;
-      // 쿨타임이 없어야 하고, (스킬이 2개 선택됐거나 || 스킬이 아예 없거나)
-      btn.disabled = !(cooldownRemain() <= 0 && (on.length === 2 || hasNoSkills));
-    }
-  };
-  updateStartEnabled();
-
-  inputs.forEach(inp=>{
-    inp.addEventListener('change', async ()=>{
+    const updateStartEnabled = ()=>{
       const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
-
-      if (on.length > 2){
-        inp.checked = false;
-        showToast('스킬은 정확히 2개만 선택 가능해');
-        return;
+      if (btn){
+        const hasNoSkills = !Array.isArray(char.abilities_all) || char.abilities_all.length === 0;
+        btn.disabled = !(cooldownRemain() <= 0 && (on.length === 2 || hasNoSkills));
       }
+    };
+    updateStartEnabled();
 
-      // 2개일 때만 서버에 저장
-      if (on.length === 2){
-        // char 객체나 char.id가 유효한지 다시 한번 확인합니다.
-        if (!char || !char.id) {
-            console.error('[adventure] Invalid character data for saving skills.', char);
-            showToast('캐릭터 정보가 올바르지 않아 저장할 수 없어.');
-            return;
+    inputs.forEach(inp=>{
+      inp.addEventListener('change', async ()=>{
+        const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
+        if (on.length > 2){
+          inp.checked = false;
+          showToast('스킬은 정확히 2개만 선택 가능해');
+          return;
         }
-        
-        try{
-          // 오래된 char 객체를 참조하지 않고, 문서 경로와 업데이트할 데이터만 명확히 전달합니다.
-          const charRef = fx.doc(db, 'chars', char.id);
-          await fx.updateDoc(charRef, { abilities_equipped: on });
-          
-          // 로컬에 저장된 char 객체도 최신 상태로 업데이트 해줍니다.
-          char.abilities_equipped = on;
-          showToast('스킬 선택 저장 완료');
-        }catch(e){
-          console.error('[adventure] abilities_equipped update fail', e);
-          showToast('저장 실패: ' + e.message);
+        if (on.length === 2){
+          if (!char || !char.id) {
+              console.error('[adventure] Invalid character data for saving skills.', char);
+              showToast('캐릭터 정보가 올바르지 않아 저장할 수 없어.');
+              return;
+          }
+          try{
+            const charRef = fx.doc(db, 'chars', char.id);
+            await fx.updateDoc(charRef, { abilities_equipped: on });
+            char.abilities_equipped = on;
+            showToast('스킬 선택 저장 완료');
+          }catch(e){
+            console.error('[adventure] abilities_equipped update fail', e);
+            showToast('저장 실패: ' + e.message);
+          }
         }
-      }
-      updateStartEnabled();
+        updateStartEnabled();
+      });
     });
-  });
-})();
-// ===== 수정된 부분 끝 =====
+  })();
   
   root.querySelector('#btnBackSites')?.addEventListener('click', ()=> viewSitePick(root, world));
 
   const cdNote = root.querySelector('#cdNote');
   const btnStart = root.querySelector('#btnStart');
+  let intervalId = null;
   const tick = ()=>{
-    const r = cooldownRemain();
-    if(r>0){
-      if(cdNote) cdNote.textContent = `탐험 쿨타임: ${formatRemain(r)}`;
-      if(btnStart) btnStart.disabled = true;
-    }else{
-      if(cdNote) cdNote.textContent = '탐험 가능!';
-      // cooldown이 0이 되어도 스킬 선택 여부에 따라 버튼이 비활성화될 수 있으므로
-      // updateStartEnabled()를 호출하여 상태를 다시 계산해주는 것이 가장 안전합니다.
+      const r = cooldownRemain();
+      if(cdNote) cdNote.textContent = r > 0 ? `탐험 쿨타임: ${formatRemain(r)}` : '탐험 가능!';
       if (typeof updateStartEnabled === 'function') {
         updateStartEnabled();
-      } else if(btnStart) {
-        btnStart.disabled = false;
+      } else if (btnStart) {
+        btnStart.disabled = r > 0;
       }
-    }
+      if (r <= 0 && intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+      }
   };
-
-  let intervalId = null;
-  const startInterval = () => {
-    tick();
-    const interval = setInterval(()=>{
-        const r = cooldownRemain();
-        if (r > 0) {
-            tick();
-        } else {
-            tick(); // 마지막으로 한 번 더 호출해서 "탐험 가능!"으로 바꿈
-            clearInterval(interval);
-        }
-    }, 500);
-  };
-  
-  startInterval();
-
+  intervalId = setInterval(tick, 500);
+  tick();
 
   btnStart?.addEventListener('click', async ()=>{
-    // 버튼이 비활성화 상태이면 아무것도 하지 않음
     if (btnStart.disabled) return;
     
-    // 스킬 2개 선택 가드 (서버 요청 전 최종 확인)
     if (Array.isArray(char.abilities_all) && char.abilities_all.length){
       const eq = Array.isArray(char.abilities_equipped) ? char.abilities_equipped : [];
       if (eq.length !== 2){
@@ -357,11 +318,24 @@ function viewPrep(root, world, site, char){
 
     if(cooldownRemain()>0) return showToast('쿨타임이 끝나면 시작할 수 있어!');
 
-    btnStart.disabled = true; // 중복 클릭 방지
+    btnStart.disabled = true;
     btnStart.textContent = '입장 중...';
 
+    // --- 🐞 디버그 로그 추가 ---
+    console.log('%c[DEBUG] createRun 호출 직전 데이터 확인', 'color: #3498db; font-weight: bold;');
+    // JSON.stringify의 2번째 인자(replacer)를 사용해 Timestamp 객체를 문자열로 변환
+    const replacer = (key, value) => {
+      if (value && typeof value === 'object' && value.hasOwnProperty('seconds') && value.hasOwnProperty('nanoseconds')) {
+        return `Timestamp(seconds=${value.seconds}, nanoseconds=${value.nanoseconds})`;
+      }
+      return value;
+    };
+    console.log('  - World:', JSON.stringify(world, replacer, 2));
+    console.log('  - Site:', JSON.stringify(site, replacer, 2));
+    console.log('  - Char:', JSON.stringify(char, replacer, 2));
+    // --- 🐞 디버그 로그 끝 ---
+
     try{
-      // 진행 중 탐험이 있는지 간단 체크
       const q = fx.query(
         fx.collection(db,'explore_runs'),
         fx.where('charRef','==', `chars/${char.id}`),
@@ -371,32 +345,28 @@ function viewPrep(root, world, site, char){
       const s = await fx.getDocs(q);
       if(!s.empty){
         const doc = s.docs[0];
-        // 바로 이어하기
         location.hash = `#/explore-run/${doc.id}`;
         return;
       }
-    }catch(_){ /* 권한/인덱스 이슈면 새로 생성으로 진행 */ }
+    }catch(_){ /* 권한/인덱스 이슈는 무시하고 새로 생성으로 진행 */ }
 
-    // 새 탐험 런 문서 생성
     let runId = '';
     try{
-      runId = await createRun({ world, site, char }); // api/explore.js 사용
+      runId = await createRun({ world, site, char });
     }catch(e){
       console.error('[explore] create run fail', e);
       showToast(e?.message || '탐험 시작에 실패했어');
-      btnStart.disabled = false; // 실패 시 버튼 다시 활성화
+      btnStart.disabled = false;
       btnStart.textContent = '탐험 시작';
       return;
     }
 
-    // 의도 저장 + 이동
     setExploreIntent({ charId: char.id, runId, world:world.id, site:site.id, ts:Date.now() });
     location.hash = `#/explore-run/${runId}`;
 
   });
 }
 
-// ===== 엔트리 =====
 export async function showAdventure(){
   const root = document.getElementById('view');
   if(!auth.currentUser){
