@@ -31,15 +31,14 @@ export async function createRun({ world, site, char }){
     throw new Error('이미 진행 중인 탐험이 있어');
   }
 
-  const now = Date.now();
   const payload = {
     charRef: `chars/${char.id}`,
     owner_uid: u.uid,
     world_id: world.id, world_name: world.name,
     site_id: site.id,   site_name: site.name,
     difficulty: site.difficulty || 'normal',
-    startedAt: fx.serverTimestamp(),       // Spark에서도 클라에서 호출 가능
-    expiresAt: now + EXPLORE_COOLDOWN_MS,  // 로컬 타이머 기준값
+    startedAt: fx.serverTimestamp(),
+    // 수정됨: expiresAt은 서버 타임스탬프 기준으로 계산하는 것이 더 안정적이므로 클라이언트에서 보내지 않음
     stamina_start: STAMINA_BASE,
     stamina: STAMINA_BASE,
     turn: 0,
@@ -50,12 +49,25 @@ export async function createRun({ world, site, char }){
     rewards: []
   };
 
-  const ref = await fx.addDoc(fx.collection(db,'explore_runs'), payload);
+  // ===== 수정됨: writeBatch를 사용해 탐험 생성과 캐릭터 업데이트를 원자적으로 처리 =====
+  const batch = fx.writeBatch(db);
 
-  // 로컬 쿨타임 적용 (서버 기능 없이)
+  // 1. 새 탐험 런 문서 생성
+  const runRef = fx.doc(fx.collection(db, 'explore_runs'));
+  batch.set(runRef, payload);
+
+  // 2. 캐릭터 문서에 마지막 탐험 시작 시간 기록
+  const charRef = fx.doc(db, 'chars', char.id);
+  batch.update(charRef, { last_explore_startedAt: fx.serverTimestamp() });
+
+  // 배치 쓰기 실행
+  await batch.commit();
+  // ===================================================================
+
+  // 로컬 쿨타임 적용 (UI/UX 목적)
   applyCooldown(EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS);
 
-  return ref.id;
+  return runRef.id;
 }
 
 export async function endRun({ runId, reason='ended' }){
@@ -69,9 +81,9 @@ export async function endRun({ runId, reason='ended' }){
 
   await fx.updateDoc(ref, {
     status: 'ended',
-    endedAt: Date.now(),
+    endedAt: fx.serverTimestamp(), // Date.now() 대신 serverTimestamp 권장
     reason,
-    updatedAt: Date.now()
+    updatedAt: fx.serverTimestamp()
   });
   return true;
 }
