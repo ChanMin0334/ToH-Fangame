@@ -143,7 +143,6 @@ export async function showExploreRun(){
   btnGive.addEventListener('click', ()=> endRun('giveup'));
 
   btnMove.addEventListener('click', async ()=>{
-  btnMove.addEventListener('click', async ()=>{
   if(state.status!=='ongoing') return;
   if(state.stamina<=STAMINA_MIN) return;
 
