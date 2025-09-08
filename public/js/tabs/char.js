@@ -42,7 +42,7 @@ async function fetchInventory(charId){
     throw e;
   }
 }
-function rarityClass(r){ return r==='legend'?'rarity-legend': r==='epic'?'rarity-epic': r==='rare'?'rarity-rare':'rarity-common'; }
+function rarityClass(r){ if(r==='legend')return'rarity-legend'; if(r==='epic')return'rarity-epic'; if(r==='rare')return'rarity-rare'; return'rarity-common'; }
 
 
 // ---------- entry ----------
@@ -396,17 +396,30 @@ async function renderLoadout(c, view){
     </div>
   `;
 
-  // 스킬 정확히 2개 유지
+    // 스킬 정확히 2개 유지(권한 오류도 토스트로 알려줌)
   if(isOwner && abilitiesAll.length>0){
     const boxes = Array.from(view.querySelectorAll('.skill input[type=checkbox]'));
     boxes.forEach(b=>{
-      b.onchange = ()=>{
+      b.onchange = async ()=>{
         const on = boxes.filter(x=>x.checked).map(x=>+x.dataset.i);
-        if(on.length>2){ b.checked=false; return showToast('스킬은 딱 2개만!'); }
-        if(on.length===2){ updateAbilitiesEquipped(c.id, on); showToast('스킬 저장 완료'); }
+        if(on.length>2){ 
+          b.checked = false; 
+          showToast('스킬은 딱 2개만!');
+          return;
+        }
+        if(on.length===2){
+          try{
+            await updateAbilitiesEquipped(c.id, on);
+            showToast('스킬 저장 완료');
+          }catch(e){
+            console.error('[abilities] update fail', e);
+            showToast('스킬 저장 실패: 로그인/권한을 확인해줘');
+          }
+        }
       };
     });
   }
+
 
   // 슬롯 렌더
   const slotBox = view.querySelector('#slots');
