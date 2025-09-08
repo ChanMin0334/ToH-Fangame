@@ -370,3 +370,39 @@ export async function endExploreServer({ runId }){
 
 // === 레거시 호환: saveLocal 참조하는 오래된 파일 대비 (no-op) ===
 export function saveLocal(){ /* noop */ }
+
+
+/* === ADVENTURE: getCharForAI (얕은 조회) ===
+ * charRef 문자열("chars/{cid}") 또는 캐릭터 id를 받아
+ * 이름, 최신 서사, 스킬(장착 2칸 기준), 전체 스킬 배열을 돌려준다.
+ */
+export async function getCharForAI(charRefOrId){
+  const refStr = String(charRefOrId||'');
+  const cid = refStr.startsWith('chars/') ? refStr.split('/')[1] : refStr;
+  if(!cid) return null;
+
+  const ref = fx.doc(db, 'chars', cid);
+  const snap = await fx.getDoc(ref);
+  if(!snap.exists()) return null;
+
+  const c = snap.data() || {};
+  const latest = Array.isArray(c.narratives)
+    ? [...c.narratives].sort((a,b)=>(b?.createdAt||0)-(a?.createdAt||0))[0]
+    : null;
+
+  const equippedIdx = Array.isArray(c.abilities_equipped) ? c.abilities_equipped.slice(0,2) : [];
+  const all = Array.isArray(c.abilities_all) ? c.abilities_all : [];
+  const skills = equippedIdx.map(i => {
+    const ab = all[i] || {};
+    return { name: ab.name || `스킬${(i??0)+1}`, desc: ab.desc_soft || '' };
+  });
+
+  return {
+    id: cid,
+    name: c.name || '(이름 없음)',
+    latestLong: latest?.long || '',
+    shortConcat: Array.isArray(c.narratives) ? c.narratives.map(n=>n?.short||'').join(' / ') : '',
+    skills,            // 장착 2칸을 즉시 해석한 결과
+    _raw: c            // 필요 시 참조용(프롬프트엔 쓰지 말 것)
+  };
+}
