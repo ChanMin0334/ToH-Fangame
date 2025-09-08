@@ -339,7 +339,13 @@ function viewPrep(root, world, site, char){
         fx.collection(db,'explore_runs'),
         fx.where('charRef','==', `chars/${char.id}`),
         fx.where('status','==','ongoing'),
-        fx.orderBy('startedAt','desc'),
+        const q = fx.query(
+          fx.collection(db,'explore_runs'),
+          fx.where('charRef','==', `chars/${char.id}`),
+          fx.where('status','==','ongoing'),
+          fx.limit(1) // ← orderBy 없이 1개만 봅니다 (캐릭터당 동시 1런 가정)
+        );
+
         fx.limit(1)
       );
       const s = await fx.getDocs(q);
@@ -359,8 +365,11 @@ function viewPrep(root, world, site, char){
       world_id: world.id, world_name: world.name,
       site_id: site.id,  site_name: site.name,
       difficulty: site.difficulty || 'normal',
-      startedAt: now,
-      expiresAt: now + EXPLORE_CD_MS,  // 1시간 운영 타이머
+      // (위쪽에) const now = Date.now();  // expiresAt 계산용은 그대로 둡니다.
+
+      startedAt: fx.serverTimestamp(),   // ← 여기만 숫자 → serverTimestamp()로
+      expiresAt: now + EXPLORE_CD_MS,
+
       stamina_start: STAMINA_BASE,
       stamina: STAMINA_BASE,
       turn: 0,
