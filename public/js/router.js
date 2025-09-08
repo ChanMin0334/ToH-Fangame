@@ -46,6 +46,7 @@ export function router(){
   // 상세 페이지는 :id 필요
   if(hash.startsWith('#/char/')) return routes['#/char']();
   if(hash.startsWith('#/relations/')) return routes['#/relations']();
+  if(hash.startsWith('#/explore-run/')) return (await import('./tabs/explore_run.js')).showExploreRun?.();
   (routes[hash] || routes['#/home'])();
 }
 
