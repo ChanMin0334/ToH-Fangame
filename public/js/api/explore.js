@@ -28,27 +28,13 @@ const COMBAT_TIER = {
 };
 
 
-function makePrerolls(n=50, mod=1000){
-  return Array.from({length:n}, ()=> Math.floor(Math.random()*mod)+1);
-}
-
-export async function hasActiveRunForChar(charId){
-  const u = auth.currentUser;
-  if(!u) throw new Error('로그인이 필요해');
-  const q = fx.query(
-    fx.collection(db,'explore_runs'),
-    fx.where('owner_uid','==', u.uid),
-    fx.where('charRef','==', `chars/${charId}`),
-    fx.where('status','==','ongoing'),
-    fx.limit(1)
-  );
-  const s = await fx.getDocs(q);
-  return !s.empty;
-}
-
+// ===== 💥 여기가 이 문제의 최종 해결책입니다 💥 =====
 export async function createRun({ world, site, char }){
   const u = auth.currentUser;
-  if(!u) throw new Error('로그인이 필요해');
+  if(!u) {
+    console.error('[explore] createRun called but auth.currentUser is null!');
+    throw new Error('인증 정보가 없습니다. 다시 로그인해주세요.');
+  }
 
   if(await hasActiveRunForChar(char.id)){
     throw new Error('이미 진행 중인 탐험이 있어');
@@ -71,21 +57,27 @@ export async function createRun({ world, site, char }){
     rewards: []
   };
 
-  const charRef = fx.doc(db, 'chars', char.id);
-  const runRef = fx.doc(fx.collection(db, 'explore_runs'));
-
-  const batch = fx.writeBatch(db);
-  batch.set(runRef, payload);
-  batch.update(charRef, { last_explore_startedAt: fx.serverTimestamp() });
-
+  let runRef;
   try {
-    await batch.commit();
+    // 1. 첫 번째 작업: 탐험 문서 생성 (addDoc)
+    console.log('[explore] Step 1: Attempting to create explore_run document...');
+    runRef = await fx.addDoc(fx.collection(db, 'explore_runs'), payload);
+    console.log(`✅ [explore] Step 1 SUCCESS: Created run with ID: ${runRef.id}`);
+
+    // 2. 두 번째 작업: 캐릭터 문서 업데이트 (updateDoc)
+    console.log('[explore] Step 2: Attempting to update character document...');
+    const charRef = fx.doc(db, 'chars', char.id);
+    await fx.updateDoc(charRef, { last_explore_startedAt: fx.serverTimestamp() });
+    console.log('✅ [explore] Step 2 SUCCESS: Character timestamp updated.');
+
   } catch (e) {
-    console.error('[explore] createRun batch commit fail', e);
-    // 사용자에게 보여주는 에러 메시지를 조금 더 명확하게 수정
+    // 실패 시 더 상세한 오류를 출력
+    console.error('[explore] A critical error occurred during sequential write:', e);
+    // 사용자에게 보여주는 메시지는 간단하게 유지
     throw new Error('탐험 시작에 실패했습니다. 잠시 후 다시 시도해주세요.');
   }
 
+  // 3. 모든 작업 성공 후 클라이언트 쿨타임 적용
   applyCooldown(EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS);
 
   return runRef.id;
