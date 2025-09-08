@@ -40,7 +40,6 @@ export function logToScreen(label, data) {
   
   let content;
   try {
-    // 객체는 보기 좋게 JSON 문자열로 변환합니다.
     content = typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data);
   } catch (e) {
     content = '[Circular Reference or Unstringifiable Object]';
@@ -48,7 +47,6 @@ export function logToScreen(label, data) {
 
   pre.textContent = `[${label}] ${content}`;
   
-  // 스타일
   Object.assign(pre.style, {
     margin: '0 0 5px 0',
     padding: '0',
@@ -57,7 +55,6 @@ export function logToScreen(label, data) {
   });
 
   container.appendChild(pre);
-  // 항상 최신 로그가 보이도록 스크롤을 맨 아래로 내립니다.
   container.scrollTop = container.scrollHeight;
 }
 
