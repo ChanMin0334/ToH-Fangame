@@ -49,20 +49,24 @@ export async function createRun({ world, site, char }){
     rewards: []
   };
 
-  // ===== 수정됨: writeBatch를 사용해 탐험 생성과 캐릭터 업데이트를 원자적으로 처리 =====
-  const batch = fx.writeBatch(db);
+// 새 탐험 런 문서 생성 (writeBatch 없이 단일 호출로 처리)
+let runRef;
+try {
+  runRef = await fx.addDoc(fx.collection(db, 'explore_runs'), payload);
+} catch (e) {
+  console.error('[explore] addDoc fail', e);
+  throw new Error('탐험 문서 생성에 실패했어');
+}
 
-  // 1. 새 탐험 런 문서 생성
-  const runRef = fx.doc(fx.collection(db, 'explore_runs'));
-  batch.set(runRef, payload);
-
-  // 2. 캐릭터 문서에 마지막 탐험 시작 시간 기록
+// (선택) 캐릭터 문서에 마지막 탐험 시작 시간 기록
+//   - 권한 규칙상 막힐 수 있으니 실패해도 전체 플로우는 계속 진행
+try {
   const charRef = fx.doc(db, 'chars', char.id);
-  batch.update(charRef, { last_explore_startedAt: fx.serverTimestamp() });
+  await fx.updateDoc(charRef, { last_explore_startedAt: fx.serverTimestamp() });
+} catch (e) {
+  console.warn('[explore] char meta update skipped', e?.message || e);
+}
 
-  // 배치 쓰기 실행
-  await batch.commit();
-  // ===================================================================
 
   // 로컬 쿨타임 적용 (UI/UX 목적)
   applyCooldown(EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS);
