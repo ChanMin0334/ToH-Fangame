@@ -1,69 +1,61 @@
-// /public/js/api/firebase.js (안정성 강화 버전)
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
+// /public/js/api/firebase.js  (정상화: Firebase 초기화 전용)
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js';
 import {
-  getAuth,
-  onAuthStateChanged // ⚠️ 1. 인증 상태 감지 함수 import
-} from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
-import {
-  getFirestore,
   initializeFirestore,
-  enableIndexedDbPersistence, // ⚠️ 2. 오프라인 지속성 함수 import
-  doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
-  collection, query, where, orderBy, limit, serverTimestamp, writeBatch
-} from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+  doc, getDoc, getDocFromCache, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
+  collection, query, where, orderBy, limit, serverTimestamp
+} from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 
-// --- Firebase 설정 ---
+
+
+
+
+
+import {
+  getAuth
+} from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
+import {
+  getStorage, ref as sRef, uploadBytes, getDownloadURL
+} from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-storage.js';
+import { getFunctions } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+// ★★ 여기에 "router.js", "toast.js", "api/..." 같은 프로젝트 파일 import 금지 ★★
+// 이 파일은 Firebase SDK만 import 해야 함
+
+// >>> 네 Firebase 설정으로 교체 (이미 쓰던 값)
 const firebaseConfig = {
   apiKey: "AIzaSyA4ilV6tRpqZrkgXRTKdFP_YjAl3CmfYWo",
   authDomain: "tale-of-heros---fangame.firebaseapp.com",
   projectId: "tale-of-heros---fangame",
-  storageBucket: "tale-of-heros---fangame.appspot.com",
+  storageBucket: "tale-of-heros---fangame.firebasestorage.app",
   messagingSenderId: "648588906865",
   appId: "1:648588906865:web:eb4baf1c0ed9cdbc7ba6d0"
 };
 
-// --- Firebase 서비스 초기화 ---
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-
-// --- ⚠️ 3. 안정성 강화 로직 추가 ---
-// Firestore 오프라인 데이터 지속성 활성화
-// 사용자가 오프라인이 되어도 데이터를 읽고 쓸 수 있게 해줍니다.
-enableIndexedDbPersistence(db)
-  .catch((err) => {
-    if (err.code == 'failed-precondition') {
-      console.warn("Firestore: Multiple tabs open, persistence can only be enabled in one tab at a time.");
-    } else if (err.code == 'unimplemented') {
-      console.warn("Firestore: The current browser does not support all of the features required to enable persistence.");
-    }
-  });
-
-// 현재 로그인한 사용자 정보를 저장할 변수
-let currentUser = null;
-
-// 인증 상태 변경 감지 리스너 설정
-// 앱이 시작될 때, 그리고 로그인/로그아웃 시 자동으로 호출됩니다.
-onAuthStateChanged(auth, (user) => {
-  if (user) {
-    // 사용자가 로그인됨
-    currentUser = user;
-    console.log("Firebase Auth: User is signed in.", user.uid);
-  } else {
-    // 사용자가 로그아웃됨
-    currentUser = null;
-    console.log("Firebase Auth: User is signed out.");
-  }
+// init
+export const app     = initializeApp(firebaseConfig);
+export const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true, // 네트워크/방화벽 환경 자동 감지
+  useFetchStreams: false                   // 일부 환경에서 스트림 문제 회피
+  // 필요하면 아래를 강제 옵션으로 바꿔도 됨:
+  // experimentalForceLongPolling: true
 });
 
-// 다른 파일에서 항상 최신 사용자 정보를 참조할 수 있도록 함수를 제공합니다.
-export function getCurrentUser() {
-  return currentUser;
-}
-// ---------------------------------
 
-// --- 편의를 위한 네임스페이스 export ---
+export const auth    = getAuth(app);
+export const storage = getStorage(app);
+export const func = getFunctions(app, 'us-central1');
+// 편의를 위한 네임스페이스 export (기존 코드 호환)
 export const fx = {
-  doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
-  collection, query, where, orderBy, limit, serverTimestamp, writeBatch
+  doc, getDoc, getDocFromCache, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
+  collection, query, where, orderBy, limit, serverTimestamp
 };
+
+export { serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
+
+
+export const sx = { ref: sRef, uploadBytes, getDownloadURL };
+
+
+
+// auth 모듈 전역 네임스페이스가 필요하면 이렇게 묶어서 재export (app.js에서 ax.* 호출용)
+export * as ax from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
