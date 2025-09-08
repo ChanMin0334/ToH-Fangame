@@ -8,15 +8,20 @@ service cloud.firestore {
     // ─────────────────────────────
     function isSignedIn() {
       return request.auth != null;
-    }
+}
     function isOwner(data) {
       return isSignedIn() && data.owner_uid == request.auth.uid;
-    }
+}
     function isCharPath(p) {
       return p is string && p.matches('^chars/[^/]+$');
-    }
+}
     function charOwner(charPath) {
       return get(/databases/$(database)/documents/$(charPath)).data.owner_uid;
+}
+    
+    // ===== 수정된 부분: 쿨타임 상수 정의 =====
+    function exploreCooldown(){
+      return duration.value(1, 'h'); // 1시간
     }
 
     // ─────────────────────────────
@@ -25,11 +30,9 @@ service cloud.firestore {
     match /users/{uid} {
       // 로그인 사용자만 열람 가능
       allow read: if isSignedIn();
-
-      // 본인만 생성/수정
+// 본인만 생성/수정
       allow create: if isSignedIn() && request.auth.uid == uid;
-
-      // 닉네임 길이 가드(선택)
+// 닉네임 길이 가드(선택)
       allow update: if isSignedIn()
         && request.auth.uid == uid
         && (
@@ -37,7 +40,7 @@ service cloud.firestore {
           || (request.resource.data.nickname is string
               && request.resource.data.nickname.size() <= 20)
         );
-    }
+}
 
     // ─────────────────────────────
     // chars (캐릭터)
@@ -45,15 +48,24 @@ service cloud.firestore {
     match /chars/{charId} {
       // 캐릭터 열람은 공개
       allow read: if true;
-
-      // 생성: owner_uid == 본인
+// 생성: owner_uid == 본인
       allow create: if isSignedIn()
         && request.resource.data.owner_uid == request.auth.uid;
 
       // 수정/삭제: 기존 문서의 소유자만
-      allow update, delete: if isSignedIn()
+      // ===== 수정된 부분: last_explore_startedAt 필드 업데이트 허용 =====
+      allow update: if isSignedIn()
+        && resource.data.owner_uid == request.auth.uid
+        && (
+            // 기존 필드들 업데이트 (예: abilities_equipped)
+            request.resource.data.keys().hasOnly(['abilities_equipped'])
+            // 또는 탐험 시작 시 타임스탬프 업데이트
+            || request.resource.data.keys().hasOnly(['last_explore_startedAt'])
+         );
+         
+      allow delete: if isSignedIn()
         && resource.data.owner_uid == request.auth.uid;
-    }
+}
 
     // ─────────────────────────────
     // char_items (캐릭터 인벤토리)
@@ -62,17 +74,15 @@ service cloud.firestore {
     // ─────────────────────────────
     match /char_items/{itemId} {
       allow read: if true;
-
-      allow create: if isSignedIn()
+allow create: if isSignedIn()
         && ('char_id' in request.resource.data)
         && isCharPath(request.resource.data.char_id)
         && charOwner(request.resource.data.char_id) == request.auth.uid;
-
-      allow update, delete: if isSignedIn()
+allow update, delete: if isSignedIn()
         && ('char_id' in resource.data)
         && isCharPath(resource.data.char_id)
         && charOwner(resource.data.char_id) == request.auth.uid;
-    }
+}
 
     // ─────────────────────────────
     // relations (관계)
@@ -80,8 +90,7 @@ service cloud.firestore {
     // ─────────────────────────────
     match /relations/{relId} {
       allow read: if true;
-
-      allow create: if isSignedIn()
+allow create: if isSignedIn()
         && isCharPath(request.resource.data.a_charRef)
         && isCharPath(request.resource.data.b_charRef)
         && request.resource.data.createdBy == request.auth.uid
@@ -90,20 +99,19 @@ service cloud.firestore {
           !('via_battle_log' in request.resource.data)
           || (
             request.resource.data.via_battle_log is string
-            && request.resource.data.via_battle_log.matches('^battle_logs/[^/]+$')
+           
+ && request.resource.data.via_battle_log.matches('^battle_logs/[^/]+$')
             && request.time
                < get(/databases/$(database)/documents/$(request.resource.data.via_battle_log)).data.relation_deadline
           )
         );
-
-      // 양측 소유자 중 한 명이면 삭제 가능
+// 양측 소유자 중 한 명이면 삭제 가능
       allow delete: if isSignedIn()
         && (
           charOwner(resource.data.a_charRef) == request.auth.uid
           || charOwner(resource.data.b_charRef) == request.auth.uid
         );
-
-      allow update: if false; // 업데이트는 비활성 (메모 등은 서브문서로)
+allow update: if false; // 업데이트는 비활성 (메모 등은 서브문서로)
     }
 
     // ─────────────────────────────
@@ -112,38 +120,35 @@ service cloud.firestore {
     // ─────────────────────────────
     match /relation_daily/{relId}/episodes/{date} {
       allow read: if true;
-
-      function canWrite() {
+function canWrite() {
         return isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
-      }
+}
 
       allow create: if canWrite();
       allow update: if canWrite();
       allow delete: if canWrite();
-    }
+}
 
     // ─────────────────────────────
     // battle_logs
     // ─────────────────────────────
     match /battle_logs/{logId} {
       allow read: if true;
-
-      // 생성: 공격자(생성자)만
+// 생성: 공격자(생성자)만
       allow create: if isSignedIn()
         && isCharPath(request.resource.data.attacker_char)
         && isCharPath(request.resource.data.defender_char)
         && request.resource.data.createdBy == request.auth.uid;
-
-      allow update, delete: if false;
+allow update, delete: if false;
 
       // 선택적 서브액션 (ex: relation 마킹)
       match /actions/{actId} {
         allow read: if true;
-        allow create: if isSignedIn()
+allow create: if isSignedIn()
           && get(/databases/$(database)/documents/battle_logs/$(logId)).data.createdBy == request.auth.uid
           && request.time
              < get(/databases/$(database)/documents/battle_logs/$(logId)).data.relation_deadline;
-        allow update, delete: if false;
+allow update, delete: if false;
       }
     }
 
@@ -154,18 +159,15 @@ service cloud.firestore {
       allow read: if isSignedIn()
         && (request.auth.uid == resource.data.from
             || request.auth.uid == resource.data.to);
-
-      allow create: if isSignedIn()
+allow create: if isSignedIn()
         && request.auth.uid == request.resource.data.from
         && request.resource.data.from != request.resource.data.to;
-
-      allow update: if isSignedIn()
+allow update: if isSignedIn()
         && request.auth.uid == resource.data.to;
-
-      allow delete: if isSignedIn()
+allow delete: if isSignedIn()
         && (request.auth.uid == resource.data.from
             || request.auth.uid == resource.data.to);
-    }
+}
 
     // ─────────────────────────────
     // friendships (친구 쌍)
@@ -174,22 +176,21 @@ service cloud.firestore {
       allow read, delete: if isSignedIn()
         && (request.auth.uid == resource.data.a
             || request.auth.uid == resource.data.b);
-
-      allow create: if isSignedIn()
+allow create: if isSignedIn()
         && (request.auth.uid == request.resource.data.a
             || request.auth.uid == request.resource.data.b);
-    }
+}
 
     // ─────────────────────────────
     // rankings / configs
     // ─────────────────────────────
     match /rankings/{docId} {
       allow read: if true;
-      allow write: if false;
+allow write: if false;
     }
     match /configs/{docId} {
       allow read: if true;
-      allow write: if false;
+allow write: if false;
     }
 
     // ─────────────────────────────
@@ -199,18 +200,19 @@ service cloud.firestore {
       // 내 기록만 읽기
       allow read: if isSignedIn() && resource.data.owner_uid == request.auth.uid;
 
-      // 생성: 내 캐릭으로 시작만 허용
-      // - charRef: "chars/{id}"
-      // - startedAt: timestamp (클라이언트에서는 serverTimestamp() 사용 권장)
-      // - status: 'ongoing'
+      // 생성: 내 캐릭으로 시작만 허용 + 쿨타임 강제
       allow create: if isSignedIn()
         && request.resource.data.owner_uid == request.auth.uid
         && isCharPath(request.resource.data.charRef)
         && charOwner(request.resource.data.charRef) == request.auth.uid
         && request.resource.data.status == 'ongoing'
+        && (request.resource.data.startedAt is timestamp || request.resource.data.startedAt is number)
+        // ===== 변경된 규칙: 서버에서 쿨타임 강제 =====
         && (
-            request.resource.data.startedAt is timestamp
-            || request.resource.data.startedAt is number
+            // 캐릭터에 마지막 탐험 시간이 기록되지 않았거나 (첫 탐험)
+            !('last_explore_startedAt' in get(/databases/$(database)/documents/$(request.resource.data.charRef)).data)
+            // 마지막 탐험 시간 + 쿨타임 < 현재 시간 이어야 함
+            || get(/databases/$(database)/documents/$(request.resource.data.charRef)).data.last_explore_startedAt + exploreCooldown() < request.time
         );
 
       // 진행/완료 업데이트: 소유자만
@@ -221,22 +223,22 @@ service cloud.firestore {
         && (!('owner_uid' in request.resource.data) || request.resource.data.owner_uid == resource.data.owner_uid)
         && (!('charRef'   in request.resource.data) || request.resource.data.charRef   == resource.data.charRef)
         && (
-            // 상태값을 건드리지 않는 경우
+          
+  // 상태값을 건드리지 않는 경우
             !('status' in request.resource.data)
             // 또는 ongoing → ended 로만 바꾸는 경우
             || (resource.data.status == 'ongoing' && request.resource.data.status == 'ended')
         );
 
-
       // 보존: 삭제 불가
       allow delete: if false;
-    }
+}
 
     // ─────────────────────────────
     // 그 외 모두 차단
     // ─────────────────────────────
     match /{document=**} {
       allow read, write: if false;
-    }
+}
   }
 }
