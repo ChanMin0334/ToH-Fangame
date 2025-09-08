@@ -71,19 +71,16 @@ export async function createRun({ world, site, char }){
   };
 
   const charRef = fx.doc(db, 'chars', char.id);
-  // writeBatch를 위해 미리 문서 참조를 생성합니다. (자동 ID)
   const runRef = fx.doc(fx.collection(db, 'explore_runs'));
 
   const batch = fx.writeBatch(db);
   batch.set(runRef, payload);
-  batch.update(charRef, { last_explore_startedAt: fx.serverTimestamp() });
+  // --- 🐞 디버그: 캐릭터 업데이트를 잠시 비활성화하여 문제 분리 ---
+  // batch.update(charRef, { last_explore_startedAt: fx.serverTimestamp() });
 
-  // --- 🐞 디버그 로그 추가 ---
-  console.log('%c[DEBUG] Firestore 쓰기 작업 시작 전 데이터 확인', 'color: #e67e22; font-weight: bold;');
+  console.log('%c[DEBUG] Firestore 쓰기 작업 시작 전 데이터 확인 (캐릭터 업데이트 제외됨)', 'color: #e67e22; font-weight: bold;');
   console.log('  - Current User UID:', u.uid);
-  console.log('  - Target Char Ref Path:', charRef.path);
   console.log('  - New Explore Run Ref Path:', runRef.path);
-  // JSON.stringify의 2번째 인자(replacer)를 사용해 Timestamp 객체를 문자열로 변환
   const replacer = (key, value) => {
     if (value && typeof value === 'object' && value.hasOwnProperty('seconds') && value.hasOwnProperty('nanoseconds')) {
       return `Timestamp(seconds=${value.seconds}, nanoseconds=${value.nanoseconds})`;
@@ -91,13 +88,11 @@ export async function createRun({ world, site, char }){
     return value;
   };
   console.log('  - Payload for new explore_run:', JSON.stringify(payload, replacer, 2));
-  // --- 🐞 디버그 로그 끝 ---
 
   try {
     await batch.commit();
   } catch (e) {
     console.error('[explore] createRun batch commit fail', e);
-    // 사용자에게 보여줄 에러 메시지를 좀 더 구체적으로 변경
     throw new Error('탐험 시작 실패 (서버 쿨타임 또는 규칙 위반)');
   }
 
