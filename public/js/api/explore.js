@@ -27,6 +27,7 @@ const COMBAT_TIER = {
   legend: [{p:80, t:'trash'},{p:380,t:'normal'},{p:800,t:'elite'},{p:1000,t:'boss'}],
 };
 
+
 function makePrerolls(n=50, mod=1000){
   return Array.from({length:n}, ()=> Math.floor(Math.random()*mod)+1);
 }
@@ -75,7 +76,6 @@ export async function createRun({ world, site, char }){
 
   const batch = fx.writeBatch(db);
   batch.set(runRef, payload);
-  // ⚠️ 디버깅을 위해 주석 처리했던 코드를 다시 활성화합니다.
   batch.update(charRef, { last_explore_startedAt: fx.serverTimestamp() });
 
   try {
@@ -174,3 +174,4 @@ export async function appendEvent({ runId, runBefore, narrative, choices, delta,
   await fx.updateDoc(ref, next);
   return { ...cur, ...next, id: runId };
 }
+
