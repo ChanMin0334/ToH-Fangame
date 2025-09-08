@@ -17,8 +17,9 @@ service cloud.firestore {
     function charOwner(charPath) {
       return get(/databases/$(database)/documents/$(charPath)).data.owner_uid;
     }
+    // 탐험 쿨타임 (테스트용으로 1분으로 단축)
     function exploreCooldown(){
-      return duration.value(1, 'h');
+      return duration.value(1, 'm'); // 'm' for minutes
     }
 
     // ===== 캐릭터 (chars) =====
