@@ -35,63 +35,6 @@ function tryParseJson(t){
   const s = stripFences(t);
   try{ return JSON.parse(s); }catch(e){ return null; }
 }
-
-
-// ===== 프록시 응답 파싱/재시도 유틸 =====
-async function parseProxyResponse(res){
-  if(!res) throw new Error('프록시 응답 없음');
-  // JSON이면 text 후보들 추출
-  const ct = (res.headers.get('content-type') || '').toLowerCase();
-  if (ct.includes('application/json')) {
-    const j = await res.json().catch(()=> null);
-    const t =
-      j?.text ||
-      j?.output ||
-      j?.data?.text ||
-      j?.content ||
-      j?.choices?.[0]?.message?.content?.[0]?.text ||
-      j?.candidates?.[0]?.content?.parts?.map(p=>p?.text).join('') ||
-      '';
-    if (t) return stripFences(String(t));
-    // json인데 text가 비었으면, 안전하게 문자열화
-    return JSON.stringify(j ?? {});
-  }
-  // 그 외는 그냥 텍스트
-  return stripFences(await res.text());
-}
-
-async function callProxyWithFallbacks(payload){
-  // 워커 라우트가 설치마다 다를 수 있으니, 여러 엔드포인트 순차 시도
-  const bases = [
-    'https://toh-ai-proxy.pokemonrgby.workers.dev',
-    'https://toh-ai-proxy.pokemonrgby.workers.dev/api/ai/generate',
-    'https://toh-ai-proxy.pokemonrgby.workers.dev/generate'
-  ];
-  let lastErr = '';
-  for (const url of bases){
-    try{
-      const res = await fetch(url, {
-        method:'POST',
-        mode:'cors',
-        headers:{ 'Content-Type':'application/json', 'Accept':'application/json,text/plain' },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok){
-        lastErr = `${res.status} ${await res.text().catch(()=> '')}`;
-        continue;
-      }
-      const text = await parseProxyResponse(res);
-      if (text) return text;
-      lastErr = 'empty body';
-    }catch(e){
-      lastErr = String(e?.message || e);
-    }
-  }
-  throw new Error(`AI 프록시 실패: ${lastErr}`);
-}
-
-
-
 function limit(str, n){ const s=String(str??''); return s.length>n ? s.slice(0,n) : s; }
 function getMaxTokens(){
   const v = parseInt(localStorage.getItem('toh_ai_max_tokens')||'',10);
@@ -157,12 +100,26 @@ export async function callGemini(model, systemText, userText, temperature=0.85){
     temperature,
     maxOutputTokens: getMaxTokens(),
   };
-  // 라우트가 루트(/)이든 /api/ai/generate든 모두 커버
-  const outText = await callProxyWithFallbacks(payload);
+
+  // 프록시 엔드포인트(서버에만 키가 있음)
+  const proxyUrl = 'https://toh-ai-proxy.pokemonrgby.workers.dev/api/ai/generate';
+
+  const res = await fetch(proxyUrl, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+
+  if(!res.ok){
+    const txt = await res.text().catch(()=> '');
+    throw new Error(`AI 프록시 실패: ${res.status} ${txt}`);
+  }
+
+  const j = await res.json().catch(()=>null);
+  const outText = j?.text ?? '';
   if(!outText) throw new Error('AI 프록시 응답이 비어 있어');
   return outText;
 }
-
 
 
 /* =============== 출력 표준화(새/구 호환) =============== */
