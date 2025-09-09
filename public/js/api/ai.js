@@ -251,7 +251,7 @@ export async function requestAdventureNarrative({
 
   const userText = [
     '## 플레이어 캐릭터 컨텍스트',
-    `- 출신 세계관: ${character?.world_origin_name || '알 수 없음'}`,
+    `- 출신 세계관: ${character?.origin_world_info || '알 수 없음'}`,
     `- 캐릭터 이름: ${character?.name || '-'}`,
     `- 보유 스킬: ${(character?.skills || []).map(s => `${s.name}(${s.desc || ''})`).join(', ') || '-'}`,
     `- 장착 아이템: ${equippedItems}`,
