@@ -15,24 +15,24 @@ function parseId(){
   return m ? { charId: m[1], narrId: m[2] || null } : { charId:null, narrId:null };
 }
 
-
 function rateText(w,l){ const W=+w||0, L=+l||0, T=W+L; return T? Math.round(W*100/T)+'%':'0%'; }
 function normalizeChar(c){
   const out={...c};
   out.elo = out.elo ?? 1000;
   out.abilities_all = Array.isArray(out.abilities_all)? out.abilities_all : (Array.isArray(out.abilities)? out.abilities: []);
   out.abilities_equipped = Array.isArray(out.abilities_equipped)? out.abilities_equipped.slice(0,2): [];
+  // `items_all`도 정규화 과정에 추가해줍니다.
+  out.items_all = Array.isArray(out.items_all) ? out.items_all : [];
   out.items_equipped = Array.isArray(out.items_equipped)? out.items_equipped.slice(0,3): [];
-  // 이미지 경로: KV 썸네일 우선 → 레거시 b64 → 레거시 url
   out.thumb_url = out.thumb_url || '';
   out.image_url = out.thumb_url || out.image_b64 || out.image_url || '';
-  // 서사 항목(배열) 호환
   out.narrative_items = Array.isArray(out.narrative_items) ? out.narrative_items
   : (out.narrative ? [{ title:'서사', body: out.narrative }] : []);
   return out;
 }
 async function fetchInventory(charId){
   try{
+    // 캐릭터가 소유한 모든 아이템을 `char_items` 컬렉션에서 가져옵니다.
     const q = fx.query(fx.collection(db,'char_items'), fx.where('char_id','==', `chars/${charId}`));
     const s = await fx.getDocs(q);
     const arr=[]; s.forEach(d=>arr.push({id:d.id, ...d.data()}));
@@ -43,6 +43,16 @@ async function fetchInventory(charId){
   }
 }
 function rarityClass(r){ if(r==='legend')return'rarity-legend'; if(r==='epic')return'rarity-epic'; if(r==='rare')return'rarity-rare'; return'rarity-common'; }
+function rarityStyle(r) {
+  const map = {
+    normal: { bg: '#2a2f3a', border: '#5f6673', text: '#c8d0dc', label: '일반' },
+    rare:   { bg: '#0f2742', border: '#3b78cf', text: '#cfe4ff', label: '레어' },
+    epic:   { bg: '#20163a', border: '#7e5cff', text: '#e6dcff', label: '유니크' },
+    legend: { bg: '#2b220b', border: '#f3c34f', text: '#ffe9ad', label: '레전드' },
+    myth:   { bg: '#3a0f14', border: '#ff5b66', text: '#ffc9ce', label: '신화' },
+  };
+  return map[(r || '').toLowerCase()] || map.normal;
+}
 
 
 // ---------- entry ----------
@@ -62,9 +72,7 @@ export async function showCharDetail(){
       return;
     }
     const c = normalizeChar({ id:snap.id, ...snap.data() });
-    // 서사 상세 라우팅이면 전용 페이지 렌더
     if (narrId) { renderNarrativePage(c, narrId); return; }
-
     else{ await render(c); }
   }catch(e){
     console.error('[char] load error', e);
@@ -72,32 +80,21 @@ export async function showCharDetail(){
       ? '권한이 없어 캐릭터를 불러올 수 없어. 먼저 로그인해줘!'
       : '캐릭터 로딩 중 오류가 났어.';
     root.innerHTML = `<section class="container narrow"><p>${msg}</p><pre class="text-dim" style="white-space:pre-wrap">${e?.message || e}</pre></section>`;
-    
   }
 }
 
 
 // ---------- render ----------
 async function render(c){
-
   const root = document.getElementById('view');
   const tier = tierOf(c.elo||1000);
   const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
   const expVal = Number.isFinite(c.exp) ? c.exp : 0;
-  // exp_progress(0~100)가 있으면 사용, 없으면 exp % 100
   const expPct = Math.max(0, Math.min(100, (c.exp_progress ?? ((expVal)%100)) ));
-    // 세계관 라벨: id → 이름 매핑
-  // 세계관 라벨: id → 이름 매핑 (worlds.json = { worlds: [...] } 지원)
   const _rawWorlds = await fetchWorlds().catch(()=>null);
   let worldName = c.world_id || 'world:default';
   try {
-    // _rawWorlds가 배열이면 그대로, 객체면 .worlds 배열을 우선 사용
-    const ws = Array.isArray(_rawWorlds)
-      ? _rawWorlds
-      : (_rawWorlds && Array.isArray(_rawWorlds.worlds))
-        ? _rawWorlds.worlds
-        : _rawWorlds;
-
+    const ws = Array.isArray(_rawWorlds) ? _rawWorlds : (_rawWorlds && Array.isArray(_rawWorlds.worlds)) ? _rawWorlds.worlds : _rawWorlds;
     if (Array.isArray(ws)) {
       const w = ws.find(x => (x.id === c.world_id) || (x.slug === c.world_id));
       worldName = (w?.name) || worldName;
@@ -107,57 +104,35 @@ async function render(c){
     }
   } catch (_) {}
 
-
-
   root.innerHTML = `
   <section class="container narrow">
     <div class="card p16 char-card">
       <div class="char-header">
         <div class="avatar-wrap" style="border-color:${tier.color}">
-          <img id="charAvatar" src="${c.thumb_url||c.image_b64||c.image_url||''}" alt=""
-               onerror="this.src=''; this.classList.add('noimg')"/>
+          <img id="charAvatar" src="${c.thumb_url||c.image_b64||c.image_url||''}" alt="" onerror="this.src=''; this.classList.add('noimg')"/>
           <div class="top-actions">
             <button class="fab-circle" id="btnLike" title="좋아요">♥</button>
             ${isOwner? `<button class="fab-circle" id="btnUpload" title="이미지 업로드">⤴</button>`:''}
           </div>
         </div>
-
         <div class="char-name">${c.name||'(이름 없음)'}</div>
         <div class="chips-row">
-          <span class="tier-chip" style="background:${tier.color}1a; color:#fff; border-color:${tier.color}80;">
-            ${tier.name || 'Tier'}
-          </span>
+          <span class="tier-chip" style="background:${tier.color}1a; color:#fff; border-color:${tier.color}80;">${tier.name || 'Tier'}</span>
           <span class="chip">${worldName}</span>
-
-
         </div>
-
-
-
-                <!-- EXP bar -->
-        <div class="expbar" aria-label="EXP"
-             style="position:relative;width:100%;max-width:760px;height:10px;border-radius:999px;background:#0d1420;border:1px solid #273247;overflow:hidden;margin-top:8px;">
-          <div style="position:absolute;inset:0 auto 0 0;width:${expPct}%;
-                      background:linear-gradient(90deg,#4ac1ff,#7a9bff,#c2b5ff);
-                      box-shadow:0 0 12px #7ab8ff77 inset;"></div>
-          <div style="position:absolute;top:-22px;right:0;font-size:12px;color:#9aa5b1;">
-            EXP ${expVal}
-          </div>
+        <div class="expbar" aria-label="EXP" style="position:relative;width:100%;max-width:760px;height:10px;border-radius:999px;background:#0d1420;border:1px solid #273247;overflow:hidden;margin-top:8px;">
+          <div style="position:absolute;inset:0 auto 0 0;width:${expPct}%;background:linear-gradient(90deg,#4ac1ff,#7a9bff,#c2b5ff);box-shadow:0 0 12px #7ab8ff77 inset;"></div>
+          <div style="position:absolute;top:-22px;right:0;font-size:12px;color:#9aa5b1;">EXP ${expVal}</div>
         </div>
-
-
-        <!-- 2x2 스탯 -->
         <div class="char-stats4">
           <div class="stat-box stat-win"><div class="k">승률</div><div class="v">${rateText(c.wins,c.losses)}</div></div>
           <div class="stat-box stat-like"><div class="k">누적 좋아요</div><div class="v">${c.likes_total||0}</div></div>
           <div class="stat-box stat-elo"><div class="k">Elo</div><div class="v">${c.elo||1000}</div></div>
           <div class="stat-box stat-week"><div class="k">주간 좋아요</div><div class="v">${c.likes_weekly||0}</div></div>
         </div>
-
-        <div class="char-counters">전투 ${c.battle_count||0} · 탐험 ${c.explore_count||0}</div>
+        <div class="char-counters">전투 ${c.battle_count||0} · 조우 ${c.encounter_count||0} · 탐험 ${c.explore_count||0}</div>
       </div>
     </div>
-
     <div class="book-card mt16">
       <div class="bookmarks">
         <button class="bookmark active" data-tab="bio">기본 소개 / 서사</button>
@@ -166,18 +141,14 @@ async function render(c){
       </div>
       <div class="bookview" id="bookview"></div>
     </div>
-  </section>
-  `;
+  </section>`;
 
-  // 원본 이미지(1024)로 교체 — 상세에서만 네트워크 사용
   getCharMainImageUrl(c.id, {cacheFirst:true}).then(url=>{
     if(url){ const img=document.getElementById('charAvatar'); if(img) img.src=url; }
-  }).catch(()=>{ /* 썸네일 유지 */ });
+  }).catch(()=>{ /* keep thumbnail */ });
 
-  // 하단 고정 액션바 (소유자만)
   mountFixedActions(c, isOwner);
 
-  // 업로드/좋아요
   if(isOwner){
     root.querySelector('#btnUpload')?.addEventListener('click', ()=>{
       const i=document.createElement('input'); i.type='file'; i.accept='image/*';
@@ -192,8 +163,6 @@ async function render(c){
   }
   root.querySelector('#btnLike')?.addEventListener('click', ()=> showToast('좋아요는 다음 패치!'));
 
-
-  // 탭
   const bv = root.querySelector('#bookview');
   const tabs = root.querySelectorAll('.bookmark');
   tabs.forEach(b=>b.onclick=()=>{
@@ -207,32 +176,17 @@ async function render(c){
   renderBio(c, bv);
 }
 
-// 고정 액션바 — 로그인+소유자만 (버튼 노출 가드)
 function mountFixedActions(c, isOwner){
   document.querySelector('.fixed-actions')?.remove();
   if (!auth.currentUser || !isOwner) return;
-
   const bar = document.createElement('div');
   bar.className = 'fixed-actions';
-  bar.innerHTML = `
-    <button class="btn large" id="fabBattle">배틀 시작</button>
-    <button class="btn large ghost" id="fabEncounter">조우 시작</button>
-  `;
+  bar.innerHTML = `<button class="btn large" id="fabBattle">배틀 시작</button>`;
   document.body.appendChild(bar);
-
-  // 링크 전환 없이 모달로만 열기 (매칭 세션은 다음 단계에서 연결)
-  // 배틀
   bar.querySelector('#fabBattle').onclick = ()=>{
     sessionStorage.setItem('toh.match.intent', JSON.stringify({ charId:c.id, mode:'battle', ts: Date.now() }));
     location.hash = '#/battle';
   };
-  // 조우
-  bar.querySelector('#fabEncounter').onclick = ()=>{
-    sessionStorage.setItem('toh.match.intent', JSON.stringify({ charId:c.id, mode:'encounter', ts: Date.now() }));
-    location.hash = '#/encounter';
-  };
-
-
 }
 
 
@@ -342,33 +296,115 @@ function renderBioSub(which, c, sv){
 
 }  
 
+// 아이템 장착 모달
+async function openItemPicker(c, inv, onSave) {
+  const ensureModalCss = () => {
+    if (document.getElementById('toh-modal-css-char')) return;
+    const st = document.createElement('style');
+    st.id = 'toh-modal-css-char';
+    st.textContent = `
+      .modal-back{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6); backdrop-filter: blur(4px);}
+      .modal-card{background:#0e1116;border:1px solid #273247;border-radius:14px;padding:16px;max-width:800px;width:94vw;max-height:90vh;display:flex;flex-direction:column;}
+      .item-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; overflow-y: auto; padding: 5px; margin: 12px 0; flex-grow: 1; }
+      .item-picker-card { cursor: pointer; border: 2px solid transparent; transition: all 0.2s ease; }
+      .item-picker-card.selected { border-color: #4aa3ff; box-shadow: 0 0 10px #4aa3ff88; transform: translateY(-2px); }
+    `;
+    document.head.appendChild(st);
+  };
+  ensureModalCss();
+
+  let selectedIds = [...(c.items_equipped || [])];
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+
+  const renderModalContent = () => {
+    back.innerHTML = `
+      <div class="modal-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+          <div style="font-weight:900; font-size: 18px;">아이템 장착 관리</div>
+          <button class="btn ghost" id="mClose">닫기</button>
+        </div>
+        <div class="text-dim" style="font-size:13px; margin-top:4px;">장착할 아이템을 최대 3개까지 선택해주세요. (${selectedIds.length} / 3)</div>
+        <div class="item-picker-grid">
+          ${inv.length === 0 ? '<div class="text-dim" style="grid-column: 1 / -1;">보유한 아이템이 없습니다.</div>' :
+            inv.map(item => {
+              const style = rarityStyle(item.rarity);
+              const isSelected = selectedIds.includes(item.id);
+              const uses = (item.uses_remaining ?? '∞');
+              return `
+                <div class="kv-card item-picker-card ${isSelected ? 'selected' : ''}" data-item-id="${item.id}" style="padding:10px; border-left: 3px solid ${style.border}; background: ${style.bg};">
+                  <div style="font-weight:700; color: ${style.text};">${esc(item.item_name)}</div>
+                  <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden;">${esc(item.desc_short || '-')}</div>
+                  <div style="font-size:11px; margin-top: 6px; text-align: right; opacity: .7">남은 사용: ${uses}</div>
+                </div>
+              `;
+            }).join('')
+          }
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:auto;flex-shrink:0;padding-top:12px;">
+          <button class="btn large" id="btnSaveItems">선택 완료</button>
+        </div>
+      </div>
+    `;
+
+    back.querySelectorAll('.item-picker-card').forEach(card => {
+      card.onclick = () => {
+        const itemId = card.dataset.itemId;
+        if (selectedIds.includes(itemId)) {
+          selectedIds = selectedIds.filter(id => id !== itemId);
+        } else {
+          if (selectedIds.length < 3) {
+            selectedIds.push(itemId);
+          } else {
+            showToast('아이템은 최대 3개까지 장착할 수 있습니다.');
+          }
+        }
+        renderModalContent();
+      };
+    });
+
+    back.querySelector('#mClose').onclick = () => back.remove();
+    back.querySelector('#btnSaveItems').onclick = async () => {
+      try {
+        await updateItemsEquipped(c.id, selectedIds);
+        showToast('아이템 장착 정보가 저장되었습니다.');
+        c.items_equipped = selectedIds;
+        onSave();
+        back.remove();
+      } catch (e) {
+        console.error('Failed to save items:', e);
+        showToast('아이템 저장에 실패했습니다: ' + e.message);
+      }
+    };
+  };
+
+  renderModalContent();
+  document.body.appendChild(back);
+  back.onclick = (e) => { if (e.target === back) back.remove(); };
+}
+
 
 // 스킬/아이템 탭
 async function renderLoadout(c, view){
   const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
 
-  // 스키마 가드
   const abilitiesAll = Array.isArray(c.abilities_all) ? c.abilities_all : [];
   const equippedAb = Array.isArray(c.abilities_equipped)
     ? c.abilities_equipped.filter(i=>Number.isInteger(i)&&i>=0&&i<abilitiesAll.length).slice(0,2)
     : [];
-  const equippedItems = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
+  
+  // 장착된 아이템 ID를 먼저 가져옵니다.
+  const equippedItemIds = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
 
-  // 인벤토리
+  // 인벤토리 전체를 불러옵니다.
   let inv = [];
   try{
     inv = await fetchInventory(c.id);
   } catch(e){
-    console.error('[char] fetchInventory error', e);
-    if (e?.code === 'permission-denied') {
-      showToast('인벤토리 조회 권한이 없어. 로그인하거나 규칙을 확인해줘!');
-    } else {
-      showToast('인벤토리 로딩 중 오류가 났어.');
-    }
-    inv = [];
+    showToast('인벤토리 로딩 중 오류가 발생했습니다.');
   }
 
-  // UI
   view.innerHTML = `
     <div class="p12">
       <h4>스킬 (4개 중 <b>반드시 2개</b> 선택)</h4>
@@ -377,9 +413,7 @@ async function renderLoadout(c, view){
         : `<div class="grid2 mt8">
             ${abilitiesAll.map((ab,i)=>`
               <label class="skill">
-                ${isOwner
-                  ? `<input type="checkbox" data-i="${i}" ${equippedAb.includes(i)?'checked':''}/>`
-                  : `<input type="checkbox" disabled ${equippedAb.includes(i)?'checked':''}/>`}
+                <input type="checkbox" data-i="${i}" ${equippedAb.includes(i)?'checked':''} ${isOwner ? '' : 'disabled'}/>
                 <div>
                   <div class="name">${ab?.name || ('스킬 ' + (i+1))}</div>
                   <div class="desc">${ab?.desc_soft || '-'}</div>
@@ -387,71 +421,59 @@ async function renderLoadout(c, view){
               </label>`).join('')}
           </div>`}
     </div>
-
     <div class="p12">
       <h4 class="mt12">아이템 장착 (최대 3개)</h4>
       <div class="grid3 mt8" id="slots"></div>
       ${isOwner ? `<button id="btnEquip" class="btn mt8">인벤토리에서 선택/교체</button>` : ''}
-      <div class="kv-label">※ 등급별 배경색 / 남은 사용횟수(uses_remaining) 표시.</div>
     </div>
   `;
 
-    // 스킬 정확히 2개 유지(권한 오류도 토스트로 알려줌)
   if(isOwner && abilitiesAll.length>0){
     const boxes = Array.from(view.querySelectorAll('.skill input[type=checkbox]'));
     boxes.forEach(b=>{
       b.onchange = async ()=>{
         const on = boxes.filter(x=>x.checked).map(x=>+x.dataset.i);
-        if(on.length>2){ 
-          b.checked = false; 
-          showToast('스킬은 딱 2개만!');
-          return;
-        }
+        if(on.length>2){ b.checked = false; showToast('스킬은 딱 2개만!'); return; }
         if(on.length===2){
-          try{
-            await updateAbilitiesEquipped(c.id, on);
-            showToast('스킬 저장 완료');
-          }catch(e){
-            console.error('[abilities] update fail', e);
-            showToast('스킬 저장 실패: 로그인/권한을 확인해줘');
-          }
+          try{ await updateAbilitiesEquipped(c.id, on); showToast('스킬 저장 완료'); }
+          catch(e){ console.error('[abilities] update fail', e); showToast('스킬 저장 실패: 로그인/권한을 확인해줘'); }
         }
       };
     });
   }
 
-
-  // 슬롯 렌더
+  // 장착 슬롯 렌더링
   const slotBox = view.querySelector('#slots');
   const renderSlots = ()=>{
-    slotBox.innerHTML = [0,1,2].map(slot=>{
-      const docId = equippedItems[slot];
+    slotBox.innerHTML = [0,1,2].map(slotIndex => {
+      const docId = equippedItemIds[slotIndex];
       if(!docId) return `<div class="slot">(비어 있음)</div>`;
-      const it = inv.find(i=>i.id===docId);
-      if(!it) return `<div class="slot">(인벤토리에 없음)</div>`;
+      
+      const it = inv.find(i => i.id === docId);
+      if(!it) return `<div class="slot" style="color: #ff5b66;">(아이템 없음)</div>`;
+      
       const rcls = rarityClass(it.rarity);
-      const uses = (it.uses_remaining ?? '-');
+      const uses = (it.uses_remaining ?? '∞');
       return `
         <div class="item ${rcls}">
-          <div class="name">${it.item_name || it.item_id || '아이템'}</div>
-          <div class="meta"><span>등급: ${it.rarity || 'common'}</span><span>남은 사용: ${uses}</span></div>
+          <div class="name">${it.item_name || '아이템'}</div>
+          <div class="meta"><span>${it.rarity || 'common'}</span><span>남은 사용: ${uses}</span></div>
           <div class="desc">${it.desc_short || '-'}</div>
         </div>`;
     }).join('');
   };
   renderSlots();
 
-  // 간단 교체(임시)
   if(isOwner){
     view.querySelector('#btnEquip')?.addEventListener('click', ()=>{
-      const selected = inv.slice(0,3).map(x=>x.id);
-      updateItemsEquipped(c.id, selected);
-      showToast('장착 변경 완료');
-      c.items_equipped = selected;
-      renderLoadout(c, view);
+      openItemPicker(c, inv, () => {
+        // 모달에서 저장이 완료되면 이 콜백이 실행되어 로드아웃 뷰를 새로고침합니다.
+        renderLoadout(c, view);
+      });
     });
   }
 }
+
 
 // 표준 narratives → {id,title,long,short} 배열, 없으면 legacy narrative_items 변환
 function normalizeNarratives(c){
