@@ -6,7 +6,7 @@
 
 import { db, fx } from './firebase.js';
 
-const GEM_ENDPOINT   = 'https://generativelanguage.googleapis.com/v1beta';
+const GEM_ENDPOINT   = 'https://generativelace.googleapis.com/v1beta';
 const DEFAULT_FLASH2 = 'gemini-2.0-flash';
 const FALLBACK_FLASH = 'gemini-1.5-flash-latest';
 
@@ -220,15 +220,88 @@ export async function genCharacterFlash2({ world, userInput, injectionGuard }){
   return norm;
 }
 
+// [신규] 배틀 프롬프트 로딩
+export async function fetchBattlePrompts() {
+  const allPrompts = await fetchPromptDoc('prompts'); // 'prompts' 문서 전체를 가져옴
+  // battle_logic_1, battle_logic_2... 와 같은 필드를 배열로 반환
+  return Object.keys(allPrompts)
+    .filter(k => k.startsWith('battle_logic_'))
+    .map(k => allPrompts[k])
+    .filter(Boolean);
+}
+
+// [신규] 1차 스케치 생성
+export async function generateBattleSketch(battleData) {
+  const systemPrompt = await fetchPromptDoc('battle_sketch_system');
+  const userPrompt = `
+    ## 배틀 컨셉 프롬프트 (랜덤 3종)
+    ${battleData.prompts.join('\n\n')}
+
+    ## 공격자 정보
+    - 이름: ${battleData.attacker.name}
+    - 출신: ${battleData.attacker.origin}
+    - 최근 서사: ${battleData.attacker.narrative_long}
+    - 이전 서사 요약: ${battleData.attacker.narrative_short_summary}
+    - 스킬: ${JSON.stringify(battleData.attacker.skills)}
+    - 아이템: ${JSON.stringify(battleData.attacker.items)}
+
+    ## 방어자 정보
+    - 이름: ${battleData.defender.name}
+    - 출신: ${battleData.defender.origin}
+    - 최근 서사: ${battleData.defender.narrative_long}
+    - 이전 서사 요약: ${battleData.defender.narrative_short_summary}
+    - 스킬: ${JSON.stringify(battleData.defender.skills)}
+    - 아이템: ${JSON.stringify(battleData.defender.items)}
+
+    ## 지시사항
+    위 정보를 바탕으로, 이 배틀의 핵심적인 전개 방향을 담은 "스케치"를 2~3개의 짧은 문단으로 작성해라.
+    결과는 반드시 JSON 형식이어야 하며, 'sketch' 필드에 문자열로 담아라. 예: { "sketch": "두 캐릭터는..." }
+  `;
+  const raw = await callGemini('gemini-1.5-flash-latest', systemPrompt, userPrompt, 0.9);
+  const parsed = tryParseJson(raw);
+  return parsed?.sketch || "두 캐릭터는 격렬하게 맞붙었다.";
+}
+
+// [수정] 최종 배틀 로그 생성 (무승부 제외)
+export async function generateFinalBattleLog(sketch, battleData) {
+    const systemPrompt = await fetchPromptDoc('battle_final_system');
+    const userPrompt = `
+    ## 1차 스케치
+    ${sketch}
+
+    ## 캐릭터 및 컨셉 정보 (스케치 생성 시 사용된 정보와 동일)
+    ${JSON.stringify(battleData)}
+
+    ## 최종 지시사항
+    주어진 스케치와 캐릭터 정보를 조합하여, 매우 흥미롭고 상세한 배틀로그를 완성하라.
+    결과는 반드시 다음 JSON 형식을 따라야 하며, 'winner'는 반드시 'attacker' 또는 'defender' 중 하나여야 한다. **무승부('draw')는 절대 허용되지 않는다.**
+    {
+      "title": "배틀의 제목 (예: 강철과 바람의 춤)",
+      "content": "배틀의 전체 내용을 담은 상세한 서사 (최소 5문단 이상)",
+      "winner": "'attacker' 또는 'defender'"
+    }
+  `;
+  const raw = await callGemini('gemini-1.5-flash-latest', systemPrompt, userPrompt, 0.8);
+  const parsed = tryParseJson(raw);
+
+  // AI가 지시를 어기고 draw나 다른 값을 반환할 경우를 대비한 안전장치
+  let winner = parsed?.winner;
+  if (winner !== 'attacker' && winner !== 'defender') {
+    winner = Math.random() < 0.5 ? 'attacker' : 'defender';
+  }
+
+  return {
+      title: parsed?.title || "치열한 결투",
+      content: parsed?.content || "결과를 생성하는 데 실패했습니다.",
+      winner: winner,
+  };
+}
+
 
 /* ================= ADVENTURE: requestNarrative =================
  * 주사위로 이미 결정된 값(eventKind, deltaStamina 등)을 넘기면
  * AI는 '서술 + 선택지 2~3개 + 3문장 요약'만 만들어준다.
  */
-
-// ANCHOR: /public/js/api/ai.js
-
-// ... 함수 선언부를 찾아서 수정 ...
 export async function requestAdventureNarrative({
   character,
   world,
@@ -267,7 +340,7 @@ export async function requestAdventureNarrative({
     dicePrompts,
   ].filter(Boolean).join('\n');
 
-  let raw=''; 
+  let raw='';
   try{
     raw = await callGemini(DEFAULT_FLASH2, systemText, userText, 0.85);
   }catch(e){
@@ -280,8 +353,7 @@ export async function requestAdventureNarrative({
     ? parsed.choices.map(x => String(x))
     : ['조사한다', '나아간다', '후퇴한다'];
   const summary3_update = String(parsed.summary3_update || run?.summary3 || '').slice(0, 300);
-  
-  // 💥 더 복잡해진 choice_outcomes에 대한 기본값 처리
+
   const choice_outcomes = (Array.isArray(parsed.choice_outcomes) && parsed.choice_outcomes.length === 3)
     ? parsed.choice_outcomes
     : [
