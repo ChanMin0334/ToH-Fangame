@@ -9,6 +9,7 @@ import { getUserInventory } from '../api/user.js';
 import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js';
 
 // ---------- utils ----------
+// [제거] char.js에서 esc 함수를 import해서 사용하므로 중복 선언을 제거합니다.
 function truncate(s, n){ s=String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
 function ensureSpinCss(){
   if(document.getElementById('toh-spin-css')) return;
