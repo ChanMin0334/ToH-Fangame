@@ -2,7 +2,6 @@
 import { db, auth, fx } from '../api/firebase.js';
 import { grantExp } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
-import { rollStep, appendEvent, getActiveRun } from '../api/explore.js';
 import { requestAdventureNarrative } from '../api/ai.js';
 import { getCharForAI } from '../api/store.js';
 // 기존 import 라인을 찾아서 rollThreeChoices를 추가하세요.
