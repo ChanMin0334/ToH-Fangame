@@ -234,16 +234,18 @@ export async function requestAdventureNarrative({
   world,
   site,
   run,
-  dices // ⚠️ 'dice'에서 'dices' (배열)로 변경
+  dices
 }){
-  // 기존 하드코딩된 프롬프트를 삭제하고 fetchPromptDoc 호출로 변경
   const systemText = await fetchPromptDoc('adventure_narrative_system');
 
-  // ⚠️ 3개의 주사위 결과를 텍스트로 변환하여 프롬프트에 포함
   const dicePrompts = (dices || []).map((d, i) => {
-    let result = `종류=${d.eventKind}, 스태미나 변화=${d.deltaStamina}`;
-    if (d.item) result += `, 아이템(등급:${d.item.rarity})`;
-    if (d.combat) result += `, 전투(적:${d.combat.enemyTier})`;
+    let result = `종류=${d.eventKind}, 스태미나변화=${d.deltaStamina}`;
+    if (d.item) {
+      result += `, 아이템(등급:${d.item.rarity}, 소모성:${d.item.isConsumable}, 사용횟수:${d.item.uses})`;
+    }
+    if (d.combat) {
+      result += `, 전투(적 등급:${d.combat.enemyTier})`;
+    }
     return `선택지 ${i + 1} 예상 결과: ${result}`;
   }).join('\n');
 
@@ -251,42 +253,35 @@ export async function requestAdventureNarrative({
     `캐릭터: ${character?.name||'-'}`,
     `스킬2: ${(character?.skills||[]).map(s=>`${s.name}(${s.desc||''})`).join(', ') || '-'}`,
     `캐릭터 서사 최신: ${character?.latestLong||'-'}`,
-    '',
     `세계관: ${world?.name||'-'} — ${site?.name||'-'}`,
     `기존 3문장 요약: ${run?.summary3 || '(없음)'}`,
-    '',
-    '## 다음 상황을 서술하고 선택지 3개를 만들어라:',
-    dicePrompts, // ⚠️ 여기에 3개 결과 주입
-    '',
-    '출력 JSON 형식:',
-    `{
-      "narrative_text": "…",        // 1~3단락 상황 서술
-      "choices": ["…","…","…"],     // 반드시 3개
-      "summary3_update": "…"       // 기존 요약 반영, 총 3문장 유지
-    }`
+    '---',
+    '## 다음 상황을 생성하라:',
+    dicePrompts,
   ].filter(Boolean).join('\n');
 
-  // ... (이하 API 호출 및 반환 로직은 동일)
   let raw=''; 
   try{
-    raw = await callGemini(DEFAULT_FLASH2, systemText, userText, 0.8);
+    raw = await callGemini(DEFAULT_FLASH2, systemText, userText, 0.85);
   }catch(e){
-    raw = await callGemini(FALLBACK_FLASH, systemText, userText, 0.8);
+    raw = await callGemini(FALLBACK_FLASH, systemText, userText, 0.85);
   }
-  // ===== ⬇️ 이 부분을 수정합니다 ⬇️ =====
   const parsed = tryParseJson(raw) || {};
 
-  // 기본값 설정 및 유효성 검사 강화
-  const narrative_text = String(parsed.narrative_text || '알 수 없는 공간에 도착했다.').slice(0, 1200);
+  const narrative_text = String(parsed.narrative_text || '알 수 없는 공간에 도착했다.').slice(0, 2000);
   const choices = (Array.isArray(parsed.choices) && parsed.choices.length === 3)
     ? parsed.choices.map(x => String(x))
     : ['조사한다', '나아간다', '후퇴한다'];
+  const summary3_update = String(parsed.summary3_update || run?.summary3 || '').slice(0, 300);
+  
+  // 💥 더 복잡해진 choice_outcomes에 대한 기본값 처리
   const choice_outcomes = (Array.isArray(parsed.choice_outcomes) && parsed.choice_outcomes.length === 3)
     ? parsed.choice_outcomes
-    : [{ event_type: 'narrative' }, { event_type: 'narrative' }, { event_type: 'narrative' }];
-  const summary3_update = String(parsed.summary3_update || run?.summary3 || '').slice(0, 300);
+    : [
+        { event_type: 'narrative', result_text: '주변을 둘러보았지만 아무것도 없었다.' },
+        { event_type: 'narrative', result_text: '조심스럽게 앞으로 나아갔다.' },
+        { event_type: 'narrative', result_text: '상황이 좋지 않아 일단 후퇴했다.' }
+      ];
 
-  // AI가 생성한 전체 구조를 그대로 반환
   return { narrative_text, choices, choice_outcomes, summary3_update };
-  // ===== ⬆️ 여기까지 수정 ⬆️ =====
 }
