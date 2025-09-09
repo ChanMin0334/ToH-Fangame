@@ -652,3 +652,70 @@ export async function showAdventure(){
 }
 
 export default showAdventure;
+
+// /public/js/tabs/adventure.js 파일 맨 아래에 추가
+
+// ===== 공유 인벤토리 화면 =====
+async function showSharedInventory(root) {
+  const u = auth.currentUser;
+  if (!u) {
+    showToast('로그인이 필요합니다.');
+    return;
+  }
+
+  // Firestore의 users 컬렉션에서 현재 유저의 문서를 가져옴
+  const userDocRef = fx.doc(db, 'users', u.uid);
+  const userDocSnap = await fx.getDoc(userDocRef);
+  
+  // 유저 문서에 있는 items_all 배열을 가져옴 (없으면 빈 배열)
+  const sharedItems = userDocSnap.exists() ? (userDocSnap.data().items_all || []) : [];
+
+  // 필요한 CSS 주입
+  ensureItemCss();
+
+  root.innerHTML = `
+    <section class="container narrow">
+      <div class="book-card">
+        {/* [추가] 탐험/가방 탭 네비게이션 */}
+        <div class="bookmarks">
+          <button class="bookmark ghost" id="btnToExplore">탐험</button>
+          <button class="bookmark ghost" disabled>레이드(준비중)</button>
+          <button class="bookmark active" disabled>가방</button>
+        </div>
+        <div class="bookview p12">
+          <div class="kv-label">공유 보관함</div>
+          <div id="inventoryItems" class="grid4" style="gap:8px; max-height: 60vh; overflow-y: auto; padding-top: 8px;">
+            ${/* 아이템 목록 렌더링 */ ''}
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+
+  const inventoryItemsBox = root.querySelector('#inventoryItems');
+  
+  if (sharedItems.length > 0) {
+    inventoryItemsBox.innerHTML = sharedItems.map(item => {
+      const style = rarityStyle(item.rarity);
+      const isShiny = ['epic', 'legend', 'myth'].includes((item.rarity || '').toLowerCase());
+      
+      const card = document.createElement('div');
+      card.className = `kv-card item-card ${isShiny ? 'shine-effect' : ''}`;
+      card.style.cssText = `padding: 8px; cursor: pointer; border: 1px solid ${style.border}; background: ${style.bg}; color: ${style.text}; transition: transform 0.2s;`;
+      card.innerHTML = `<div style="font-weight:700;">${esc(item.name)}</div><div style="font-size:12px; opacity:0.8;">${esc(item.desc_soft || '')}</div>`;
+      
+      card.onmouseenter = () => card.style.transform = 'scale(1.03)';
+      card.onmouseleave = () => card.style.transform = 'scale(1)';
+      card.onclick = () => showItemDetailModal(item);
+
+      return card.outerHTML;
+    }).join('');
+  } else {
+    inventoryItemsBox.innerHTML = `<div class="kv-card text-dim" style="grid-column: 1 / -1;">보관함에 아이템이 없습니다.</div>`;
+  }
+  
+  // [추가] '탐험' 버튼 클릭 시 viewWorldPick 함수를 호출하여 메인 화면으로 돌아감
+  root.querySelector('#btnToExplore').addEventListener('click', () => {
+    viewWorldPick(root);
+  });
+}
