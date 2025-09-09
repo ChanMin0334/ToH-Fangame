@@ -8,7 +8,7 @@ import { db, fx } from './firebase.js';
 
 const GEM_ENDPOINT   = 'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_FLASH2 = 'gemini-2.0-flash';
-const FALLBACK_FLASH = 'gemini-1.5-flash';
+const FALLBACK_FLASH = 'gemini-1.5-flash-latest';
 
 const DEBUG = !!localStorage.getItem('toh_debug_ai');
 function dbg(...args){ if(DEBUG) console.log('[AI]', ...args); }
