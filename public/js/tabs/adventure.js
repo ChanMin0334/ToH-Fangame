@@ -262,6 +262,79 @@ async function openCharPicker(root, world, site){
   });
 }
 
+// /public/js/tabs/adventure.js 에 추가
+
+// ===== 아이템 등급별 스타일 =====
+function rarityStyle(r) {
+  const map = {
+    normal: { bg: '#2a2f3a', border: '#5f6673', text: '#c8d0dc', label: '일반' },
+    rare:   { bg: '#0f2742', border: '#3b78cf', text:cfe4ff', label: '레어' },
+    epic:   { bg: '#20163a', border: '#7e5cff', text: '#e6dcff', label: '유니크' },
+    legend: { bg: '#2b220b', border: '#f3c34f', text: '#ffe9ad', label: '레전드' },
+    myth:   { bg: '#3a0f14', border: '#ff5b66', text: '#ffc9ce', label: '신화' },
+  };
+  return map[(r || '').toLowerCase()] || map.normal;
+}
+
+// ===== 아이템 모달용 CSS 및 반짝이는 효과 =====
+function ensureItemCss() {
+  if (document.getElementById('toh-item-css')) return;
+  const st = document.createElement('style');
+  st.id = 'toh-item-css';
+  st.textContent = `
+    .shine-effect {
+      position: relative;
+      overflow: hidden;
+    }
+    .shine-effect::after {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
+      transform: rotate(30deg);
+      animation: shine 3s infinite ease-in-out;
+    }
+    @keyframes shine {
+      0% { transform: translateX(-75%) translateY(-25%) rotate(30deg); }
+      100% { transform: translateX(75%) translateY(25%) rotate(30deg); }
+    }
+  `;
+  document.head.appendChild(st);
+}
+
+// ===== 아이템 상세 정보 모달 표시 =====
+function showItemDetailModal(item) {
+  ensureModalCss();
+  const style = rarityStyle(item.rarity);
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.style.zIndex = '10000'; // 다른 모달 위에 표시
+
+  back.innerHTML = `
+    <div class="modal-card">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+        <div>
+          <div style="font-weight:900; font-size:18px;">${esc(item.name)}</div>
+          <span class="chip" style="background:${style.border}; color:${style.bg}; font-weight:800; margin-top:4px;">${esc(style.label)}</span>
+        </div>
+        <button class="btn ghost" id="mCloseDetail">닫기</button>
+      </div>
+      <div class="kv-card" style="padding:12px;">
+        <p style="font-size:14px; line-height:1.6;">${esc(item.desc_long || item.desc_soft || '상세 설명이 없습니다.')}</p>
+        ${item.effects ? `<hr style="margin:12px 0; border-color:#273247;"><div class="kv-label">효과</div><div style="font-size:13px;">${esc(item.effects)}</div>` : ''}
+      </div>
+    </div>
+  `;
+
+  const closeModal = () => back.remove();
+  back.addEventListener('click', e => { if(e.target === back) closeModal(); });
+  back.querySelector('#mCloseDetail').onclick = closeModal;
+  document.body.appendChild(back);
+}
+
 // ===== 4단계: 준비 화면(스킬/아이템 요약 + 시작 버튼) =====
 // ANCHOR: function viewPrep(root, world, site, char){
 function viewPrep(root, world, site, char){
@@ -493,6 +566,69 @@ function viewPrep(root, world, site, char){
 
 }
 
+
+// /public/js/tabs/adventure.js 의 기존 openItemPicker 함수를 교체
+
+// ===== 아이템 목록 및 상세 정보 표시 =====
+async function openItemPicker(char) {
+  const allItems = Array.isArray(char.items_all) ? char.items_all : [];
+  
+  // 필요한 CSS 주입
+  ensureModalCss();
+  ensureItemCss();
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-weight:900">보유 아이템</div>
+        <button class="btn ghost" id="mClose">닫기</button>
+      </div>
+      <div id="inventoryItems" class="grid3" style="gap:8px; max-height: 450px; overflow-y: auto; padding-top: 8px;"></div>
+    </div>
+  `;
+  document.body.appendChild(back);
+
+  const inventoryItemsBox = back.querySelector('#inventoryItems');
+  
+  if (allItems.length > 0) {
+    inventoryItemsBox.innerHTML = allItems.map(item => {
+      const style = rarityStyle(item.rarity);
+      const isShiny = ['epic', 'legend', 'myth'].includes((item.rarity || '').toLowerCase());
+      
+      const card = document.createElement('div');
+      card.className = `kv-card item-card ${isShiny ? 'shine-effect' : ''}`;
+      card.style.cssText = `
+        padding: 8px; 
+        cursor: pointer; 
+        border: 1px solid ${style.border}; 
+        background: ${style.bg}; 
+        color: ${style.text};
+        transition: transform 0.2s;
+      `;
+      card.innerHTML = `
+        <div style="font-weight:700;">${esc(item.name)}</div>
+        <div style="font-size:12px; opacity:0.8;">${esc(item.desc_soft || '')}</div>
+      `;
+      
+      // 마우스 호버 효과
+      card.onmouseenter = () => card.style.transform = 'scale(1.03)';
+      card.onmouseleave = () => card.style.transform = 'scale(1)';
+
+      // 클릭 시 상세 정보 모달 표시
+      card.onclick = () => showItemDetailModal(item);
+
+      return card.outerHTML;
+    }).join('');
+  } else {
+    inventoryItemsBox.innerHTML = `<div class="text-dim">보유한 아이템이 없습니다.</div>`;
+  }
+  
+  const closeModal = () => back.remove();
+  back.addEventListener('click', (e) => { if(e.target === back) closeModal(); });
+  back.querySelector('#mClose').onclick = closeModal;
+}
 
 
 // ===== 엔트리 =====
