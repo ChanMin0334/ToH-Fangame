@@ -225,54 +225,58 @@ export async function genCharacterFlash2({ world, userInput, injectionGuard }){
  * 주사위로 이미 결정된 값(eventKind, deltaStamina 등)을 넘기면
  * AI는 '서술 + 선택지 2~3개 + 3문장 요약'만 만들어준다.
  */
+
+// ANCHOR: /public/js/api/ai.js
+
+// ... 함수 선언부를 찾아서 수정 ...
 export async function requestAdventureNarrative({
-  character,   // { name, latestLong, shortConcat, skills:[{name,desc},{...}] }
-  world,       // { name, loreLong }
-  site,        // { name, description }
-  run,         // { summary3, turn, difficulty }
-  dice         // { eventKind, deltaStamina, item?, combat? }
+  character,
+  world,
+  site,
+  run,
+  dices // ⚠️ 'dice'에서 'dices' (배열)로 변경
 }){
-  const systemText = [
-    '넌 TRPG 마스터다. 간결·구체·몰입.',
-    '결정된 수치(아이템 등급, 피해/회복, 적 등급)는 그대로 존중.',
-    '한국어로 1~3단락, 선택지 2~3개. 요약은 3문장.',
-  ].join('\n');
+  // 기존 하드코딩된 프롬프트를 삭제하고 fetchPromptDoc 호출로 변경
+  const systemText = await fetchPromptDoc('adventure_narrative_system');
+
+  // ⚠️ 3개의 주사위 결과를 텍스트로 변환하여 프롬프트에 포함
+  const dicePrompts = (dices || []).map((d, i) => {
+    let result = `종류=${d.eventKind}, 스태미나 변화=${d.deltaStamina}`;
+    if (d.item) result += `, 아이템(등급:${d.item.rarity})`;
+    if (d.combat) result += `, 전투(적:${d.combat.enemyTier})`;
+    return `선택지 ${i + 1} 예상 결과: ${result}`;
+  }).join('\n');
 
   const userText = [
     `캐릭터: ${character?.name||'-'}`,
     `스킬2: ${(character?.skills||[]).map(s=>`${s.name}(${s.desc||''})`).join(', ') || '-'}`,
     `캐릭터 서사 최신: ${character?.latestLong||'-'}`,
-    `캐릭터 서사 요약들: ${character?.shortConcat||'-'}`,
     '',
-    `세계관: ${world?.name||'-'}`,
-    `세계관 장문 요약: ${world?.loreLong||'-'}`,
-    `명소: ${site?.name||'-'} — ${site?.description||'-'}`,
-    '',
-    `런 상태: turn=${run?.turn ?? 0}, difficulty=${run?.difficulty||'normal'}`,
+    `세계관: ${world?.name||'-'} — ${site?.name||'-'}`,
     `기존 3문장 요약: ${run?.summary3 || '(없음)'}`,
     '',
-    `주사위 결정: kind=${dice?.eventKind}, Δstamina=${dice?.deltaStamina}`,
-    dice?.item ? `아이템: rarity=${dice.item.rarity}, usesLimited=${dice.item.usesLimited}, uses=${dice.item.usesRemaining ?? 0}` : '',
-    dice?.combat ? `전투: tier=${dice.combat.enemyTier}` : '',
+    '## 다음 상황을 서술하고 선택지 3개를 만들어라:',
+    dicePrompts, // ⚠️ 여기에 3개 결과 주입
     '',
     '출력 JSON 형식:',
     `{
-      "narrative_text": "…",        // 1~3단락
-      "choices": ["…","…"],        // 2~3개
+      "narrative_text": "…",        // 1~3단락 상황 서술
+      "choices": ["…","…","…"],     // 반드시 3개
       "summary3_update": "…"       // 기존 요약 반영, 총 3문장 유지
     }`
   ].filter(Boolean).join('\n');
 
+  // ... (이하 API 호출 및 반환 로직은 동일)
   let raw=''; 
   try{
     raw = await callGemini(DEFAULT_FLASH2, systemText, userText, 0.8);
   }catch(e){
-    // 폴백
     raw = await callGemini(FALLBACK_FLASH, systemText, userText, 0.8);
   }
   const parsed = tryParseJson(raw) || {};
   const narrative_text  = String(parsed.narrative_text||'짧은 사건이 발생했다.').slice(0, 1200);
-  const choices         = Array.isArray(parsed.choices)&&parsed.choices.length ? parsed.choices.slice(0,3).map(x=>String(x)) : ['주변을 살핀다','조심히 전진한다'];
+  // ⚠️ 선택지가 3개가 아닐 경우를 대비한 방어 코드
+  let choices = Array.isArray(parsed.choices)&&parsed.choices.length>=3 ? parsed.choices.slice(0,3).map(x=>String(x)) : ['신중하게 나아간다','주변을 경계한다','서둘러 자리를 뜬다'];
   const summary3_update = String(parsed.summary3_update||run?.summary3||'').slice(0, 300);
   return { narrative_text, choices, summary3_update };
 }
