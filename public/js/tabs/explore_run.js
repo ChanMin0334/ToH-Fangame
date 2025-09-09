@@ -157,15 +157,34 @@ export async function showExploreRun() {
     } else {
       const lastEvent = runState.events?.slice(-1)[0];
       narrativeBox.innerHTML = rt(lastEvent?.note || `당신은 ${site.name} 에서의 탐험을 시작했습니다...`);
-      choiceBox.innerHTML = (runState.status === 'ended')
-        ? `<div class="text-dim">탐험이 종료되었습니다.</div>`
-        : `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn ghost" id="btnGiveUp">탐험 포기</button><button class="btn" id="btnMove">계속 탐험</button></div>`;
+      // [수정] 전투 대기 상태일 경우 '전투 시작' 버튼 표시
+      if (runState.battle_pending) {
+        choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn" id="btnStartBattle">⚔️ 전투 시작</button></div>`;
+      } else if (runState.status === 'ended') {
+        choiceBox.innerHTML = `<div class="text-dim">탐험이 종료되었습니다.</div>`;
+      } else {
+        choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn ghost" id="btnGiveUp">탐험 포기</button><button class="btn" id="btnMove">계속 탐험</button></div>`;
+      }
     }
     bindButtons(runState);
   };
 
   const bindButtons = (runState) => {
     if (runState.status !== 'ongoing') return;
+    
+    const btnStartBattle = root.querySelector('#btnStartBattle');
+    if (btnStartBattle) {
+      btnStartBattle.onclick = async () => {
+        showLoading(true, '전투 준비 중...');
+        await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
+          pending_battle: runState.battle_pending,
+          battle_pending: null,
+        });
+        location.hash = `#/explore-battle/${state.id}`;
+      };
+      return; // 전투 대기 중에는 다른 버튼(탐험 계속 등)은 비활성화
+    }
+    
     if (runState.pending_choices) {
       root.querySelectorAll('.choice-btn').forEach(btn => {
         btn.onclick = () => handleChoice(parseInt(btn.dataset.index, 10));
@@ -248,6 +267,32 @@ export async function showExploreRun() {
     }
 
     const narrativeLog = `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`;
+
+    // [수정] 전투 발생 시 바로 이동하지 않고, 로그만 기록하고 '전투 대기' 상태로 만듦
+    if (chosenOutcome.event_type === 'combat') {
+      const battleInfo = {
+        enemy: chosenOutcome.enemy,
+        narrative: narrativeLog // 전투 시작 서사를 battleInfo에 포함
+      };
+      // battle_pending 상태로 업데이트하고, 이벤트 로그를 추가
+      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
+        battle_pending: battleInfo,
+        pending_choices: null,
+        prerolls: state.prerolls,
+        turn: state.turn + 1,
+        events: fx.arrayUnion({
+          t: Date.now(),
+          note: narrativeLog,
+          dice: chosenDice,
+          deltaStamina: 0, // 전투 돌입 자체는 스태미나 소모 없음
+        })
+      });
+      // 페이지를 새로고침하지 않고, 최신 상태를 다시 불러와 렌더링
+      state = await getActiveRun(state.id);
+      render(state);
+      showLoading(false);
+      return;
+    }
     
     let finalDice = { ...chosenDice };
     let newItem = null;
