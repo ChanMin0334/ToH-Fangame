@@ -4,10 +4,11 @@ import { showToast } from '../ui/toast.js';
 import { autoMatch } from '../api/match_client.js';
 import { fetchBattlePrompts, generateBattleSketch, generateFinalBattleLog } from '../api/ai.js';
 import { updateAbilitiesEquipped, updateItemsEquipped } from '../api/store.js';
-import { fetchInventory } from './char.js'; // char.js에서 재사용
+import { getUserInventory } from '../api/user.js';
+// [수정] char.js의 아이템 상세 표시 관련 함수들을 import합니다.
+import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js';
 
 // ---------- utils ----------
-function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c])); }
 function truncate(s, n){ s=String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
 function ensureSpinCss(){
   if(document.getElementById('toh-spin-css')) return;
@@ -125,7 +126,9 @@ async function startBattleProcess(myChar, opponentChar) {
 
         progress.update('캐릭터 데이터 수집...', 30);
         const getEquipped = (char, all, equipped) => (Array.isArray(all) && Array.isArray(equipped)) ? all.filter((_, i) => equipped.includes(i)) : [];
-        const [myInv, oppInv] = await Promise.all([fetchInventory(myChar.id), fetchInventory(opponentChar.id)]);
+        
+        const myInv = await getUserInventory(myChar.owner_uid);
+        const oppInv = await getUserInventory(opponentChar.owner_uid);
         const getEquippedItems = (char, inv) => (char.items_equipped || []).map(id => inv.find(i => i.id === id)).filter(Boolean);
 
         const attackerData = {
@@ -291,7 +294,7 @@ function renderOpponentCard(matchArea, opp) {
 async function renderLoadoutForMatch(box, myChar){
   const abilities = Array.isArray(myChar.abilities_all) ? myChar.abilities_all : [];
   let equippedSkills = Array.isArray(myChar.abilities_equipped) ? myChar.abilities_equipped.slice(0,2) : [];
-  const inv = await fetchInventory(myChar.id).catch(() => []);
+  const inv = await getUserInventory();
   let equippedItems = (myChar.items_equipped || []).map(id => inv.find(item => item.id === id)).filter(Boolean);
 
   const render = () => {
@@ -313,8 +316,9 @@ async function renderLoadoutForMatch(box, myChar){
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
             ${[0,1,2].map(i => {
                 const item = equippedItems[i];
-                return `<div class="kv-card" style="min-height:44px;display:flex;align-items:center;justify-content:center;padding:8px;font-size:13px;text-align:center;">
-                          ${item ? esc(item.item_name) : '(비어 있음)'}
+                const style = item ? rarityStyle(item.rarity) : null;
+                return `<div class="kv-card" style="min-height:44px;display:flex; flex-direction:column; align-items:center;justify-content:center;padding:8px;font-size:13px;text-align:center; ${item ? `border-left: 3px solid ${style.border}; background:${style.bg};` : ''}">
+                          ${item ? `<span style="font-weight:bold; color:${style.text};">${esc(item.name)}</span>` : '(비어 있음)'}
                         </div>`;
             }).join('')}
           </div>
@@ -335,7 +339,7 @@ async function renderLoadoutForMatch(box, myChar){
             if (on.length === 2) {
               try {
                 await updateAbilitiesEquipped(myChar.id, on);
-                myChar.abilities_equipped = on; // 로컬 데이터 업데이트
+                myChar.abilities_equipped = on;
                 equippedSkills = on;
                 showToast('스킬 선택이 저장되었습니다.');
               } catch (e) { showToast('스킬 저장 실패: ' + e.message); }
@@ -345,63 +349,75 @@ async function renderLoadoutForMatch(box, myChar){
       }
       
       box.querySelector('#btnManageItems').onclick = () => {
-        // char.js에 있던 아이템 피커 로직을 재사용합니다.
-        openItemPicker(myChar, inv, async (selectedIds) => {
+        openItemPicker(myChar, async (selectedIds) => {
             await updateItemsEquipped(myChar.id, selectedIds);
             myChar.items_equipped = selectedIds;
-            equippedItems = selectedIds.map(id => inv.find(item => item.id === id)).filter(Boolean);
-            render(); // 변경사항 반영하여 다시 렌더링
+            const newInv = await getUserInventory();
+            equippedItems = selectedIds.map(id => newInv.find(item => item.id === id)).filter(Boolean);
+            render();
         });
       };
   };
   render();
 }
 
-// 아이템 장착 모달 (char.js와 거의 동일, battle.js 내에 포함)
-function openItemPicker(c, inv, onSave) {
+async function openItemPicker(c, onSave) {
+  const inv = await getUserInventory();
+  ensureItemCss();
+
   let selectedIds = [...(c.items_equipped || [])];
+
   const back = document.createElement('div');
   back.className = 'modal-back';
-  
+  back.style.zIndex = '10000';
+
   const renderModalContent = () => {
     back.innerHTML = `
-      <div class="modal-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <h3 style="margin:0;">아이템 장착 (최대 3개)</h3>
-          <button id="mClose" class="btn ghost">닫기</button>
+      <div class="modal-card" style="background:#0e1116;border:1px solid #273247;border-radius:14px;padding:16px;max-width:800px;width:94vw;max-height:90vh;display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+          <div style="font-weight:900; font-size: 18px;">아이템 장착 관리</div>
+          <button class="btn ghost" id="mClose">닫기</button>
         </div>
-        <div class="item-picker-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; max-height: 50vh; overflow-y: auto; padding-right: 5px;">
-          ${inv.map(item => {
-            const isSelected = selectedIds.includes(item.id);
-            return `
-              <div class="kv-card item-card ${isSelected ? 'selected' : ''}" data-id="${item.id}" style="cursor:pointer; border: 2px solid ${isSelected ? '#4aa3ff' : 'transparent'};">
-                <div style="font-weight:bold;">${esc(item.item_name)}</div>
-                <div class="text-dim" style="font-size:12px;">${esc(item.desc_short || '')}</div>
-              </div>
-            `;
-          }).join('') || '<div class="text-dim">보유한 아이템이 없습니다.</div>'}
+        <div class="text-dim" style="font-size:13px; margin-top:4px;">아이템을 클릭하여 상세 정보를 보고, 다시 클릭하여 장착/해제하세요. (${selectedIds.length} / 3)</div>
+        <div class="item-picker-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; overflow-y: auto; padding: 5px; margin: 12px 0; flex-grow: 1;">
+          ${inv.length === 0 ? '<div class="text-dim" style="grid-column: 1 / -1;">보유한 아이템이 없습니다.</div>' :
+            inv.map(item => {
+              const style = rarityStyle(item.rarity);
+              const isSelected = selectedIds.includes(item.id);
+              return `
+                <div class="kv-card item-picker-card ${isSelected ? 'selected' : ''}" data-item-id="${item.id}" style="padding:10px; border: 2px solid ${isSelected ? '#4aa3ff' : 'transparent'}; cursor:pointer;">
+                  <div style="font-weight:700; color: ${style.text}; pointer-events:none;">${esc(item.name)}</div>
+                  <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden; pointer-events:none;">${esc(item.desc_soft || item.desc || '-')}</div>
+                </div>
+              `;
+            }).join('')
+          }
         </div>
-        <div style="display:flex; justify-content:flex-end;">
-            <button id="btnSaveItems" class="btn primary">저장</button>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:auto;flex-shrink:0;padding-top:12px;">
+          <button class="btn large" id="btnSaveItems">선택 완료</button>
         </div>
       </div>
-      <style>.item-card.selected { border-color: #4aa3ff; }</style>
     `;
-      
-    back.querySelectorAll('.item-card').forEach(card => {
-        card.onclick = () => {
-            const id = card.dataset.id;
-            if (selectedIds.includes(id)) {
-                selectedIds = selectedIds.filter(i => i !== id);
-            } else {
-                if (selectedIds.length < 3) {
-                    selectedIds.push(id);
+
+    let lastClickTime = 0;
+    back.querySelectorAll('.item-picker-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const now = new Date().getTime();
+            const itemId = card.dataset.itemId;
+
+            if (now - lastClickTime < 300) { // 더블클릭으로 간주
+                if (selectedIds.includes(itemId)) {
+                    selectedIds = selectedIds.filter(id => id !== itemId);
                 } else {
-                    showToast('아이템은 최대 3개까지만 장착할 수 있습니다.');
+                    if (selectedIds.length < 3) selectedIds.push(itemId);
+                    else showToast('아이템은 최대 3개까지 장착할 수 있습니다.');
                 }
+                renderModalContent();
+            } else { // 싱글클릭
+                showItemDetailModal(inv.find(it => it.id === itemId));
             }
-            renderModalContent();
-        };
+            lastClickTime = now;
+        });
     });
 
     back.querySelector('#mClose').onclick = () => back.remove();
