@@ -235,7 +235,8 @@ export async function requestAdventureNarrative({
   site,
   run,
   dices,
-  equippedItems
+  equippedItems,
+  prevTurnLog
 }){
   const systemText = await fetchPromptDoc('adventure_narrative_system');
 
