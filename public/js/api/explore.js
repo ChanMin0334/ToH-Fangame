@@ -155,12 +155,16 @@ export function rollStep(run){
   const lo = Math.round(baseDelta[0]*mul), hi = Math.round(baseDelta[1]*mul);
   const deltaStamina = (lo===hi) ? lo : (lo<0 ? -((sRoll.value%(-lo+ -hi+1)) + -hi) : (sRoll.value%(hi-lo+1))+lo);
   const out = { eventKind: kind, deltaStamina };
+
   if(kind==='item'){
     const r = popRoll(run, 1000); run.prerolls = r.next;
     const rarity = (RARITY_TABLE.find(x=> r.value<=x.upto) || RARITY_TABLE.at(-1)).rarity;
-    const usesLimited = (popRoll(run,2).value===2);
-    const usesRemaining = usesLimited ? (popRoll(run,3).value) : 0;
-    out.item = { rarity, usesLimited, usesRemaining };
+    
+    // 💥 아이템 상세 정보 추가
+    const isConsumable = (popRoll(run, 10).value <= 7); // 70% 확률로 소모성
+    const uses = isConsumable ? (popRoll(run, 3).value) : 1; // 소모성이면 1~3회
+
+    out.item = { rarity, isConsumable, uses };
   }else if(kind==='combat'){
     const r = popRoll(run, 1000); run.prerolls = r.next;
     const tier = (COMBAT_TIER[diff]||COMBAT_TIER.normal).find(x=>r.value<=x.p)?.t || 'normal';
@@ -168,6 +172,7 @@ export function rollStep(run){
   }
   return out;
 }
+
 
 
 // ANCHOR: /public/js/api/explore.js
@@ -203,22 +208,26 @@ export async function appendEvent({ runId, runBefore, narrative, choices, delta,
   if(!snap.exists()) throw new Error('런이 없어');
   const cur = snap.data();
   const stamina = Math.max(0, Math.min(cur.stamina_start, (cur.stamina||0) + (delta||0)));
+  
+  // 💥 저장할 이벤트 객체에 AI가 생성한 상세 정보(item, enemy)를 포함
+  const newEvent = {
+    t: Date.now(),
+    note: narrative,
+    choice_labels: choices,
+    deltaStamina: delta,
+    dice: dice, // 주사위 결과 전체를 저장
+  };
+
   const next = {
     stamina,
     turn: (cur.turn||0) + 1,
     prerolls: runBefore.prerolls,
-    events: [...(cur.events||[]), {
-      t: Date.now(),
-      kind: dice.eventKind,
-      note: narrative,
-      choice_labels: choices,
-      deltaStamina: delta,
-      rolls_used: [], tags: []
-    }],
+    events: [...(cur.events||[]), newEvent],
     summary3: summary3 ?? (cur.summary3||''),
     updatedAt: fx.serverTimestamp()
   };
   await fx.updateDoc(ref, next);
   return { ...cur, ...next, id: runId };
 }
+
 
