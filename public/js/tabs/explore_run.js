@@ -117,31 +117,35 @@ function renderHeader(box, run){
   `;
 }
 
-function eventLineHTML(ev){
-  if(ev.kind==='hazard'){
-    return `<div class="kv-card" style="border-left:3px solid #ff5b66;padding-left:10px">
-      <div style="font-weight:800">함정 발생</div>
-      <div class="text-dim" style="font-size:12px">${esc(ev.note||'체력이 감소했다')}</div>
+function eventLineHTML(ev) {
+  const kind = ev.dice?.eventKind || ev.kind || 'narrative';
+  const note = ev.note || '이벤트가 발생했습니다.';
+  
+  const styleMap = {
+    combat: { border: '#ff5b66', title: '전투 발생' },
+    item:   { border: '#f3c34f', title: '아이템 발견' },
+    risk:   { border: '#f3c34f', title: '위험 감수' },
+    safe:   { border: '#4aa3ff', title: '안전한 휴식' },
+    narrative: { border: '#6e7b91', title: '이야기 진행' },
+    hazard: { border: '#ff5b66', title: '함정 발생' },
+    chest:  { border: '#f3c34f', title: '상자 발견' },
+    ally:   { border: '#4aa3ff', title: '우호적 조우' },
+  };
+
+  const { border, title } = styleMap[kind] || styleMap.narrative;
+
+  // note의 내용 중 [선택: ...] 부분은 스타일을 다르게 적용
+  const formattedNote = esc(note).replace(
+    /(\[선택:.*?\])/g,
+    '<span style="color: #8c96a8;">$1</span>'
+  );
+
+  return `<div class="kv-card" style="border-left:3px solid ${border};padding-left:10px">
+      <div style="font-weight:800">${title}</div>
+      <div class="text-dim" style="font-size:12px; white-space: pre-wrap; line-height: 1.6;">${formattedNote}</div>
     </div>`;
-  }
-  if(ev.kind==='chest'){
-    return `<div class="kv-card" style="border-left:3px solid #f3c34f;padding-left:10px">
-      <div style="font-weight:800">상자 발견</div>
-      <div class="text-dim" style="font-size:12px">${esc(ev.note||'아이템을 획득했다')}</div>
-    </div>`;
-  }
-  if(ev.kind==='ally'){
-    return `<div class="kv-card" style="border-left:3px solid #4aa3ff;padding-left:10px">
-      <div style="font-weight:800">우호적 조우</div>
-      <div class="text-dim" style="font-size:12px">${esc(ev.note||'작은 도움을 받았다')}</div>
-    </div>`;
-  }
-  // lore
-  return `<div class="kv-card">
-    <div style="font-weight:800">발견</div>
-    <div class="text-dim" style="font-size:12px">${esc(ev.note||'이 장소에 대한 단서를 얻었다')}</div>
-  </div>`;
 }
+
 
 // ANCHOR: /public/js/tabs/explore_run.js 전문 교체
 
@@ -309,7 +313,37 @@ export async function showExploreRun() {
     else render();
   };
 
-  const endRun = async (reason) => { /* ... 기존 endRun 로직과 동일 ... */ };
+    const endRun = async (reason) => {
+    if (state.status !== 'ongoing') return;
+    
+    state.status = 'ended';
+    state.reason = reason;
+    
+    render();
+
+    const baseExp = calcRunExp(state);
+    const cid = String(state.charRef || '').replace(/^chars\//, '');
+
+    try {
+      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
+        status: 'ended',
+        endedAt: fx.serverTimestamp(),
+        reason: reason,
+        exp_base: baseExp,
+        updatedAt: fx.serverTimestamp()
+      });
+
+      if (baseExp > 0 && cid) {
+        await grantExp(cid, baseExp, 'explore', `site:${state.site_id}`);
+      }
+      
+      showToast('탐험이 종료되었습니다.');
+
+    } catch (e) {
+      console.error('[explore] endRun failed', e);
+      showToast('탐험 종료 중 오류가 발생했습니다.');
+    }
+  };
 
   // 탐험에 처음 진입했거나, 전투에서 복귀했을 때의 처리
   const battleResult = sessionStorage.getItem('toh.battle.result');
