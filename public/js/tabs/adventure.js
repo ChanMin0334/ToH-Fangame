@@ -606,37 +606,37 @@ async function openItemPicker(char) {
   const inventoryItemsBox = back.querySelector('#inventoryItems');
   
   if (allItems.length > 0) {
-    inventoryItemsBox.innerHTML = allItems.map(item => {
+    inventoryItemsBox.innerHTML = '';
+    allItems.forEach(item => {
       const style = rarityStyle(item.rarity);
       const isShiny = ['epic', 'legend', 'myth'].includes((item.rarity || '').toLowerCase());
-      
-      const card = document.createElement('div');
+
+      const card = document.createElement('button');
+      card.type = 'button';
       card.className = `kv-card item-card ${isShiny ? 'shine-effect' : ''}`;
       card.style.cssText = `
-        padding: 8px; 
-        cursor: pointer; 
-        border: 1px solid ${style.border}; 
-        background: ${style.bg}; 
+        padding: 8px;
+        cursor: pointer;
+        border: 1px solid ${style.border};
+        background: ${style.bg};
         color: ${style.text};
         transition: transform 0.2s;
+        width: 100%;
+        text-align: left;
       `;
       card.innerHTML = `
         <div style="font-weight:700;">${esc(item.name)}</div>
         <div style="font-size:12px; opacity:0.8;">${esc(item.desc_soft || '')}</div>
       `;
-      
-      // 마우스 호버 효과
       card.onmouseenter = () => card.style.transform = 'scale(1.03)';
       card.onmouseleave = () => card.style.transform = 'scale(1)';
-
-      // 클릭 시 상세 정보 모달 표시
-      card.onclick = () => showItemDetailModal(item);
-
-      return card.outerHTML;
-    }).join('');
+      card.addEventListener('click', () => showItemDetailModal(item));
+      inventoryItemsBox.appendChild(card);
+    });
   } else {
     inventoryItemsBox.innerHTML = `<div class="text-dim">보유한 아이템이 없습니다.</div>`;
   }
+
   
   const closeModal = () => back.remove();
   back.addEventListener('click', (e) => { if(e.target === back) closeModal(); });
@@ -704,24 +704,37 @@ async function showSharedInventory(root) {
   const inventoryItemsBox = root.querySelector('#inventoryItems');
   
   if (sharedItems.length > 0) {
-    inventoryItemsBox.innerHTML = sharedItems.map(item => {
+    inventoryItemsBox.innerHTML = '';
+    sharedItems.forEach(item => {
       const style = rarityStyle(item.rarity);
       const isShiny = ['epic', 'legend', 'myth'].includes((item.rarity || '').toLowerCase());
-      
-      const card = document.createElement('div');
+
+      const card = document.createElement('button');
+      card.type = 'button';
       card.className = `kv-card item-card ${isShiny ? 'shine-effect' : ''}`;
-      card.style.cssText = `padding: 8px; cursor: pointer; border: 1px solid ${style.border}; background: ${style.bg}; color: ${style.text}; transition: transform 0.2s;`;
-      card.innerHTML = `<div style="font-weight:700;">${esc(item.name)}</div><div style="font-size:12px; opacity:0.8;">${esc(item.desc_soft || '')}</div>`;
-      
+      card.style.cssText = `
+        padding: 8px;
+        cursor: pointer;
+        border: 1px solid ${style.border};
+        background: ${style.bg};
+        color: ${style.text};
+        transition: transform 0.2s;
+        width: 100%;
+        text-align: left;
+      `;
+      card.innerHTML = `
+        <div style="font-weight:700;">${esc(item.name)}</div>
+        <div style="font-size:12px; opacity:0.8;">${esc(item.desc_soft || '')}</div>
+      `;
       card.onmouseenter = () => card.style.transform = 'scale(1.03)';
       card.onmouseleave = () => card.style.transform = 'scale(1)';
-      card.onclick = () => showItemDetailModal(item);
-
-      return card.outerHTML;
-    }).join('');
+      card.addEventListener('click', () => showItemDetailModal(item));
+      inventoryItemsBox.appendChild(card);
+    });
   } else {
     inventoryItemsBox.innerHTML = `<div class="kv-card text-dim" style="grid-column: 1 / -1;">보관함에 아이템이 없습니다.</div>`;
   }
+
   
   // [추가] '탐험' 버튼 클릭 시 viewWorldPick 함수를 호출하여 메인 화면으로 돌아감
   root.querySelector('#btnToExplore').addEventListener('click', () => {
