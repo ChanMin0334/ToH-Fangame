@@ -214,16 +214,25 @@ export async function showExploreRun() {
     }
   };
 
+// /public/js/tabs/explore_run.js의 handleChoice 함수를 교체하세요.
+
   const handleChoice = async (index) => {
     showLoading(true, '선택지 처리 중...');
     const pendingTurn = state.pending_choices;
     if (!pendingTurn) {
-      showLoading(false); return;
+      showLoading(false);
+      showToast('오류: 선택지 정보가 없습니다. 다시 시도해주세요.');
+      // 상태를 초기화하고 다시 렌더링
+      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), { pending_choices: null });
+      state.pending_choices = null;
+      render(state);
+      return;
     }
 
     const chosenDice = pendingTurn.diceResults[index];
     const chosenOutcome = pendingTurn.choice_outcomes[index];
     
+    // 1. 전투 발생 시 Firestore에 저장 후 이동 (새로고침 문제 해결)
     if (chosenOutcome.event_type === 'combat') {
       const battleInfo = {
         enemy: chosenOutcome.enemy,
@@ -231,10 +240,11 @@ export async function showExploreRun() {
       };
       await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
         pending_battle: battleInfo,
-        pending_choices: null
+        pending_choices: null, // 선택지 상태는 초기화
+        prerolls: state.prerolls // preroll 상태도 함께 저장
       });
       location.hash = `#/explore-battle/${state.id}`;
-      return;
+      return; // 로딩은 전투 화면에서 해제
     }
 
     const narrativeLog = `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`;
@@ -244,13 +254,23 @@ export async function showExploreRun() {
     if (chosenOutcome.event_type === 'item' && chosenOutcome.item) {
         finalDice.item = { ...(chosenDice.item || {}), ...chosenOutcome.item };
         newItem = finalDice.item;
+        
+        // 2. [핵심 수정] 아이템에 고유 ID 부여 (아이템 저장 문제 해결)
+        if (newItem) {
+          newItem.id = 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+        }
     }
 
+    // 3. appendEvent 호출 시 newItem 전달
     const newState = await appendEvent({
-      runId: state.id, runBefore: state, narrative: narrativeLog,
-      choices: pendingTurn.choices, delta: finalDice.deltaStamina,
-      dice: finalDice, summary3: pendingTurn.summary3_update,
-      newItem: newItem
+      runId: state.id,
+      runBefore: state,
+      narrative: narrativeLog,
+      choices: pendingTurn.choices,
+      delta: finalDice.deltaStamina,
+      dice: finalDice,
+      summary3: pendingTurn.summary3_update,
+      newItem: newItem // ID가 부여된 아이템 전달
     });
     state = newState;
 
