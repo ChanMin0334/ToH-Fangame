@@ -151,6 +151,11 @@ async function viewWorldPick(root){
     </section>
   `;
 
+    // [추가] 가방 버튼에 새 함수를 연결하는 이벤트 핸들러
+  root.querySelector('#btnInventory').addEventListener('click', () => {
+    showSharedInventory(root); 
+  });
+
   root.querySelectorAll('.wpick').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const wid = btn.getAttribute('data-w');
