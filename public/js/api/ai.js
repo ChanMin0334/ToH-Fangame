@@ -42,7 +42,7 @@ function getMaxTokens(){
 }
 
 /* ============ 프롬프트 로드 (configs/prompts) ============ */
-async function fetchPromptDoc(id){
+export async function fetchPromptDoc(id){
   // 경로: configs/prompts (단일 문서), 필드: 문자열 또는 {content|text|value}
   const ref = fx.doc(db,'configs','prompts');
   const snap = await fx.getDoc(ref);
