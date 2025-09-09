@@ -4,15 +4,24 @@ import { grantExp } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 import { requestAdventureNarrative } from '../api/ai.js';
 import { getCharForAI } from '../api/store.js';
-import { rollStep, appendEvent, getActiveRun, rollThreeChoices } from '../api/explore.js';
+import { appendEvent, getActiveRun, rollThreeChoices } from '../api/explore.js';
 
-
-// ... (rt, rarityStyle, esc 등 유틸 함수는 그대로 둠) ...
 const STAMINA_MIN = 0;
-// ...
 
+// ---------- 유틸리티 함수 (전체 포함) ----------
 
-// /public/js/tabs/explore_run.js 파일 상단에 추가
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+function rt(raw) {
+  if (!raw) return '';
+  let s = String(raw);
+  s = esc(s);
+  s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  s = s.replace(/_(.+?)_/g, '<i>$1</i>');
+  s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/\n/g, '<br>');
+  return s;
+}
 
 function parseRunId(){
   const h = location.hash || '';
@@ -20,8 +29,55 @@ function parseRunId(){
   return m ? m[1] : null;
 }
 
+function renderHeader(box, run){
+  box.innerHTML = `
+    <div class="row" style="gap:8px;align-items:center">
+      <button class="btn ghost" id="btnBack">← 탐험 선택으로</button>
+      <div style="font-weight:900">${esc(run.world_name||run.world_id)} / ${esc(run.site_name||run.site_id)}</div>
+    </div>
+    <div class="kv-card" style="margin-top:8px">
+      <div class="row" style="gap:10px;align-items:center">
+        <div style="flex:1">체력</div>
+        <div class="text-dim" style="font-size:12px">${run.stamina}/${run.stamina_start}</div>
+      </div>
+      <div style="height:10px;border:1px solid #273247;border-radius:999px;overflow:hidden;background:#0d1420;margin-top:6px">
+        <div style="height:100%;width:${Math.max(0, Math.min(100, (run.stamina/run.stamina_start)*100))}%;
+                    background:linear-gradient(90deg,#4ac1ff,#7a9bff,#c2b5ff)"></div>
+      </div>
+    </div>
+  `;
+}
 
-// [추가] 로딩 오버레이 함수
+function eventLineHTML(ev) {
+  const kind = ev.dice?.eventKind || ev.kind || 'narrative';
+  const note = ev.note || '이벤트가 발생했습니다.';
+  
+  const styleMap = {
+    combat: { border: '#ff5b66', title: '전투 발생' },
+    item:   { border: '#f3c34f', title: '아이템 발견' },
+    risk:   { border: '#f3c34f', title: '위험 감수' },
+    safe:   { border: '#4aa3ff', title: '안전한 휴식' },
+    narrative: { border: '#6e7b91', title: '이야기 진행' },
+    'combat-retreat': { border: '#ff5b66', title: '후퇴' },
+  };
+
+  const { border, title } = styleMap[kind] || styleMap.narrative;
+  const formattedNote = esc(note).replace(/(\[선택:.*?\])/g, '<span style="color: #8c96a8;">$1</span>');
+
+  return `<div class="kv-card" style="border-left:3px solid ${border};padding-left:10px">
+      <div style="font-weight:800">${title}</div>
+      <div class="text-dim" style="font-size:12px; white-space: pre-wrap; line-height: 1.6;">${formattedNote}</div>
+    </div>`;
+}
+
+function calcRunExp(run) {
+  const turn = run.turn || 0;
+  const events = run.events || [];
+  const chestCnt = events.filter(e => e.dice?.eventKind === 'chest').length;
+  const allyCnt  = events.filter(e => e.dice?.eventKind === 'ally').length;
+  return Math.max(0, Math.round(turn * 1.5 + chestCnt + allyCnt));
+}
+
 function showLoading(show = true, text = '불러오는 중...') {
   let overlay = document.getElementById('toh-loading-overlay');
   if (show) {
@@ -38,6 +94,8 @@ function showLoading(show = true, text = '불러오는 중...') {
   }
 }
 
+// ---------- 메인 로직 ----------
+
 export async function showExploreRun() {
   showLoading(true, '탐험 정보 확인 중...');
   const root = document.getElementById('view');
@@ -51,10 +109,9 @@ export async function showExploreRun() {
 
   let state = await getActiveRun(runId);
   
-  // [수정] Firestore에서 직접 전투/선택지 상태 확인
   if (state.pending_battle) {
     location.hash = `#/explore-battle/${runId}`;
-    return; // 전투 화면으로 즉시 이동
+    return;
   }
 
   if (state.owner_uid !== auth.currentUser.uid) {
@@ -91,7 +148,6 @@ export async function showExploreRun() {
     const narrativeBox = root.querySelector('#narrativeBox');
     const choiceBox = root.querySelector('#choiceBox');
     
-    // [수정] Firestore의 pending_choices를 기준으로 렌더링
     const pendingTurn = runState.pending_choices;
     if (pendingTurn) {
       narrativeBox.innerHTML = rt(pendingTurn.narrative_text);
@@ -100,7 +156,7 @@ export async function showExploreRun() {
       ).join('');
     } else {
       const lastEvent = runState.events?.slice(-1)[0];
-      narrativeBox.innerHTML = rt(lastEvent?.note || `당신은 #${site.name} 에서의 탐험을 시작했습니다...`);
+      narrativeBox.innerHTML = rt(lastEvent?.note || `당신은 ${site.name} 에서의 탐험을 시작했습니다...`);
       choiceBox.innerHTML = (runState.status === 'ended')
         ? `<div class="text-dim">탐험이 종료되었습니다.</div>`
         : `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn ghost" id="btnGiveUp">탐험 포기</button><button class="btn" id="btnMove">계속 탐험</button></div>`;
@@ -129,24 +185,25 @@ export async function showExploreRun() {
     showLoading(true, 'AI가 다음 상황을 생성 중...');
     try {
       const { nextPrerolls, choices: diceResults } = rollThreeChoices(state);
-      state.prerolls = nextPrerolls; // 클라이언트 상태 우선 업데이트
+      state.prerolls = nextPrerolls;
       const charInfo = await getCharForAI(state.charRef);
-      // ... (기존 originWorld 정보 추가 로직은 그대로) ...
+      const originWorld = worldsData.worlds.find(w => w.id === charInfo.world_id);
+      charInfo.origin_world_info = originWorld ? `${originWorld.name} (${originWorld.intro})` : (charInfo.world_id || '알 수 없음');
       const lastEvent = state.events?.slice(-1)[0];
 
       const aiResponse = await requestAdventureNarrative({
-        character: charInfo, world, site, run: state, dices: diceResults,
+        character: charInfo, world: { name: world.name }, site: { name: site.name }, run: state, dices: diceResults,
         equippedItems: charInfo.items_equipped || [],
         prevTurnLog: lastEvent?.note || '(첫 턴)'
       });
       
       const pendingTurnData = { ...aiResponse, diceResults };
 
-      // [수정] Firestore에 pending_choices 저장
       await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-        pending_choices: pendingTurnData
+        pending_choices: pendingTurnData,
+        prerolls: state.prerolls
       });
-      state.pending_choices = pendingTurnData; // 클라이언트 상태 동기화
+      state.pending_choices = pendingTurnData;
 
       render(state);
     } catch (e) {
@@ -161,14 +218,12 @@ export async function showExploreRun() {
     showLoading(true, '선택지 처리 중...');
     const pendingTurn = state.pending_choices;
     if (!pendingTurn) {
-      showLoading(false);
-      return;
+      showLoading(false); return;
     }
 
     const chosenDice = pendingTurn.diceResults[index];
     const chosenOutcome = pendingTurn.choice_outcomes[index];
     
-    // [수정] 전투 발생 시 Firestore에 저장 후 이동
     if (chosenOutcome.event_type === 'combat') {
       const battleInfo = {
         enemy: chosenOutcome.enemy,
@@ -176,10 +231,10 @@ export async function showExploreRun() {
       };
       await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
         pending_battle: battleInfo,
-        pending_choices: null // 선택지 상태는 초기화
+        pending_choices: null
       });
       location.hash = `#/explore-battle/${state.id}`;
-      return; // 로딩은 전투 화면에서 해제
+      return;
     }
 
     const narrativeLog = `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`;
@@ -191,27 +246,53 @@ export async function showExploreRun() {
         newItem = finalDice.item;
     }
 
-    // [수정] newItem을 appendEvent에 전달
     const newState = await appendEvent({
       runId: state.id, runBefore: state, narrative: narrativeLog,
       choices: pendingTurn.choices, delta: finalDice.deltaStamina,
       dice: finalDice, summary3: pendingTurn.summary3_update,
       newItem: newItem
     });
-    state = newState; // 전체 상태 업데이트
+    state = newState;
 
-    if (state.stamina <= STAMINA_MIN) await endRun('exhaust');
-    else render(state);
+    if (state.stamina <= STAMINA_MIN) {
+      await endRun('exhaust');
+    } else {
+      render(state);
+    }
     showLoading(false);
   };
 
-  // ... (endRun, battleResult 처리 로직은 거의 동일) ...
-  // 단, battleResult 처리 로직은 이제 explore_battle.js에서 처리하므로 삭제하거나 주석처리해도 됨
+  const endRun = async (reason) => {
+    if (state.status !== 'ongoing') return;
+    showLoading(true, '탐험 종료 중...');
+    const baseExp = calcRunExp(state);
+    const cid = String(state.charRef || '').replace(/^chars\//, '');
+    try {
+      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
+        status: 'ended',
+        endedAt: fx.serverTimestamp(),
+        reason: reason,
+        exp_base: baseExp,
+        updatedAt: fx.serverTimestamp(),
+        pending_choices: null,
+        pending_battle: null,
+      });
+      state.status = 'ended'; 
+      if (baseExp > 0 && cid) {
+        await grantExp(cid, baseExp, 'explore', `site:${state.site_id}`);
+      }
+      showToast('탐험이 종료되었습니다.');
+      render(state);
+    } catch (e) {
+      console.error('[explore] endRun failed', e);
+      showToast('탐험 종료 중 오류가 발생했습니다.');
+    } finally {
+      showLoading(false);
+    }
+  };
   
-  // 최초 렌더링
   render(state);
   showLoading(false);
 }
-
 
 export default showExploreRun;
