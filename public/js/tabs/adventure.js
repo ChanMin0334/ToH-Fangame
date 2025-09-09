@@ -686,7 +686,6 @@ async function showSharedInventory(root) {
   root.innerHTML = `
     <section class="container narrow">
       <div class="book-card">
-        {/* [추가] 탐험/가방 탭 네비게이션 */}
         <div class="bookmarks">
           <button class="bookmark ghost" id="btnToExplore">탐험</button>
           <button class="bookmark ghost" disabled>레이드(준비중)</button>
