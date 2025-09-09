@@ -242,11 +242,17 @@ export async function showExploreRun() {
       state.prerolls = nextPrerolls;
       let charInfo = await getCharForAI(state.charRef);
 
-      // [추가] 캐릭터의 world_id를 사용해 worlds.json에서 출신 세계관 이름 찾기
+      // [수정] 캐릭터의 world_id를 사용해 이름과 설명을 함께 찾아 저장
       const originWorld = worldsData.worlds.find(w => w.id === charInfo.world_id);
-      charInfo.world_origin_name = originWorld ? originWorld.name : (charInfo.world_id || '알 수 없음');
+      if (originWorld) {
+        charInfo.origin_world_info = `${originWorld.name} (${originWorld.intro})`;
+      } else {
+        charInfo.origin_world_info = charInfo.world_id || '알 수 없음';
+      }
       
       const aiResponse = await requestAdventureNarrative({
+// ... (이하 생략) ...
+
         character: charInfo, // 출신 세계관 이름이 추가된 캐릭터 정보
         world: { name: world.name, loreLong: world.detail?.lore_long },
         site: { name: site.name, description: site.description },
