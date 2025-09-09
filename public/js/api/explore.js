@@ -198,11 +198,6 @@ export function rollThreeChoices(run) {
 }
 
 export async function appendEvent({ runId, runBefore, narrative, choices, delta, dice, summary3 }){
-// ... (기존과 동일)
-
-
-
-export async function appendEvent({ runId, runBefore, narrative, choices, delta, dice, summary3 }){
   const ref = fx.doc(db,'explore_runs', runId);
   const snap = await fx.getDoc(ref);
   if(!snap.exists()) throw new Error('런이 없어');
