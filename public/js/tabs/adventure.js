@@ -7,6 +7,60 @@ import { createRun } from '../api/explore.js';
 import { findMyActiveRun } from '../api/explore.js';
 import { formatRemain } from '../api/cooldown.js';
 
+
+// adventure.js 파일 상단, import 바로 아래에 추가
+
+// ===== 로딩 오버레이 유틸리티 =====
+function showLoadingOverlay(messages = []) {
+  const overlay = document.createElement('div');
+  overlay.id = 'toh-loading-overlay';
+  overlay.style.cssText = `
+    position: fixed; inset: 0; z-index: 10000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.75); color: white; text-align: center;
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    transition: opacity 0.3s;
+  `;
+
+  overlay.innerHTML = `
+    <div style="font-weight: 900; font-size: 20px;">🧭 모험 준비 중...</div>
+    <div id="loading-bar" style="width: 250px; height: 8px; background: #273247; border-radius: 4px; margin-top: 16px; overflow: hidden;">
+      <div id="loading-bar-inner" style="width: 0%; height: 100%; background: #4aa3ff; transition: width 0.5s;"></div>
+    </div>
+    <div id="loading-text" style="margin-top: 12px; font-size: 14px; color: #c8d0dc;">
+      모험을 떠나기 위한 준비 중입니다...
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const bar = overlay.querySelector('#loading-bar-inner');
+  const text = overlay.querySelector('#loading-text');
+  let msgIndex = 0;
+
+  const intervalId = setInterval(() => {
+    if (msgIndex < messages.length) {
+      text.textContent = messages[msgIndex];
+      bar.style.width = `${((msgIndex + 1) / (messages.length + 1)) * 100}%`;
+      msgIndex++;
+    }
+  }, 900);
+
+  return {
+    finish: () => {
+      clearInterval(intervalId);
+      bar.style.width = '100%';
+      text.textContent = '모험 시작!';
+    },
+    remove: () => {
+      clearInterval(intervalId);
+      overlay.style.opacity = '0';
+      setTimeout(() => overlay.remove(), 300);
+    }
+  };
+}
+
+
+
 // ===== modal css (adventure 전용) =====
 function ensureModalCss(){
   if (document.getElementById('toh-modal-css')) return;
@@ -371,10 +425,11 @@ function viewPrep(root, world, site, char){
   intervalId = setInterval(tick, 500);
   tick();
 
+// ANCHOR: btnStart?.addEventListener('click', async ()=>{
+
   btnStart?.addEventListener('click', async ()=>{
-    // (이벤트 리스너 내 코드는 변경 없음)
     if (btnStart.disabled) return;
-    
+
     if (Array.isArray(char.abilities_all) && char.abilities_all.length){
       const eq = Array.isArray(char.abilities_equipped) ? char.abilities_equipped : [];
       if (eq.length !== 2){
@@ -386,37 +441,56 @@ function viewPrep(root, world, site, char){
     if(cooldownRemain()>0) return showToast('쿨타임이 끝나면 시작할 수 있어!');
 
     btnStart.disabled = true;
-    btnStart.textContent = '입장 중...';
+    
+    // 1. 로딩 UI 표시 및 메시지 목록 정의
+    const loadingMessages = [
+      "운명의 주사위를 굴립니다...",
+      "캐릭터의 서사를 확인하는 중...",
+      "모험 장소로 이동 중입니다...",
+    ];
+    const loader = showLoadingOverlay(loadingMessages);
 
-    try{
+    // 기존 탐험 확인 로직 (에러 발생 시 로딩창 닫고 버튼 활성화)
+    try {
       const q = fx.query(
-        fx.collection(db,'explore_runs'),
-        fx.where('charRef','==', `chars/${char.id}`),
-        fx.where('status','==','ongoing'),
+        fx.collection(db, 'explore_runs'),
+        fx.where('charRef', '==', `chars/${char.id}`),
+        fx.where('status', '==', 'ongoing'),
         fx.limit(1)
       );
       const s = await fx.getDocs(q);
-      if(!s.empty){
+      if (!s.empty) {
         const doc = s.docs[0];
-        location.hash = `#/explore-run/${doc.id}`;
+        loader.finish();
+        setTimeout(() => location.hash = `#/explore-run/${doc.id}`, 300);
         return;
       }
-    }catch(_){ /* 권한/인덱스 이슈는 무시하고 새로 생성으로 진행 */ }
+    } catch (_) { /* 권한/인덱스 이슈는 무시하고 새로 생성으로 진행 */ }
 
+    // 2. 런 생성 (createRun)
     let runId = '';
-    try{
+    try {
       runId = await createRun({ world, site, char });
-    }catch(e){
+    } catch (e) {
       console.error('[explore] create run fail', e);
       showToast(e?.message || '탐험 시작에 실패했습니다. 잠시 후 다시 시도해주세요.');
+      
+      // 실패 시 로딩 UI 제거 및 버튼 복구
+      loader.remove();
       btnStart.disabled = false;
-      btnStart.textContent = '탐험 시작';
       return;
     }
 
-    setExploreIntent({ charId: char.id, runId, world:world.id, site:site.id, ts:Date.now() });
-    location.hash = `#/explore-run/${runId}`;
+    // 3. 성공 시 로딩 UI 완료 처리 후 페이지 이동
+    loader.finish();
+    setExploreIntent({ charId: char.id, runId, world: world.id, site: site.id, ts: Date.now() });
+    
+    // 로딩 완료 메시지를 잠시 보여준 후 이동
+    setTimeout(() => {
+        location.hash = `#/explore-run/${runId}`;
+    }, 500);
   });
+
 }
 
 
