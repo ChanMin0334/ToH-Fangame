@@ -6,9 +6,20 @@ import { requestAdventureNarrative } from '../api/ai.js';
 import { getCharForAI } from '../api/store.js';
 import { rollStep, appendEvent, getActiveRun, rollThreeChoices } from '../api/explore.js';
 
+
 // ... (rt, rarityStyle, esc 등 유틸 함수는 그대로 둠) ...
 const STAMINA_MIN = 0;
 // ...
+
+
+// /public/js/tabs/explore_run.js 파일 상단에 추가
+
+function parseRunId(){
+  const h = location.hash || '';
+  const m = h.match(/^#\/explore-run\/([^/]+)/);
+  return m ? m[1] : null;
+}
+
 
 // [추가] 로딩 오버레이 함수
 function showLoading(show = true, text = '불러오는 중...') {
