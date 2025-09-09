@@ -97,6 +97,12 @@ function showLoading(show = true, text = '불러오는 중...') {
 // ---------- 메인 로직 ----------
 
 export async function showExploreRun() {
+  // [핵심 수정] 이전에 남아있을 수 있는 로딩 화면을 여기서 제거합니다.
+  const loadingOverlay = document.getElementById('toh-loading-overlay');
+  if (loadingOverlay) {
+    loadingOverlay.remove();
+  }
+
   showLoading(true, '탐험 정보 확인 중...');
   const root = document.getElementById('view');
   const runId = parseRunId();
