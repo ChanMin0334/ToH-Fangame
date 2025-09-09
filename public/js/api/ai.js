@@ -234,7 +234,8 @@ export async function requestAdventureNarrative({
   world,
   site,
   run,
-  dices
+  dices,
+  equippedItems
 }){
   const systemText = await fetchPromptDoc('adventure_narrative_system');
 
