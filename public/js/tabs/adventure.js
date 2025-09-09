@@ -268,7 +268,7 @@ async function openCharPicker(root, world, site){
 function rarityStyle(r) {
   const map = {
     normal: { bg: '#2a2f3a', border: '#5f6673', text: '#c8d0dc', label: '일반' },
-    rare:   { bg: '#0f2742', border: '#3b78cf', text:cfe4ff', label: '레어' },
+    rare:   { bg: '#0f2742', border: '#3b78cf', text: '#cfe4ff', label: '레어' },
     epic:   { bg: '#20163a', border: '#7e5cff', text: '#e6dcff', label: '유니크' },
     legend: { bg: '#2b220b', border: '#f3c34f', text: '#ffe9ad', label: '레전드' },
     myth:   { bg: '#3a0f14', border: '#ff5b66', text: '#ffc9ce', label: '신화' },
