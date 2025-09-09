@@ -286,26 +286,41 @@ function ensureItemCss() {
   const st = document.createElement('style');
   st.id = 'toh-item-css';
   st.textContent = `
-    .shine-effect {
-      position: relative;
-      overflow: hidden;
-    }
-    .shine-effect::after {
-      content: '';
-      position: absolute;
-      top: -50%;
-      left: -50%;
-      width: 200%;
-      height: 200%;
-      background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
-      transform: rotate(30deg);
-      animation: shine 3s infinite ease-in-out;
-    }
-    @keyframes shine {
-      0% { transform: translateX(-75%) translateY(-25%) rotate(30deg); }
-      100% { transform: translateX(75%) translateY(25%) rotate(30deg); }
-    }
-  `;
+  .shine-effect {
+    position: relative;
+    overflow: hidden;
+  }
+  .shine-effect::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
+    transform: rotate(30deg);
+    animation: shine 3s infinite ease-in-out;
+    pointer-events: none;
+  }
+  @keyframes shine {
+    0% { transform: translateX(-75%) translateY(-25%) rotate(30deg); }
+    100% { transform: translateX(75%) translateY(25%) rotate(30deg); }
+  }
+
+  /* 카드 공통 개선 */
+  .item-card {
+    transition: box-shadow .18s ease, transform .18s ease, filter .18s ease;
+    will-change: transform, box-shadow;
+    outline: none;
+  }
+  .item-card:hover,
+  .item-card:focus-visible {
+    transform: translateY(-2px);           /* 확대 대신 살짝 띄우기 */
+    box-shadow: 0 6px 18px rgba(0,0,0,.35);
+    filter: brightness(1.05);
+  }
+`;
+
   document.head.appendChild(st);
 }
 
@@ -313,9 +328,33 @@ function ensureItemCss() {
 function showItemDetailModal(item) {
   ensureModalCss();
   const style = rarityStyle(item.rarity);
+
+  // 설명/효과 안전 추출
+  const getItemDesc = (it)=>{
+    // 우선순위: desc_long > desc_soft > desc > description
+    const raw = it?.desc_long || it?.desc_soft || it?.desc || it?.description || '';
+    return String(raw || '').replace(/\n/g, '<br>');
+  };
+
+  const getEffectsHtml = (it)=>{
+    const eff = it?.effects;
+    if (!eff) return '';
+    // 배열이면 불릿 목록, 문자열이면 그대로, 객체면 key: value 목록
+    if (Array.isArray(eff)) {
+      return `<ul style="margin:6px 0 0 16px; padding:0;">
+        ${eff.map(x=>`<li>${esc(String(x||''))}</li>`).join('')}
+      </ul>`;
+    } else if (typeof eff === 'object') {
+      return `<ul style="margin:6px 0 0 16px; padding:0;">
+        ${Object.entries(eff).map(([k,v])=>`<li><b>${esc(k)}</b>: ${esc(String(v??''))}</li>`).join('')}
+      </ul>`;
+    }
+    return `<div>${esc(String(eff))}</div>`;
+  };
+
   const back = document.createElement('div');
   back.className = 'modal-back';
-  back.style.zIndex = '10000'; // 다른 모달 위에 표시
+  back.style.zIndex = '10000';
 
   back.innerHTML = `
     <div class="modal-card">
@@ -327,8 +366,10 @@ function showItemDetailModal(item) {
         <button class="btn ghost" id="mCloseDetail">닫기</button>
       </div>
       <div class="kv-card" style="padding:12px;">
-        <p style="font-size:14px; line-height:1.6;">${esc(item.desc_long || item.desc_soft || '상세 설명이 없습니다.')}</p>
-        ${item.effects ? `<hr style="margin:12px 0; border-color:#273247;"><div class="kv-label">효과</div><div style="font-size:13px;">${esc(item.effects)}</div>` : ''}
+        <div style="font-size:14px; line-height:1.6;">${getItemDesc(item) || '상세 설명이 없습니다.'}</div>
+        ${item.effects ? `<hr style="margin:12px 0; border-color:#273247;">
+          <div class="kv-label">효과</div>
+          <div style="font-size:13px;">${getEffectsHtml(item)}</div>` : ''}
       </div>
     </div>
   `;
@@ -338,6 +379,7 @@ function showItemDetailModal(item) {
   back.querySelector('#mCloseDetail').onclick = closeModal;
   document.body.appendChild(back);
 }
+
 
 // ===== 4단계: 준비 화면(스킬/아이템 요약 + 시작 버튼) =====
 // /public/js/tabs/adventure.js의 viewPrep 함수를 아래 코드로 교체
@@ -598,7 +640,8 @@ async function openItemPicker(char) {
         <div style="font-weight:900">보유 아이템</div>
         <button class="btn ghost" id="mClose">닫기</button>
       </div>
-      <div id="inventoryItems" class="grid3" style="gap:8px; max-height: 450px; overflow-y: auto; padding-top: 8px;"></div>
+      <div id="inventoryItems" class="grid3" style="gap:12px; max-height:450px; overflow-y:auto; padding:8px 4px 4px 0;"></div>
+
     </div>
   `;
   document.body.appendChild(back);
@@ -628,8 +671,6 @@ async function openItemPicker(char) {
         <div style="font-weight:700;">${esc(item.name)}</div>
         <div style="font-size:12px; opacity:0.8;">${esc(item.desc_soft || '')}</div>
       `;
-      card.onmouseenter = () => card.style.transform = 'scale(1.03)';
-      card.onmouseleave = () => card.style.transform = 'scale(1)';
       card.addEventListener('click', () => showItemDetailModal(item));
       inventoryItemsBox.appendChild(card);
     });
@@ -693,7 +734,8 @@ async function showSharedInventory(root) {
         </div>
         <div class="bookview p12">
           <div class="kv-label">공유 보관함</div>
-          <div id="inventoryItems" class="grid4" style="gap:8px; max-height: 60vh; overflow-y: auto; padding-top: 8px;">
+          <div id="inventoryItems" class="grid4" style="gap:12px; max-height:60vh; overflow-y:auto; padding:8px 4px 4px 0;">
+
             ${/* 아이템 목록 렌더링 */ ''}
           </div>
         </div>
@@ -723,11 +765,12 @@ async function showSharedInventory(root) {
         text-align: left;
       `;
       card.innerHTML = `
-        <div style="font-weight:700;">${esc(item.name)}</div>
-        <div style="font-size:12px; opacity:0.8;">${esc(item.desc_soft || '')}</div>
+        <div style="font-weight:700;line-height:1.2;margin-bottom:4px;">${esc(item.name)}</div>
+        <div style="font-size:12px;opacity:.85;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
+          ${esc(item.desc_soft || item.desc || item.description || '')}
+        </div>
       `;
-      card.onmouseenter = () => card.style.transform = 'scale(1.03)';
-      card.onmouseleave = () => card.style.transform = 'scale(1)';
+
       card.addEventListener('click', () => showItemDetailModal(item));
       inventoryItemsBox.appendChild(card);
     });
