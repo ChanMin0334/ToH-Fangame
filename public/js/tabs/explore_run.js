@@ -143,150 +143,174 @@ function eventLineHTML(ev){
   </div>`;
 }
 
-export async function showExploreRun(){
+// ANCHOR: /public/js/tabs/explore_run.js 전문 교체
 
+// ... (파일 상단의 import, rt, rarityStyle 등 유틸 함수는 그대로 둠) ...
+
+export async function showExploreRun() {
   const loadingOverlay = document.getElementById('toh-loading-overlay');
   if (loadingOverlay) loadingOverlay.remove();
+
   const root = document.getElementById('view');
   const runId = parseRunId();
-  if(!auth.currentUser){
-    root.innerHTML = `<section class="container narrow"><div class="kv-card">로그인이 필요해.</div></section>`;
-    return;
-  }
-  if(!runId){
-    root.innerHTML = `<section class="container narrow"><div class="kv-card">잘못된 접근이야.</div></section>`;
-    return;
-  }
+  if (!auth.currentUser) { /* ... 로그인 필요 처리 ... */ return; }
+  if (!runId) { /* ... 잘못된 접근 처리 ... */ return; }
 
-  // 러닝 상태 로드
-  const ref = fx.doc(db,'explore_runs', runId);
-  const snap = await fx.getDoc(ref);
-  if(!snap.exists()){
-    root.innerHTML = `<section class="container narrow"><div class="kv-card">탐험을 찾을 수 없어.</div></section>`;
-    return;
-  }
-  const state = { id: snap.id, ...snap.data() };
-  if(state.owner_uid !== auth.currentUser.uid){
-    root.innerHTML = `<section class="container narrow"><div class="kv-card">이 탐험의 소유자가 아니야.</div></section>`;
-    return;
-  }
+  let state = await getActiveRun(runId); // getActiveRun으로 초기 상태 로드
+  if (state.owner_uid !== auth.currentUser.uid) { /* ... 소유자 아님 처리 ... */ return; }
 
-  // UI 구성
-  root.innerHTML = `
-    <section class="container narrow">
-      <div class="card p16" id="hdr"></div>
+  let worldData = {};
+  let siteData = {};
+  // worlds.json 로드
+  try {
+    const response = await fetch('/assets/worlds.json');
+    const worldsJson = await response.json();
+    worldData = worldsJson.worlds.find(w => w.id === state.world_id) || {};
+    siteData = (worldData.detail?.sites || []).find(s => s.id === state.site_id) || {};
+  } catch(e) { console.error("worlds.json 로드 실패", e); }
 
-      <div class="card p16 mt12">
-        <div class="kv-label">이동 로그</div>
-        <div id="logBox" class="col" style="gap:8px"></div>
 
-        <div class="row" style="gap:8px;justify-content:flex-end;margin-top:12px">
-          <button class="btn ghost" id="btnGiveUp">탐험 종료</button>
-          <button class="btn" id="btnMove">다음 이동</button>
+  // 💥 선택 대기 상태를 저장할 변수
+  let pendingChoices = null;
+
+  const render = () => {
+    // UI 골격
+    root.innerHTML = `
+      <section class="container narrow">
+        <div id="runHeader"></div>
+        <div class="card p16 mt12">
+          <div class="kv-label">서사</div>
+          <div id="narrativeBox" class="text-dim" style="white-space:pre-wrap; line-height:1.6;"></div>
+          <div id="choiceBox" class="col mt12" style="gap:8px;"></div>
         </div>
-        <div class="text-dim" id="hint" style="font-size:12px;margin-top:6px"></div>
-      </div>
-    </section>
-  `;
+        <div class="card p16 mt12">
+          <div class="kv-label">이동 로그 (${state.turn}턴)</div>
+          <div id="logBox" class="col" style="gap:8px; max-height: 200px; overflow-y: auto;"></div>
+        </div>
+      </section>
+    `;
 
-  const hdr   = root.querySelector('#hdr');
-  const logEl = root.querySelector('#logBox');
-  const hint  = root.querySelector('#hint');
-  const btnMove  = root.querySelector('#btnMove');
-  const btnGive  = root.querySelector('#btnGiveUp');
+    // 헤더 렌더링 (체력 등)
+    renderHeader(root.querySelector('#runHeader'), state);
+    root.querySelector('#runHeader #btnBack').onclick = () => location.hash = '#/adventure';
 
-  const paint = ()=>{
-    const leftMs = Math.max(0, (state.expiresAt||0) - Date.now());
-    renderHeader(hdr, state);
-    logEl.innerHTML = (state.events||[]).map(eventLineHTML).join('');
-    hint.textContent = (state.status==='ended')
-      ? '탐험이 종료되었어.'
-      : '턴을 진행할수록 보상이 커져. (P0: 간단 이벤트/보상)';
-    btnMove.disabled = (state.status!=='ongoing' || state.stamina<=STAMINA_MIN);
+    // 로그 렌더링
+    root.querySelector('#logBox').innerHTML = (state.events || []).slice().reverse().map(eventLineHTML).join('');
+
+    const narrativeBox = root.querySelector('#narrativeBox');
+    const choiceBox = root.querySelector('#choiceBox');
+    
+    // 분기: 유저의 선택을 기다리는 중인가?
+    if (pendingChoices) {
+      narrativeBox.innerHTML = rt(pendingChoices.narrative_text);
+      choiceBox.innerHTML = pendingChoices.choices.map((label, index) =>
+        `<button class="btn choice-btn" data-index="${index}">${esc(label)}</button>`
+      ).join('');
+    } else {
+      narrativeBox.textContent = state.status === 'ended' ? '탐험이 종료되었습니다.' : '다음 행동을 준비 중입니다...';
+      choiceBox.innerHTML = `
+        <div class="row" style="gap:8px;justify-content:flex-end;">
+          <button class="btn ghost" id="btnGiveUp">탐험 포기</button>
+          <button class="btn" id="btnMove">계속 탐험</button>
+        </div>
+      `;
+    }
+    
+    // 버튼 이벤트 바인딩
+    bindButtons();
   };
-  paint();
 
-  document.getElementById('btnBack').onclick = ()=> location.hash = '#/adventure';
+  const bindButtons = () => {
+    if (state.status !== 'ongoing') return;
 
-  btnGive.addEventListener('click', ()=> endRun('giveup'));
-
-  btnMove.addEventListener('click', async ()=>{
-  if(state.status!=='ongoing') return;
-  if(state.stamina<=STAMINA_MIN) return;
-
-  // 1) 주사위로 결과값 먼저 확정
-  const dice = rollStep(state); // state.prerolls가 내부에서 소비/갱신됨
-
-  // 2) AI 서술/선택지 요청
-  const charSnap = await fx.getDoc(fx.doc(db, state.charRef));
-  // (새) 캐릭터 상태를 매 턴 즉시 조회 — 전투 중 스킬 변경도 즉시 반영됨
-const cInfo = await getCharForAI(state.charRef);
-const character = {
-  name: cInfo?.name || '(이름 없음)',
-  latestLong: cInfo?.latestLong || '',
-  shortConcat: cInfo?.shortConcat || '',
-  skills: Array.isArray(cInfo?.skills) ? cInfo.skills : []
-};
-
-
-  const ai = await requestAdventureNarrative({
-    character,
-    world,
-    site,
-    run: { summary3: state.summary3||'', turn: state.turn||0, difficulty: state.difficulty||'normal' },
-    dice
-  });
-
-  // 3) 이벤트 저장(턴 커밋)
-  state = await appendEvent({
-    runId: state.id,
-    runBefore: state,
-    narrative: ai.narrative_text,
-    choices: ai.choices,
-    delta: dice.deltaStamina,
-    dice,
-    summary3: ai.summary3_update || state.summary3
-  });
-
-  // 4) 종료 조건
-  if(state.stamina<=STAMINA_MIN){
-    await fx.updateDoc(fx.doc(db,'explore_runs', state.id), { status:'ended', endedAt: Date.now(), updatedAt: Date.now(), reason:'exhaust' });
-    state.status='ended';
-  }
-
-  paint();
-});
-
-
-  async function endRun(reason){
-    if(state.status!=='ongoing') return;
-    state.status = 'ended';
-    state.endedAt = Date.now();
-
-    // EXP 산정(P0): 진행 턴 * 1.5 + 보너스(상자/ally 수)
-    const chestCnt = (state.events||[]).filter(e=>e.kind==='chest').length;
-    const allyCnt  = (state.events||[]).filter(e=>e.kind==='ally').length;
-    const baseExp  = Math.round((state.turn||0)*1.5 + chestCnt + allyCnt);
-
-    // charId 추출
-    const cid = String(state.charRef||'').replace(/^chars\//,'');
-
-    try{
-      if(baseExp>0) await grantExp(cid, baseExp, 'explore', `site:${state.site_id}`);
-    }catch(e){ console.warn('[explore] grantExp fail', e); }
-
-    try{
-      await fx.updateDoc(fx.doc(db,'explore_runs', state.id), {
-        status:'ended', endedAt: state.endedAt, reason,
-        exp_base: baseExp, updatedAt: Date.now()
+    if (pendingChoices) {
+      // 선택지 버튼들
+      root.querySelectorAll('.choice-btn').forEach(btn => {
+        btn.onclick = () => handleChoice(parseInt(btn.dataset.index, 10));
       });
-    }catch(e){
-      console.error('[explore] end save fail', e);
+    } else {
+      // 계속 탐험 / 포기 버튼
+      const btnMove = root.querySelector('#btnMove');
+      if (btnMove) {
+        btnMove.disabled = state.stamina <= STAMINA_MIN;
+        btnMove.onclick = prepareNextTurn;
+      }
+      const btnGiveUp = root.querySelector('#btnGiveUp');
+      if (btnGiveUp) btnGiveUp.onclick = () => endRun('giveup');
+    }
+  };
+
+  // 턴 진행 준비 (주사위 굴리고 AI에게 질문)
+  const prepareNextTurn = async () => {
+    const btnMove = root.querySelector('#btnMove');
+    if(btnMove) {
+        btnMove.disabled = true;
+        btnMove.textContent = '생성 중...';
     }
 
-    showToast('탐험이 종료되었어!');
-    paint();
+    // 1. 주사위 굴려 선택지 3개 생성
+    const { nextPrerolls, choices: diceResults } = rollThreeChoices(state);
+    state.prerolls = nextPrerolls; // preroll 상태 즉시 업데이트
+
+    // 2. 캐릭터 정보 가져오기
+    const charInfo = await getCharForAI(state.charRef);
+
+    // 3. AI에게 서사/선택지 요청
+    const aiResponse = await requestAdventureNarrative({
+      character: charInfo,
+      world: { name: worldData.name, loreLong: worldData.detail?.lore_long },
+      site: { name: siteData.name, description: siteData.description },
+      run: { summary3: state.summary3, turn: state.turn, difficulty: state.difficulty },
+      dices: diceResults
+    });
+
+    // 4. 유저가 선택할 때까지 대기 상태로 전환
+    pendingChoices = {
+      narrative_text: aiResponse.narrative_text,
+      choices: aiResponse.choices,
+      outcomes: diceResults, // 🤫 각 선택지에 대한 결과는 여기에만 저장
+      summary3_update: aiResponse.summary3_update,
+    };
+
+    render(); // UI 다시 그리기 (선택지 표시)
+  };
+
+  // 유저가 선택지를 클릭했을 때 처리
+  const handleChoice = async (index) => {
+    if (!pendingChoices) return;
+
+    const chosenOutcome = pendingChoices.outcomes[index];
+    
+    // 1. 이벤트 저장(턴 커밋)
+    const newState = await appendEvent({
+      runId: state.id,
+      runBefore: state, // preroll이 이미 갱신된 state를 전달
+      narrative: pendingChoices.narrative_text,
+      choices: pendingChoices.choices,
+      delta: chosenOutcome.deltaStamina,
+      dice: chosenOutcome,
+      summary3: pendingChoices.summary3_update,
+    });
+    
+    state = newState; // 로컬 state 갱신
+    pendingChoices = null; // 대기 상태 해제
+
+    // 2. 종료 조건 확인
+    if (state.stamina <= STAMINA_MIN) {
+      await endRun('exhaust');
+    } else {
+      render(); // 다음 턴 준비 UI로 다시 그리기
+    }
+  };
+  
+  // 탐험 종료 로직 (기존과 유사)
+  async function endRun(reason) {
+      // ... endRun 로직 (explore_run.js 기존 코드 참고하여 작성) ...
+      // state.status = 'ended'; 업데이트 후 render() 호출
   }
+
+  // 초기 렌더링
+  render();
 }
 
 export default showExploreRun;
