@@ -4,6 +4,7 @@ import { fetchWorlds } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 import { EXPLORE_COOLDOWN_KEY, getRemain as getCdRemain } from '../api/cooldown.js';
 import { createRun } from '../api/explore.js';
+import { findMyActiveRun } from '../api/explore.js';
 import { formatRemain } from '../api/cooldown.js';
 
 // ===== modal css (adventure 전용) =====
@@ -32,6 +33,35 @@ const diffColor = (d)=>{
 const esc = (s)=> String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 function setExploreIntent(into){ sessionStorage.setItem('toh.explore.intent', JSON.stringify(into)); }
 function getExploreIntent(){ try{ return JSON.parse(sessionStorage.getItem('toh.explore.intent')||'null'); }catch{ return null; } }
+
+
+function injectResumeBanner(root, run){
+  const host = root.querySelector('.bookview') || root; // 세계관 카드들이 들어가는 상자
+  const box = document.createElement('div');
+  box.className = 'kv-card';
+  box.style = 'margin-bottom:10px;border-left:3px solid #4aa3ff;padding-left:10px';
+  box.innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:center;gap:8px">
+      <div>
+        <div style="font-weight:900">이어서 탐험하기</div>
+        <div class="text-dim" style="font-size:12px">
+          ${esc(run.world_name||run.world_id)} / ${esc(run.site_name||run.site_id)}
+        </div>
+      </div>
+      <button class="btn" id="btnResumeRun">이어하기</button>
+    </div>
+  `;
+  // 세계관 리스트가 그려진 뒤 제일 위에 끼워넣기
+  if (host.firstElementChild) host.firstElementChild.insertAdjacentElement('beforebegin', box);
+  else host.appendChild(box);
+  box.querySelector('#btnResumeRun').onclick = ()=> location.hash = '#/explore-run/' + run.id;
+}
+
+
+
+
+
+
 
 // ===== 1단계: 세계관 선택 =====
 async function viewWorldPick(root){
@@ -362,6 +392,13 @@ export async function showAdventure(){
     return;
   }
   await viewWorldPick(root);
+  try{
+    const r = await findMyActiveRun();
+    if (r) injectResumeBanner(root, r);
+  }catch(e){
+    console.warn('[adventure] resume check fail', e);
+  }
+
 }
 
 export default showAdventure;
