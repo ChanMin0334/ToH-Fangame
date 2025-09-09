@@ -8,7 +8,15 @@ import { getUserInventory } from '../api/user.js'; // 사용자 인벤토리 함
 import { showToast } from '../ui/toast.js';
 
 // ---------- utils ----------
+// [추가] esc 함수를 다른 파일에서도 쓸 수 있도록 상단으로 옮기고 export 합니다.
+export function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
 function parseId(){
+// (기존 내용과 동일)
   const h = location.hash || '';
   // #/char/{cid} 또는 #/char/{cid}/narrative/{nid}
   const m = h.match(/^#\/char\/([^/]+)(?:\/narrative\/([^/]+))?$/);
@@ -52,12 +60,14 @@ export function useBadgeHtml(it){
   if (!isConsumableItem(it)) return '';
   const left = getUsesLeft(it);
   const label = (left === null) ? '소모품' : `남은 ${left}회`;
+// (기존 내용과 동일)
   return `<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">${esc(label)}</span>`;
 }
 
-export function ensureItemCss() {
+export function ensureItemCss() { // [수정] export 추가
   if (document.getElementById('toh-item-css')) return;
   const st = document.createElement('style');
+// (기존 내용과 동일)
   st.id = 'toh-item-css';
   st.textContent = `
   .shine-effect { position: relative; overflow: hidden; }
@@ -558,12 +568,6 @@ function renderNarrativePage(c, narrId){
   const nLongNode = document.getElementById('nLong');
   if (nLongNode) nLongNode.innerHTML = renderRich(n.long || '-');
 
-}
-
-function esc(s){
-  return String(s ?? '').replace(/[&<>"']/g, c => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-  }[c]));
 }
 
 // --- 인라인 강조(**굵게**, *기울임*) 처리
