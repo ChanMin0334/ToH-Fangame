@@ -16,20 +16,14 @@ function parseRunId(){
   const m = h.match(/^#\/explore-run\/([^/]+)/);
   return m ? m[1] : null;
 }
-function fmtLeft(ms){
-  const s = Math.max(0, Math.ceil(ms/1000));
-  const hh = Math.floor(s/3600), mm = Math.floor((s%3600)/60), ss = s%60;
-  return (hh? hh+':' : '') + String(mm).padStart(2,'0') + ':' + String(ss).padStart(2,'0');
-}
 
 
 
-function renderHeader(box, run, leftMs){
+function renderHeader(box, run){
   box.innerHTML = `
     <div class="row" style="gap:8px;align-items:center">
       <button class="btn ghost" id="btnBack">← 탐험 선택으로</button>
       <div style="font-weight:900">${esc(run.world_name||run.world_id)} / ${esc(run.site_name||run.site_id)}</div>
-      <span class="chip" style="margin-left:auto">남은시간 ${fmtLeft(leftMs)}</span>
     </div>
     <div class="kv-card" style="margin-top:8px">
       <div class="row" style="gap:10px;align-items:center">
@@ -121,7 +115,7 @@ export async function showExploreRun(){
 
   const paint = ()=>{
     const leftMs = Math.max(0, (state.expiresAt||0) - Date.now());
-    renderHeader(hdr, state, leftMs);
+    renderHeader(hdr, state);
     logEl.innerHTML = (state.events||[]).map(eventLineHTML).join('');
     hint.textContent = (state.status==='ended')
       ? '탐험이 종료되었어.'
@@ -129,16 +123,6 @@ export async function showExploreRun(){
     btnMove.disabled = (state.status!=='ongoing' || state.stamina<=STAMINA_MIN);
   };
   paint();
-
-  // 타이머
-  const clock = setInterval(()=>{
-    if(!hdr.isConnected){ clearInterval(clock); return; }
-    renderHeader(hdr, state, Math.max(0, (state.expiresAt||0) - Date.now()));
-    if((state.expiresAt||0) <= Date.now() && state.status==='ongoing'){
-      // 시간 만료 → 강제 종료
-      endRun('timeup');
-    }
-  }, 1000);
 
   document.getElementById('btnBack').onclick = ()=> location.hash = '#/adventure';
 
