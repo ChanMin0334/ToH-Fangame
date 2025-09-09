@@ -30,8 +30,8 @@ function normalizeChar(c){
   return out;
 }
 
-// 아이템 상세 정보 표시에 필요한 헬퍼 함수 (adventure.js에서 가져옴)
-function rarityStyle(r) {
+// [수정] 다른 파일에서 재사용할 수 있도록 export 추가
+export function rarityStyle(r) {
   const map = {
     normal: { bg: '#2a2f3a', border: '#5f6673', text: '#c8d0dc', label: '일반' },
     rare:   { bg: '#0f2742', border: '#3b78cf', text: '#cfe4ff', label: '레어' },
@@ -42,20 +42,20 @@ function rarityStyle(r) {
   return map[(r || '').toLowerCase()] || map.normal;
 }
 
-function isConsumableItem(it){ return !!(it?.consumable || it?.isConsumable); }
-function getUsesLeft(it){
+export function isConsumableItem(it){ return !!(it?.consumable || it?.isConsumable); }
+export function getUsesLeft(it){
   if (typeof it?.uses === 'number') return it.uses;
   if (typeof it?.remainingUses === 'number') return it.remainingUses;
   return null;
 }
-function useBadgeHtml(it){
+export function useBadgeHtml(it){
   if (!isConsumableItem(it)) return '';
   const left = getUsesLeft(it);
   const label = (left === null) ? '소모품' : `남은 ${left}회`;
   return `<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">${esc(label)}</span>`;
 }
 
-function ensureItemCss() {
+export function ensureItemCss() {
   if (document.getElementById('toh-item-css')) return;
   const st = document.createElement('style');
   st.id = 'toh-item-css';
@@ -68,21 +68,21 @@ function ensureItemCss() {
   document.head.appendChild(st);
 }
 
-function showItemDetailModal(item) {
-  const style = rarityStyle(item.rarity);
-  const getItemDesc = (it) => (it?.desc_long || it?.desc_soft || it?.desc || it?.description || '').replace(/\n/g, '<br>');
-  const getEffectsHtml = (it) => {
-    const eff = it?.effects;
-    if (!eff) return '';
-    if (Array.isArray(eff)) return `<ul style="margin:6px 0 0 16px; padding:0;">${eff.map(x=>`<li>${esc(String(x||''))}</li>`).join('')}</ul>`;
-    if (typeof eff === 'object') return `<ul style="margin:6px 0 0 16px; padding:0;">${Object.entries(eff).map(([k,v])=>`<li><b>${esc(k)}</b>: ${esc(String(v??''))}</li>`).join('')}</ul>`;
-    return `<div>${esc(String(eff))}</div>`;
-  };
+export function showItemDetailModal(item) {
+    const style = rarityStyle(item.rarity);
+    const getItemDesc = (it) => (it?.desc_long || it?.desc_soft || it?.desc || it?.description || '').replace(/\n/g, '<br>');
+    const getEffectsHtml = (it) => {
+        const eff = it?.effects;
+        if (!eff) return '';
+        if (Array.isArray(eff)) return `<ul style="margin:6px 0 0 16px; padding:0;">${eff.map(x=>`<li>${esc(String(x||''))}</li>`).join('')}</ul>`;
+        if (typeof eff === 'object') return `<ul style="margin:6px 0 0 16px; padding:0;">${Object.entries(eff).map(([k,v])=>`<li><b>${esc(k)}</b>: ${esc(String(v??''))}</li>`).join('')}</ul>`;
+        return `<div>${esc(String(eff))}</div>`;
+    };
 
-  const back = document.createElement('div');
-  back.className = 'modal-back';
-  back.style.zIndex = '10001';
-  back.innerHTML = `
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.style.zIndex = '10001';
+    back.innerHTML = `
     <div class="modal-card" style="background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:720px;width:92vw;">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
         <div>
@@ -100,10 +100,10 @@ function showItemDetailModal(item) {
       </div>
     </div>
   `;
-  const closeModal = () => back.remove();
-  back.addEventListener('click', e => { if(e.target === back) closeModal(); });
-  back.querySelector('#mCloseDetail').onclick = closeModal;
-  document.body.appendChild(back);
+    const closeModal = () => back.remove();
+    back.addEventListener('click', e => { if (e.target === back) closeModal(); });
+    back.querySelector('#mCloseDetail').onclick = closeModal;
+    document.body.appendChild(back);
 }
 
 
@@ -280,14 +280,11 @@ function renderBioSub(which, c, sv){
 
     `;
   }else if(which==='narr'){
-  // 표준 narratives 우선, 없으면 legacy narrative_items를 긴 본문으로 취급
   const list = normalizeNarratives(c);
   if(list.length === 0){
     sv.innerHTML = `<div class="kv-card text-dim">아직 등록된 서사가 없어.</div>`;
     return;
   }
-
-  // 모든 카드 동일 구성: 제목 + 긴 본문 일부(줄임표). short(요약)는 여기서 노출하지 않음.
   sv.innerHTML = `
     <div class="kv-label">서사 목록</div>
     <div class="list">
@@ -307,28 +304,24 @@ function renderBioSub(which, c, sv){
       `).join('')}
     </div>
   `;
-
-  // 카드 클릭 → 서사 전용 페이지로 리디렉션
   sv.querySelectorAll('[data-nid]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const nid = btn.getAttribute('data-nid');
       location.hash = `#/char/${c.id}/narrative/${nid}`;
     });
   });
-
   }else if(which==='epis'){
   sv.innerHTML = `
     <div class="kv-label">미니 에피소드</div>
     <div class="kv-card text-dim">조우/배틀에서 생성된 에피소드가 여기에 쌓일 예정이야.</div>
   `;
-}else if(which==='rel'){
+  }else if(which==='rel'){
   sv.innerHTML = `
     <div class="kv-label">관계</div>
     <div id="relList" class="col" style="gap:8px"></div>
     <div id="relSentinel" style="height:1px"></div>
     <div class="text-dim" id="relHint" style="margin-top:6px;font-size:12px">더미 데이터를 15개씩 불러오고 있어.</div>
   `;
-  // 더미 무한 스크롤(60개까지)
   (function(){
     const box = sv.querySelector('#relList');
     const sent = sv.querySelector('#relSentinel');
@@ -351,9 +344,7 @@ function renderBioSub(which, c, sv){
     obs.observe(sent);
     loadMore();
   })();
-}
-
-
+  }
 }  
 
 // 아이템 장착 모달
