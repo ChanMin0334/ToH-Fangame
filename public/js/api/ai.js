@@ -273,10 +273,20 @@ export async function requestAdventureNarrative({
   }catch(e){
     raw = await callGemini(FALLBACK_FLASH, systemText, userText, 0.8);
   }
+  // ===== ⬇️ 이 부분을 수정합니다 ⬇️ =====
   const parsed = tryParseJson(raw) || {};
-  const narrative_text  = String(parsed.narrative_text||'짧은 사건이 발생했다.').slice(0, 1200);
-  // ⚠️ 선택지가 3개가 아닐 경우를 대비한 방어 코드
-  let choices = Array.isArray(parsed.choices)&&parsed.choices.length>=3 ? parsed.choices.slice(0,3).map(x=>String(x)) : ['신중하게 나아간다','주변을 경계한다','서둘러 자리를 뜬다'];
-  const summary3_update = String(parsed.summary3_update||run?.summary3||'').slice(0, 300);
-  return { narrative_text, choices, summary3_update };
+
+  // 기본값 설정 및 유효성 검사 강화
+  const narrative_text = String(parsed.narrative_text || '알 수 없는 공간에 도착했다.').slice(0, 1200);
+  const choices = (Array.isArray(parsed.choices) && parsed.choices.length === 3)
+    ? parsed.choices.map(x => String(x))
+    : ['조사한다', '나아간다', '후퇴한다'];
+  const choice_outcomes = (Array.isArray(parsed.choice_outcomes) && parsed.choice_outcomes.length === 3)
+    ? parsed.choice_outcomes
+    : [{ event_type: 'narrative' }, { event_type: 'narrative' }, { event_type: 'narrative' }];
+  const summary3_update = String(parsed.summary3_update || run?.summary3 || '').slice(0, 300);
+
+  // AI가 생성한 전체 구조를 그대로 반환
+  return { narrative_text, choices, choice_outcomes, summary3_update };
+  // ===== ⬆️ 여기까지 수정 ⬆️ =====
 }
