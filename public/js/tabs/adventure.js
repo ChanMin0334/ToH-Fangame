@@ -319,6 +319,35 @@ function viewPrep(root, world, site, char){
 
   const cdNote = root.querySelector('#cdNote');
   const btnStart = root.querySelector('#btnStart');
+  // 캐릭터 기준 진행 중 런이 있으면 '이어하기' 버튼을 옆에 띄워줘
+const btnRow = btnStart?.parentNode;
+if (btnRow){
+  const btnResume = document.createElement('button');
+  btnResume.className = 'btn ghost';
+  btnResume.id = 'btnResumeChar';
+  btnResume.textContent = '이어하기';
+  btnResume.style.display = 'none';
+  btnRow.insertBefore(btnResume, btnStart); // '탐험 시작' 왼쪽에 배치
+
+  (async ()=>{
+    try{
+      const q = fx.query(
+        fx.collection(db,'explore_runs'),
+        fx.where('owner_uid','==', auth.currentUser.uid),
+        fx.where('charRef','==', `chars/${char.id}`),
+        fx.where('status','==','ongoing'),
+        fx.limit(1)
+      );
+      const s = await fx.getDocs(q);
+      if (!s.empty){
+        const d = s.docs[0];
+        btnResume.style.display = '';
+        btnResume.onclick = ()=> location.hash = '#/explore-run/' + d.id;
+      }
+    }catch(e){ /* 조용히 무시 */ }
+  })();
+}
+
   let intervalId = null;
   const tick = ()=>{
       const r = cooldownRemain();
