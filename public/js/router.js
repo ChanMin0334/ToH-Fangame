@@ -9,6 +9,8 @@ import { showCreate } from './tabs/create.js';
 import { showBattle } from './tabs/battle.js';
 import { showEncounter } from './tabs/encounter.js';
 import showExploreRun from './tabs/explore_run.js';
+import { showExploreBattle } from './tabs/explore_battle.js';
+
 
 
 
@@ -26,8 +28,10 @@ export const routes = {
   '#/create': showCreate,
   '#/battle': showBattle,
   '#/encounter': showEncounter,
+  '#/explore-battle': showExploreBattle,
   // 수정됨: 키(key)에 '#'를 추가하여 다른 라우트와 형식을 통일
-  '#/explore-run': showExploreRun
+  '#/explore-run': showExploreRun,
+  
 };
 
 export function highlightTab(){
@@ -48,6 +52,8 @@ export function router(){
   if(hash.startsWith('#/relations/')) return routes['#/relations']();
   // 수정됨: 불필요한 dynamic import를 제거하고 다른 동적 라우트와 동일한 패턴으로 변경
   if(hash.startsWith('#/explore-run/')) return routes['#/explore-run']();
+  if(hash.startsWith('#/explore-battle/')) return routes['#/explore-battle']();
+
 
   (routes[hash] || routes['#/home'])();
 }
