@@ -1,37 +1,30 @@
 // /public/js/tabs/explore_battle.js
+
 import { auth, db, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
+import { requestAdventureNarrative, callGemini, fetchPromptDoc } from '../api/ai.js'; // AI 호출 함수 추가
 
-// [유틸] HTML 안전 변환 (태그 깨짐/스크립트 삽입 방지)
+// ---------- 유틸리티 함수 ----------
+
 function esc(s){
   const str = String(s ?? '');
   return str.replace(/[&<>"']/g, ch => (
-    ch === '&' ? '&amp;' :
-    ch === '<' ? '&lt;'  :
-    ch === '>' ? '&gt;'  :
-    ch === '"' ? '&quot;':
-                 '&#39;'
+    ch === '&' ? '&amp;' : ch === '<' ? '&lt;'  : ch === '>' ? '&gt;'  : ch === '"' ? '&quot;': '&#39;'
   ));
 }
 
-// [유틸] 등급 색상(나중에 카드/드랍표시에 쓸 때 사용)
-function rarityStyle(rarity){
-  switch(rarity){
-    case 'myth':   return 'color:#d33;font-weight:600';
-    case 'legend': return 'color:#b8860b;font-weight:600';
-    case 'epic':   return 'color:#7b68ee';
-    case 'rare':   return 'color:#1e90ff';
-    default:       return 'color:#999';
-  }
+function rarityStyle(r) {
+  const map = {
+    normal: { bg: '#2a2f3a', border: '#5f6673', text: '#c8d0dc', label: '일반' },
+    rare:   { bg: '#0f2742', border: '#3b78cf', text: '#cfe4ff', label: '레어' },
+    epic:   { bg: '#20163a', border: '#7e5cff', text: '#e6dcff', label: '유니크' },
+    legend: { bg: '#2b220b', border: '#f3c34f', text: '#ffe9ad', label: '레전드' },
+    myth:   { bg: '#3a0f14', border: '#ff5b66', text: '#ffc9ce', label: '신화' },
+  };
+  return map[(r || '').toLowerCase()] || map.normal;
 }
 
-
-// ... (esc, rarityStyle 등 유틸 함수는 그대로 둠) ...
-// ...
-
-// [추가] 로딩 오버레이 함수
 function showLoading(show = true, text = '불러오는 중...') {
-  // explore_run.js와 동일한 함수
   let overlay = document.getElementById('toh-loading-overlay');
   if (show) {
     if (!overlay) {
@@ -47,17 +40,15 @@ function showLoading(show = true, text = '불러오는 중...') {
   }
 }
 
-// [핵심 핫픽스] 배틀 전용 스타일 주입 함수(임시 비워둠)
-// 추후 필요하면 안에 스타일을 넣자.
-function ensureBattleCss(){ /* no-op */ }
+function ensureBattleCss(){ /* 필요 시 CSS 추가 */ }
 
-
-// [추가] URL에서 Run ID 파싱
 function parseRunIdFromBattle() {
   const h = location.hash || '';
   const m = h.match(/^#\/explore-battle\/([^/]+)/);
   return m ? m[1] : null;
 }
+
+// ---------- 메인 로직 ----------
 
 export async function showExploreBattle() {
   ensureBattleCss();
@@ -71,7 +62,6 @@ export async function showExploreBattle() {
     return;
   }
   
-  // [수정] Firestore에서 직접 런 데이터 가져오기
   const runRef = fx.doc(db, 'explore_runs', runId);
   const runSnap = await fx.getDoc(runRef);
 
@@ -88,41 +78,156 @@ export async function showExploreBattle() {
 
   const charSnap = await fx.getDoc(fx.doc(db, runState.charRef));
   const character = charSnap.exists() ? { id: charSnap.id, ...charSnap.data() } : {};
+  
+  // [신규] 전투 상태를 관리할 객체
+  let battleState = {
+    playerHp: runState.stamina,
+    enemyHp: enemy.hp || 10,
+    log: [battleInfo.narrative],
+    isPlayerTurn: true,
+  };
 
-  // --- 레이아웃 렌더링 (기존과 거의 동일) ---
+  // [신규] 전투 UI를 업데이트하는 함수
+  const renderBattleUI = () => {
+    const enemyHpPercent = Math.max(0, (battleState.enemyHp / (enemy.hp || 10)) * 100);
+    const playerHpPercent = Math.max(0, (battleState.playerHp / runState.stamina_start) * 100);
+
+    root.querySelector('#enemyName').textContent = esc(enemy.name || '상대');
+    root.querySelector('#enemyHpText').textContent = `${battleState.enemyHp} / ${enemy.hp || 10}`;
+    root.querySelector('#enemyHpBar').style.width = `${enemyHpPercent}%`;
+    
+    root.querySelector('#playerName').textContent = esc(character.name || '플레이어');
+    root.querySelector('#playerHpText').textContent = `${battleState.playerHp} / ${runState.stamina_start}`;
+    root.querySelector('#playerHpBar').style.width = `${playerHpPercent}%`;
+
+    root.querySelector('#battleLog').innerHTML = battleState.log.map(l => `<p>${esc(l)}</p>`).join('');
+    root.querySelector('#battleLog').scrollTop = root.querySelector('#battleLog').scrollHeight; // 자동 스크롤
+
+    // 플레이어 턴일 때만 버튼 활성화
+    root.querySelectorAll('.action-btn').forEach(btn => {
+      btn.disabled = !battleState.isPlayerTurn;
+    });
+  };
+
+  // [신규] 플레이어 행동 처리 및 AI 호출 함수
+  const handlePlayerAction = async (actionType, index) => {
+    battleState.isPlayerTurn = false;
+    renderBattleUI(); // 버튼 즉시 비활성화
+    showLoading(true, 'AI가 상황을 처리 중입니다...');
+
+    let actionDetail = '';
+    if (actionType === 'skill') {
+      actionDetail = character.abilities_equipped[index] || null;
+    } else if (actionType === 'item') {
+      actionDetail = character.items_equipped[index] || null;
+    }
+
+    try {
+      const systemPrompt = await fetchPromptDoc('battle_turn_system');
+      const userPrompt = `
+        ## 현재 전투 상황
+        - 플레이어: ${character.name} (HP: ${battleState.playerHp}/${runState.stamina_start})
+        - 적: ${enemy.name} (HP: ${battleState.enemyHp}/${enemy.hp || 10})
+        - 이전 로그: ${battleState.log.slice(-1)[0]}
+
+        ## 플레이어 행동
+        - 종류: ${actionType}
+        - 상세: ${JSON.stringify(actionDetail)}
+
+        ## 지시
+        플레이어의 행동에 따른 결과를 JSON 형식으로 생성하라. 결과에는 다음이 포함되어야 한다:
+        - narrative (String): 무슨 일이 일어났는지 서술.
+        - playerHpChange (Number): 플레이어 HP 변화량 (회복은 +, 데미지는 -).
+        - enemyHpChange (Number): 적 HP 변화량.
+        - turnOver (Boolean): 턴이 종료되었는지 여부.
+      `;
+      
+      const aiResponseRaw = await callGemini('gemini-1.5-flash-latest', systemPrompt, userPrompt);
+      const aiResult = JSON.parse(aiResponseRaw.replace(/^```json\s*|```$/g, ''));
+      
+      battleState.log.push(aiResult.narrative);
+      battleState.playerHp += (aiResult.playerHpChange || 0);
+      battleState.enemyHp += (aiResult.enemyHpChange || 0);
+      
+      // 승리/패배 조건 확인
+      if (battleState.enemyHp <= 0) {
+        // ... 승리 로직 (나중에 구현) ...
+        showToast('승리했습니다!');
+        // 임시로 탐험 복귀
+        root.querySelector('#giveUpBtn').click();
+      } else if (battleState.playerHp <= 0) {
+        // ... 패배 로직 (나중에 구현) ...
+        showToast('패배했습니다...');
+        root.querySelector('#giveUpBtn').click();
+      } else {
+        battleState.isPlayerTurn = true;
+      }
+      
+    } catch(e) {
+      console.error("전투 AI 호출 실패:", e);
+      showToast('AI가 응답하지 않습니다. 잠시 후 다시 시도해주세요.');
+      battleState.isPlayerTurn = true; // 오류 시 턴 복구
+    } finally {
+      renderBattleUI();
+      showLoading(false);
+    }
+  };
+
+  // --- 전체 레이아웃 렌더링 (생략 없이 완성) ---
   root.innerHTML = `
     <section class="container narrow">
-      <div class="kv-label">상대</div>
-      <div id="enemyCard" class="card p16" style="cursor:pointer;">...</div>
-      <div class="kv-label mt16">전투 기록</div>
-      <div id="battleLog" class="card p16" style="min-height:150px;">
-        <p>${esc(battleInfo.narrative)}</p>
+      <div class="card p12">
+        <div class="row" style="justify-content:space-between; align-items:center;">
+          <div id="enemyName" style="font-weight:800;"></div>
+          <div id="enemyHpText" class="text-dim" style="font-size:12px;"></div>
+        </div>
+        <div class="hp-bar-outer"><div id="enemyHpBar" class="hp-bar-inner enemy"></div></div>
       </div>
-      <div class="card p16 mt16">...</div>
+
+      <div class="kv-label mt16">전투 기록</div>
+      <div id="battleLog" class="card p16" style="min-height:150px; max-height: 250px; overflow-y:auto; font-size:14px; line-height:1.6;"></div>
+
+      <div class="card p12 mt16">
+        <div class="row" style="justify-content:space-between; align-items:center;">
+          <div id="playerName" style="font-weight:800;"></div>
+          <div id="playerHpText" class="text-dim" style="font-size:12px;"></div>
+        </div>
+        <div class="hp-bar-outer"><div id="playerHpBar" class="hp-bar-inner player"></div></div>
+        
+        <div class="kv-label mt12">행동 선택</div>
+        <div class="grid2" style="gap:8px;">
+            ${(character.abilities_equipped || []).map((ability, i) => `
+              <button class="btn action-btn" data-action-type="skill" data-index="${i}">${esc(ability.name)}</button>
+            `).join('')}
+            ${(character.items_equipped || []).map((item, i) => `
+              <button class="btn ghost action-btn" data-action-type="item" data-index="${i}">${esc(item.name)}</button>
+            `).join('')}
+        </div>
+      </div>
+
       <div style="text-align:right; margin-top:16px;">
         <button id="giveUpBtn" class="btn ghost">전투 포기</button>
       </div>
     </section>
   `;
-  // ... (내부 HTML 렌더링 코드는 기존과 동일하게 채워주세요) ...
-
-  const openEnemyInfo = (typeof showEnemyInfoModal === 'function') ? showEnemyInfoModal
-    : (e)=>alert(`상대: ${e?.name||'???'}\n레벨: ${e?.lv ?? '-'}\n설명: ${e?.desc||''}`);
-  root.querySelector('#enemyCard').onclick = () => openEnemyInfo(enemy);
-
-  root.querySelectorAll('[data-action-type]').forEach(btn => {
-    btn.onclick = () => { /* 전투 로직 구현 필요 */ };
+  
+  // 이벤트 핸들러 연결
+  root.querySelectorAll('.action-btn').forEach(btn => {
+    btn.onclick = () => {
+      const type = btn.dataset.actionType;
+      const index = parseInt(btn.dataset.index, 10);
+      handlePlayerAction(type, index);
+    };
   });
   
   root.querySelector('#giveUpBtn').onclick = async () => {
       showLoading(true, '후퇴하는 중...');
-      const penalty = -2; // 포기 페널티
+      const penalty = -2;
       const newStamina = Math.max(0, runState.stamina + penalty);
 
       await fx.updateDoc(runRef, {
-          pending_battle: null, // 전투 상태 초기화
+          pending_battle: null,
           stamina: newStamina,
-          // [수정] fx.arrayUnion을 사용하여 이벤트 배열에 로그 추가
           events: fx.arrayUnion({
               t: Date.now(),
               note: "적과의 싸움에서 후퇴를 선택했다.",
@@ -131,6 +236,9 @@ export async function showExploreBattle() {
           })
       });
       location.hash = `#/explore-run/${runId}`;
+  };
 
+  // 최초 UI 렌더링
+  renderBattleUI();
   showLoading(false);
 }
