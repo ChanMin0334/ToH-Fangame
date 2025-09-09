@@ -340,7 +340,8 @@ function showItemDetailModal(item) {
 }
 
 // ===== 4단계: 준비 화면(스킬/아이템 요약 + 시작 버튼) =====
-// ANCHOR: function viewPrep(root, world, site, char){
+// /public/js/tabs/adventure.js의 viewPrep 함수를 아래 코드로 교체
+
 function viewPrep(root, world, site, char){
   const remain = cooldownRemain();
   const diff = site.difficulty || 'normal';
@@ -384,30 +385,35 @@ function viewPrep(root, world, site, char){
           }
         </div>
 
-        <div class="kv-label mt12">아이템 (요약)</div>
-        <div class="kv-card text-dim" style="font-size:12px">
-          슬롯 3개 — ${
-            Array.isArray(char.items_equipped)&&char.items_equipped.length
-            ? `${char.items_equipped.length}개 장착`
-            : '비어 있음'
-          }
-        </div>
+        <div class="kv-label mt12">아이템</div>
+        {/* [수정] 아이템 요약 부분을 id를 가진 버튼으로 변경 */}
+        <button class="kv-card" id="btnManageItems" style="text-align:left; width:100%; cursor:pointer;">
+          <div class="row" style="justify-content:space-between; align-items:center;">
+            <span>슬롯 3개 — ${
+              Array.isArray(char.items_equipped) && char.items_equipped.length
+              ? `${char.items_equipped.length}개 장착`
+              : '비어 있음'
+            }</span>
+            <span class="text-dim" style="font-size:12px;">관리하기 →</span>
+          </div>
+        </button>
 
         <div class="row" style="gap:8px;justify-content:flex-end;margin-top:12px">
           <button class="btn" id="btnStart"${remain>0?' disabled':''}>탐험 시작</button>
         </div>
         <div class="text-dim" id="cdNote" style="font-size:12px;margin-top:6px"></div>
-
       </div>
     </section>
   `;
 
-    // [추가] 아이템 관리 버튼에 이벤트 핸들러 추가
+  // [수정] querySelector로 버튼을 찾아서 이벤트를 연결합니다.
   root.querySelector('#btnManageItems').onclick = () => openItemPicker(char);
 
-  // updateStartEnabled 함수를 viewPrep 스코프로 이동
+  // ... 이하 기존 viewPrep 함수의 나머지 코드는 동일 ...
   const btnStart = root.querySelector('#btnStart');
   const skillInputs = root.querySelectorAll('#skillGrid input[type=checkbox][data-i]');
+  // (이하 생략)
+
   
   const updateStartEnabled = ()=>{
     if (!btnStart) return;
