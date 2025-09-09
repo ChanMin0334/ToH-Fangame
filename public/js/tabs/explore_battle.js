@@ -23,6 +23,11 @@ function showLoading(show = true, text = '불러오는 중...') {
   }
 }
 
+// [핵심 핫픽스] 배틀 전용 스타일 주입 함수(임시 비워둠)
+// 추후 필요하면 안에 스타일을 넣자.
+function ensureBattleCss(){ /* no-op */ }
+
+
 // [추가] URL에서 Run ID 파싱
 function parseRunIdFromBattle() {
   const h = location.hash || '';
