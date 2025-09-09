@@ -398,6 +398,9 @@ function viewPrep(root, world, site, char){
     </section>
   `;
 
+    // [추가] 아이템 관리 버튼에 이벤트 핸들러 추가
+  root.querySelector('#btnManageItems').onclick = () => openItemPicker(char);
+
   // updateStartEnabled 함수를 viewPrep 스코프로 이동
   const btnStart = root.querySelector('#btnStart');
   const skillInputs = root.querySelectorAll('#skillGrid input[type=checkbox][data-i]');
