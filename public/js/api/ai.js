@@ -38,7 +38,7 @@ function tryParseJson(t){
 function limit(str, n){ const s=String(str??''); return s.length>n ? s.slice(0,n) : s; }
 function getMaxTokens(){
   const v = parseInt(localStorage.getItem('toh_ai_max_tokens')||'',10);
-  return Number.isFinite(v)&&v>0 ? v : 3000;
+  return Number.isFinite(v)&&v>0 ? v : 8000;
 }
 
 /* ============ 프롬프트 로드 (configs/prompts) ============ */
