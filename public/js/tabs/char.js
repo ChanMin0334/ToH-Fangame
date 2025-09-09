@@ -4,7 +4,6 @@ import {
   tierOf, uploadAvatarSquare, updateAbilitiesEquipped, updateItemsEquipped,
   getCharMainImageUrl, fetchWorlds
 } from '../api/store.js';
-
 import { showToast } from '../ui/toast.js';
 
 // ---------- utils ----------
@@ -30,9 +29,8 @@ function normalizeChar(c){
   : (out.narrative ? [{ title:'서사', body: out.narrative }] : []);
   return out;
 }
-async function fetchInventory(charId){
+export async function fetchInventory(charId){
   try{
-    // 캐릭터가 소유한 모든 아이템을 `char_items` 컬렉션에서 가져옵니다.
     const q = fx.query(fx.collection(db,'char_items'), fx.where('char_id','==', `chars/${charId}`));
     const s = await fx.getDocs(q);
     const arr=[]; s.forEach(d=>arr.push({id:d.id, ...d.data()}));
