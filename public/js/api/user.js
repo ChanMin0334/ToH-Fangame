@@ -42,21 +42,16 @@ export async function ensureUserDoc(){
     const cur = snap.data() || {};
     const patch = { updatedAt: now };
 
-    // uid/createdAt 보강
     if(cur.uid !== u.uid) patch.uid = u.uid;
     if(typeof cur.createdAt !== 'number') patch.createdAt = now;
 
-    // 아바타 없으면 구글 프로필 채워넣기 (있으면 건드리지 않음)
     if((!cur.avatarURL || cur.avatarURL==='') && u.photoURL) patch.avatarURL = u.photoURL;
 
-    // 닉네임/쿨타임: 문서에 nickname이 "없을 때만" 초기 세팅.
     if(!cur.nickname){
       patch.nickname = fallbackNick;
       patch.nickname_lower = fallbackNick.toLowerCase();
       if(typeof cur.lastNicknameChangeAt !== 'number') patch.lastNicknameChangeAt = 0;
     }
-    // 중요: 닉네임이 이미 있으면 여기서는 절대 nickname/nickname_lower를 보내지 않음
-    // (쿨타임 규칙 충돌 방지; 실제 변경은 updateNickname()에서만)
 
     if(Object.keys(patch).length > 0){
       await fx.setDoc(ref, patch, { merge:true });
@@ -101,53 +96,59 @@ export async function updateNickname(newName){
 }
 
 export async function uploadAvatarBlob(blob){
-const u = auth.currentUser;
-if(!u) throw new Error('로그인이 필요해');
+  const u = auth.currentUser;
+  if(!u) throw new Error('로그인이 필요해');
 
+  const bmp = await createImageBitmap(blob);
+  const side = Math.min(bmp.width, bmp.height);
+  const sx0 = (bmp.width - side) / 2;
+  const sy0 = (bmp.height - side) / 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(bmp, sx0, sy0, side, side, 0, 0, 256, 256);
 
-// 1) 256x256 썸네일로 축소 (프로필용)
-const bmp = await createImageBitmap(blob);
-const side = Math.min(bmp.width, bmp.height);
-const sx0 = (bmp.width - side) / 2;
-const sy0 = (bmp.height - side) / 2;
-const canvas = document.createElement('canvas');
-canvas.width = 256;
-canvas.height = 256;
-const ctx = canvas.getContext('2d');
-ctx.imageSmoothingEnabled = true;
-ctx.drawImage(bmp, sx0, sy0, side, side, 0, 0, 256, 256);
+  const toDataUrl = (quality)=> new Promise((resolve)=>{
+    canvas.toBlob((b)=>{
+      const fr = new FileReader();
+      fr.onload = ()=> resolve(fr.result);
+      fr.readAsDataURL(b);
+    }, 'image/jpeg', quality);
+  });
 
+  let q = 0.9, dataUrl = await toDataUrl(q);
+  while((dataUrl?.length || 0) > 900_000 && q > 0.4){
+    q -= 0.1;
+    dataUrl = await toDataUrl(q);
+  }
 
-const toDataUrl = (quality)=> new Promise((resolve)=>{
-canvas.toBlob((b)=>{
-const fr = new FileReader();
-fr.onload = ()=> resolve(fr.result);
-fr.readAsDataURL(b);
-}, 'image/jpeg', quality);
-});
-
-
-let q = 0.9, dataUrl = await toDataUrl(q);
-while((dataUrl?.length || 0) > 900_000 && q > 0.4){
-q -= 0.1;
-dataUrl = await toDataUrl(q);
+  await fx.setDoc(userRef(u.uid), { avatar_b64: dataUrl, updatedAt: Date.now() }, { merge:true });
+  return dataUrl;
 }
 
-
-await fx.setDoc(userRef(u.uid), { avatar_b64: dataUrl, updatedAt: Date.now() }, { merge:true });
-return dataUrl;
-}
-
-// 구글 계정 프로필 이미지로 복원 (덮어쓰기 방지: avatar_b64 비움)
 export async function restoreAvatarFromGoogle(){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
   const url = u.photoURL || '';
   await fx.setDoc(userRef(u.uid), {
     avatarURL: url,
-    avatar_b64: '',       // b64가 우선 표시되지 않도록 비워둠
+    avatar_b64: '',
     updatedAt: Date.now()
   }, { merge:true });
   return url;
 }
 
+export async function getUserInventory() {
+  const u = auth.currentUser;
+  if (!u) return [];
+  try {
+    const userDocRef = fx.doc(db, 'users', u.uid);
+    const userDocSnap = await fx.getDoc(userDocRef);
+    return userDocSnap.exists() ? (userDocSnap.data().items_all || []) : [];
+  } catch (e) {
+    console.error("Failed to get user inventory:", e);
+    return [];
+  }
+}
