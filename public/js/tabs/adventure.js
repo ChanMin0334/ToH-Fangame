@@ -280,6 +280,25 @@ function rarityStyle(r) {
   return map[(r || '').toLowerCase()] || map.normal;
 }
 
+
+// ===== 소모품/사용횟수 표기 유틸 =====
+function isConsumableItem(it){
+  return !!(it?.consumable || it?.isConsumable);
+}
+function getUsesLeft(it){
+  if (typeof it?.uses === 'number') return it.uses;
+  if (typeof it?.remainingUses === 'number') return it.remainingUses;
+  return null; // 모르면 null
+}
+function useBadgeHtml(it){
+  if (!isConsumableItem(it)) return '';
+  const left = getUsesLeft(it);
+  const label = (left === null) ? '소모품' : `남은 ${left}회`;
+  return `<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">${esc(label)}</span>`;
+}
+
+
+
 // ===== 아이템 모달용 CSS 및 반짝이는 효과 =====
 function ensureItemCss() {
   if (document.getElementById('toh-item-css')) return;
@@ -360,9 +379,13 @@ function showItemDetailModal(item) {
     <div class="modal-card">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
         <div>
-          <div style="font-weight:900; font-size:18px;">${esc(item.name)}</div>
-          <span class="chip" style="background:${style.border}; color:${style.bg}; font-weight:800; margin-top:4px;">${esc(style.label)}</span>
-        </div>
+  <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">
+    <div style="font-weight:900; font-size:18px;">${esc(item.name)}</div>
+    <span class="chip" style="background:${style.border}; color:${style.bg}; font-weight:800;">${esc(style.label)}</span>
+    ${useBadgeHtml(item)}
+  </div>
+</div>
+
         <button class="btn ghost" id="mCloseDetail">닫기</button>
       </div>
       <div class="kv-card" style="padding:12px;">
@@ -668,9 +691,15 @@ async function openItemPicker(char) {
         text-align: left;
       `;
       card.innerHTML = `
-        <div style="font-weight:700;">${esc(item.name)}</div>
-        <div style="font-size:12px; opacity:0.8;">${esc(item.desc_soft || '')}</div>
+        <div class="row" style="align-items:center;gap:8px">
+          <div style="font-weight:700;line-height:1.2">${esc(item.name)}</div>
+          ${useBadgeHtml(item)}
+        </div>
+        <div style="font-size:12px;opacity:.85;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
+          ${esc(item.desc_soft || item.desc || item.description || '')}
+        </div>
       `;
+
       card.addEventListener('click', () => showItemDetailModal(item));
       inventoryItemsBox.appendChild(card);
     });
@@ -765,11 +794,15 @@ async function showSharedInventory(root) {
         text-align: left;
       `;
       card.innerHTML = `
-        <div style="font-weight:700;line-height:1.2;margin-bottom:4px;">${esc(item.name)}</div>
-        <div style="font-size:12px;opacity:.85;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
-          ${esc(item.desc_soft || item.desc || item.description || '')}
-        </div>
-      `;
+  <div class="row" style="align-items:center;gap:8px">
+    <div style="font-weight:700;line-height:1.2">${esc(item.name)}</div>
+    ${useBadgeHtml(item)}
+  </div>
+  <div style="font-size:12px;opacity:.85;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
+    ${esc(item.desc_soft || item.desc || item.description || '')}
+  </div>
+`;
+
 
       card.addEventListener('click', () => showItemDetailModal(item));
       inventoryItemsBox.appendChild(card);
