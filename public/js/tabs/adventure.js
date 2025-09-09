@@ -209,6 +209,7 @@ async function openCharPicker(root, world, site){
 }
 
 // ===== 4단계: 준비 화면(스킬/아이템 요약 + 시작 버튼) =====
+// ANCHOR: function viewPrep(root, world, site, char){
 function viewPrep(root, world, site, char){
   const remain = cooldownRemain();
   const diff = site.difficulty || 'normal';
@@ -270,25 +271,29 @@ function viewPrep(root, world, site, char){
     </section>
   `;
 
+  // updateStartEnabled 함수를 viewPrep 스코프로 이동
+  const btnStart = root.querySelector('#btnStart');
+  const skillInputs = root.querySelectorAll('#skillGrid input[type=checkbox][data-i]');
+  
+  const updateStartEnabled = ()=>{
+    if (!btnStart) return;
+    const on = Array.from(skillInputs).filter(x=>x.checked).map(x=>+x.dataset.i);
+    const hasNoSkills = !Array.isArray(char.abilities_all) || char.abilities_all.length === 0;
+    const cooldownOk = cooldownRemain() <= 0;
+    const skillsOk = on.length === 2 || hasNoSkills;
+    btnStart.disabled = !(cooldownOk && skillsOk);
+  };
+
   (function bindSkillSelection(){
     const abilities = Array.isArray(char.abilities_all) ? char.abilities_all : [];
     if (!abilities.length) return;
 
-    const inputs = root.querySelectorAll('#skillGrid input[type=checkbox][data-i]');
-    const btn    = root.querySelector('#btnStart');
-
-    const updateStartEnabled = ()=>{
-      const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
-      if (btn){
-        const hasNoSkills = !Array.isArray(char.abilities_all) || char.abilities_all.length === 0;
-        btn.disabled = !(cooldownRemain() <= 0 && (on.length === 2 || hasNoSkills));
-      }
-    };
+    // 초기 상태 업데이트
     updateStartEnabled();
 
-    inputs.forEach(inp=>{
+    skillInputs.forEach(inp=>{
       inp.addEventListener('change', async ()=>{
-        const on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
+        const on = Array.from(skillInputs).filter(x=>x.checked).map(x=>+x.dataset.i);
         if (on.length > 2){
           inp.checked = false;
           showToast('스킬은 정확히 2개만 선택 가능해');
@@ -310,6 +315,7 @@ function viewPrep(root, world, site, char){
             showToast('저장 실패: ' + e.message);
           }
         }
+        // 변경 시마다 버튼 상태 업데이트
         updateStartEnabled();
       });
     });
@@ -318,45 +324,45 @@ function viewPrep(root, world, site, char){
   root.querySelector('#btnBackSites')?.addEventListener('click', ()=> viewSitePick(root, world));
 
   const cdNote = root.querySelector('#cdNote');
-  const btnStart = root.querySelector('#btnStart');
-  // 캐릭터 기준 진행 중 런이 있으면 '이어하기' 버튼을 옆에 띄워줘
-const btnRow = btnStart?.parentNode;
-if (btnRow){
-  const btnResume = document.createElement('button');
-  btnResume.className = 'btn ghost';
-  btnResume.id = 'btnResumeChar';
-  btnResume.textContent = '이어하기';
-  btnResume.style.display = 'none';
-  btnRow.insertBefore(btnResume, btnStart); // '탐험 시작' 왼쪽에 배치
+  // const btnStart = root.querySelector('#btnStart'); // 위에서 이미 선언됨
+  
+  // (btnResumeChar 관련 코드는 변경 없음)
+  const btnRow = btnStart?.parentNode;
+  if (btnRow){
+    const btnResume = document.createElement('button');
+    btnResume.className = 'btn ghost';
+    btnResume.id = 'btnResumeChar';
+    btnResume.textContent = '이어하기';
+    btnResume.style.display = 'none';
+    btnRow.insertBefore(btnResume, btnStart);
 
-  (async ()=>{
-    try{
-      const q = fx.query(
-        fx.collection(db,'explore_runs'),
-        fx.where('owner_uid','==', auth.currentUser.uid),
-        fx.where('charRef','==', `chars/${char.id}`),
-        fx.where('status','==','ongoing'),
-        fx.limit(1)
-      );
-      const s = await fx.getDocs(q);
-      if (!s.empty){
-        const d = s.docs[0];
-        btnResume.style.display = '';
-        btnResume.onclick = ()=> location.hash = '#/explore-run/' + d.id;
-      }
-    }catch(e){ /* 조용히 무시 */ }
-  })();
-}
+    (async ()=>{
+      try{
+        const q = fx.query(
+          fx.collection(db,'explore_runs'),
+          fx.where('owner_uid','==', auth.currentUser.uid),
+          fx.where('charRef','==', `chars/${char.id}`),
+          fx.where('status','==','ongoing'),
+          fx.limit(1)
+        );
+        const s = await fx.getDocs(q);
+        if (!s.empty){
+          const d = s.docs[0];
+          btnResume.style.display = '';
+          btnResume.onclick = ()=> location.hash = '#/explore-run/' + d.id;
+        }
+      }catch(e){ /* 조용히 무시 */ }
+    })();
+  }
 
   let intervalId = null;
   const tick = ()=>{
       const r = cooldownRemain();
       if(cdNote) cdNote.textContent = r > 0 ? `탐험 쿨타임: ${formatRemain(r)}` : '탐험 가능!';
-      if (typeof updateStartEnabled === 'function') {
-        updateStartEnabled();
-      } else if (btnStart) {
-        btnStart.disabled = r > 0;
-      }
+      
+      // 이제 updateStartEnabled가 정상적으로 호출됨
+      updateStartEnabled();
+
       if (r <= 0 && intervalId) {
           clearInterval(intervalId);
           intervalId = null;
@@ -366,6 +372,7 @@ if (btnRow){
   tick();
 
   btnStart?.addEventListener('click', async ()=>{
+    // (이벤트 리스너 내 코드는 변경 없음)
     if (btnStart.disabled) return;
     
     if (Array.isArray(char.abilities_all) && char.abilities_all.length){
@@ -409,9 +416,10 @@ if (btnRow){
 
     setExploreIntent({ charId: char.id, runId, world:world.id, site:site.id, ts:Date.now() });
     location.hash = `#/explore-run/${runId}`;
-
   });
 }
+
+
 
 // ===== 엔트리 =====
 export async function showAdventure(){
