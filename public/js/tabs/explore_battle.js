@@ -114,7 +114,6 @@ export async function showExploreBattle() {
     btn.onclick = () => { /* 전투 로직 구현 필요 */ };
   });
   
-  // [수정] 전투 포기 시 Firestore 상태 업데이트
   root.querySelector('#giveUpBtn').onclick = async () => {
       showLoading(true, '후퇴하는 중...');
       const penalty = -2; // 포기 페널티
@@ -123,6 +122,7 @@ export async function showExploreBattle() {
       await fx.updateDoc(runRef, {
           pending_battle: null, // 전투 상태 초기화
           stamina: newStamina,
+          // [수정] fx.arrayUnion을 사용하여 이벤트 배열에 로그 추가
           events: fx.arrayUnion({
               t: Date.now(),
               note: "적과의 싸움에서 후퇴를 선택했다.",
@@ -131,8 +131,6 @@ export async function showExploreBattle() {
           })
       });
       location.hash = `#/explore-run/${runId}`;
-      // 로딩은 explore_run 화면에서 해제
-  };
 
   showLoading(false);
 }
