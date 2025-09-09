@@ -36,6 +36,18 @@ function makePrerolls(n=50, mod=1000){
 // ⚠️ 문제의 원인: 이 함수가 누락되었습니다.
 // createRun 함수보다 앞에 위치시켜서, createRun이 이 함수를 찾을 수 있도록 합니다.
 export async function hasActiveRunForChar(charId){
+export async function findMyActiveRun(){
+  const u = auth.currentUser; if(!u) return null;
+  const q = fx.query(
+    fx.collection(db,'explore_runs'),
+    fx.where('owner_uid','==', u.uid),
+    fx.where('status','==','ongoing'),
+    fx.orderBy('startedAt','desc'),
+    fx.limit(1)
+  );
+  const s = await fx.getDocs(q);
+  return s.empty ? null : { id: s.docs[0].id, ...s.docs[0].data() };
+}
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
   const q = fx.query(
