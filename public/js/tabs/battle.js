@@ -2,8 +2,9 @@
 import { auth, db, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
 import { autoMatch } from '../api/match_client.js';
-import { fetchBattlePrompts, generateBattleSketch, generateFinalBattleLog } from './ai.js';
+import { fetchBattlePrompts, generateBattleSketch, generateFinalBattleLog } from '../api/ai.js';
 import { updateAbilitiesEquipped, updateItemsEquipped } from '../api/store.js';
+import { fetchInventory } from './char.js'; // char.js에서 재사용
 
 // ---------- utils ----------
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c])); }
@@ -361,17 +362,59 @@ function openItemPicker(c, inv, onSave) {
   let selectedIds = [...(c.items_equipped || [])];
   const back = document.createElement('div');
   back.className = 'modal-back';
+  
   const renderModalContent = () => {
-    back.innerHTML = `...`; // 내용은 char.js의 것과 동일
-    // ... 이벤트 핸들러 로직도 동일
+    back.innerHTML = `
+      <div class="modal-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3 style="margin:0;">아이템 장착 (최대 3개)</h3>
+          <button id="mClose" class="btn ghost">닫기</button>
+        </div>
+        <div class="item-picker-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; max-height: 50vh; overflow-y: auto; padding-right: 5px;">
+          ${inv.map(item => {
+            const isSelected = selectedIds.includes(item.id);
+            return `
+              <div class="kv-card item-card ${isSelected ? 'selected' : ''}" data-id="${item.id}" style="cursor:pointer; border: 2px solid ${isSelected ? '#4aa3ff' : 'transparent'};">
+                <div style="font-weight:bold;">${esc(item.item_name)}</div>
+                <div class="text-dim" style="font-size:12px;">${esc(item.desc_short || '')}</div>
+              </div>
+            `;
+          }).join('') || '<div class="text-dim">보유한 아이템이 없습니다.</div>'}
+        </div>
+        <div style="display:flex; justify-content:flex-end;">
+            <button id="btnSaveItems" class="btn primary">저장</button>
+        </div>
+      </div>
+      <style>.item-card.selected { border-color: #4aa3ff; }</style>
+    `;
+      
+    back.querySelectorAll('.item-card').forEach(card => {
+        card.onclick = () => {
+            const id = card.dataset.id;
+            if (selectedIds.includes(id)) {
+                selectedIds = selectedIds.filter(i => i !== id);
+            } else {
+                if (selectedIds.length < 3) {
+                    selectedIds.push(id);
+                } else {
+                    showToast('아이템은 최대 3개까지만 장착할 수 있습니다.');
+                }
+            }
+            renderModalContent();
+        };
+    });
+
+    back.querySelector('#mClose').onclick = () => back.remove();
     back.querySelector('#btnSaveItems').onclick = () => {
-        onSave(selectedIds); // 선택된 ID들을 콜백으로 전달
+        onSave(selectedIds);
         back.remove();
     };
   };
+
   renderModalContent();
   document.body.appendChild(back);
   back.onclick = (e) => { if (e.target === back) back.remove(); };
 }
+
 
 export default showBattle;
