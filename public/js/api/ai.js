@@ -250,11 +250,16 @@ export async function requestAdventureNarrative({
   }).join('\n');
 
   const userText = [
-    `캐릭터: ${character?.name||'-'}`,
-    `스킬2: ${(character?.skills||[]).map(s=>`${s.name}(${s.desc||''})`).join(', ') || '-'}`,
-    `캐릭터 서사 최신: ${character?.latestLong||'-'}`,
-    `세계관: ${world?.name||'-'} — ${site?.name||'-'}`,
-    `기존 3문장 요약: ${run?.summary3 || '(없음)'}`,
+    '## 플레이어 캐릭터 컨텍스트',
+    `- 출신 세계관: ${character?.world_origin_name || '알 수 없음'}`,
+    `- 캐릭터 이름: ${character?.name || '-'}`,
+    `- 보유 스킬: ${(character?.skills || []).map(s => `${s.name}(${s.desc || ''})`).join(', ') || '-'}`,
+    `- 장착 아이템: ${equippedItems}`,
+    '',
+    '## 스토리 컨텍스트',
+    `- 현재 탐험 세계관/장소: ${world?.name || '-'}/${site?.name || '-'}`,
+    `- 이전 턴 요약: ${prevTurnLog}`,
+    `- 현재까지의 3문장 요약: ${run?.summary3 || '(없음)'}`,
     '---',
     '## 다음 상황을 생성하라:',
     dicePrompts,
