@@ -258,7 +258,8 @@ export async function showExploreRun() {
         site: { name: site.name, description: site.description },
         run: { summary3: state.summary3, turn: state.turn, difficulty: state.difficulty, events: state.events },
         dices: diceResults,
-        equippedItems: charInfo.items_equipped || [] 
+        equippedItems: charInfo.items_equipped || [] ,
+        prevTurnLog: lastEvent?.note || '(첫 턴)'
       });
 
       pendingTurn = { ...aiResponse, diceResults };
