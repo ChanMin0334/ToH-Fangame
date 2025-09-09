@@ -4,6 +4,7 @@ import {
   tierOf, uploadAvatarSquare, updateAbilitiesEquipped, updateItemsEquipped,
   getCharMainImageUrl, fetchWorlds
 } from '../api/store.js';
+import { getUserInventory } from '../api/user.js'; // 사용자 인벤토리 함수 import
 import { showToast } from '../ui/toast.js';
 
 // ---------- utils ----------
@@ -20,7 +21,6 @@ function normalizeChar(c){
   out.elo = out.elo ?? 1000;
   out.abilities_all = Array.isArray(out.abilities_all)? out.abilities_all : (Array.isArray(out.abilities)? out.abilities: []);
   out.abilities_equipped = Array.isArray(out.abilities_equipped)? out.abilities_equipped.slice(0,2): [];
-  // `items_all`도 정규화 과정에 추가해줍니다.
   out.items_all = Array.isArray(out.items_all) ? out.items_all : [];
   out.items_equipped = Array.isArray(out.items_equipped)? out.items_equipped.slice(0,3): [];
   out.thumb_url = out.thumb_url || '';
@@ -29,18 +29,8 @@ function normalizeChar(c){
   : (out.narrative ? [{ title:'서사', body: out.narrative }] : []);
   return out;
 }
-export async function fetchInventory(charId){
-  try{
-    const q = fx.query(fx.collection(db,'char_items'), fx.where('char_id','==', `chars/${charId}`));
-    const s = await fx.getDocs(q);
-    const arr=[]; s.forEach(d=>arr.push({id:d.id, ...d.data()}));
-    return arr;
-  }catch(e){
-    console.error('[char] fetchInventory failed', e);
-    throw e;
-  }
-}
-function rarityClass(r){ if(r==='legend')return'rarity-legend'; if(r==='epic')return'rarity-epic'; if(r==='rare')return'rarity-rare'; return'rarity-common'; }
+
+// 아이템 상세 정보 표시에 필요한 헬퍼 함수 (adventure.js에서 가져옴)
 function rarityStyle(r) {
   const map = {
     normal: { bg: '#2a2f3a', border: '#5f6673', text: '#c8d0dc', label: '일반' },
@@ -50,6 +40,70 @@ function rarityStyle(r) {
     myth:   { bg: '#3a0f14', border: '#ff5b66', text: '#ffc9ce', label: '신화' },
   };
   return map[(r || '').toLowerCase()] || map.normal;
+}
+
+function isConsumableItem(it){ return !!(it?.consumable || it?.isConsumable); }
+function getUsesLeft(it){
+  if (typeof it?.uses === 'number') return it.uses;
+  if (typeof it?.remainingUses === 'number') return it.remainingUses;
+  return null;
+}
+function useBadgeHtml(it){
+  if (!isConsumableItem(it)) return '';
+  const left = getUsesLeft(it);
+  const label = (left === null) ? '소모품' : `남은 ${left}회`;
+  return `<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">${esc(label)}</span>`;
+}
+
+function ensureItemCss() {
+  if (document.getElementById('toh-item-css')) return;
+  const st = document.createElement('style');
+  st.id = 'toh-item-css';
+  st.textContent = `
+  .shine-effect { position: relative; overflow: hidden; }
+  .shine-effect::after { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%); transform: rotate(30deg); animation: shine 3s infinite ease-in-out; pointer-events: none; }
+  @keyframes shine { 0% { transform: translateX(-75%) translateY(-25%) rotate(30deg); } 100% { transform: translateX(75%) translateY(25%) rotate(30deg); } }
+  .item-card { transition: box-shadow .18s ease, transform .18s ease, filter .18s ease; will-change: transform, box-shadow; outline: none; }
+  .item-card:hover, .item-card:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.35); filter: brightness(1.05); }`;
+  document.head.appendChild(st);
+}
+
+function showItemDetailModal(item) {
+  const style = rarityStyle(item.rarity);
+  const getItemDesc = (it) => (it?.desc_long || it?.desc_soft || it?.desc || it?.description || '').replace(/\n/g, '<br>');
+  const getEffectsHtml = (it) => {
+    const eff = it?.effects;
+    if (!eff) return '';
+    if (Array.isArray(eff)) return `<ul style="margin:6px 0 0 16px; padding:0;">${eff.map(x=>`<li>${esc(String(x||''))}</li>`).join('')}</ul>`;
+    if (typeof eff === 'object') return `<ul style="margin:6px 0 0 16px; padding:0;">${Object.entries(eff).map(([k,v])=>`<li><b>${esc(k)}</b>: ${esc(String(v??''))}</li>`).join('')}</ul>`;
+    return `<div>${esc(String(eff))}</div>`;
+  };
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.style.zIndex = '10001';
+  back.innerHTML = `
+    <div class="modal-card" style="background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:720px;width:92vw;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+        <div>
+          <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">
+            <div style="font-weight:900; font-size:18px;">${esc(item.name)}</div>
+            <span class="chip" style="background:${style.border}; color:${style.bg}; font-weight:800;">${esc(style.label)}</span>
+            ${useBadgeHtml(item)}
+          </div>
+        </div>
+        <button class="btn ghost" id="mCloseDetail">닫기</button>
+      </div>
+      <div class="kv-card" style="padding:12px;">
+        <div style="font-size:14px; line-height:1.6;">${getItemDesc(item) || '상세 설명이 없습니다.'}</div>
+        ${item.effects ? `<hr style="margin:12px 0; border-color:#273247;"><div class="kv-label">효과</div><div style="font-size:13px;">${getEffectsHtml(item)}</div>` : ''}
+      </div>
+    </div>
+  `;
+  const closeModal = () => back.remove();
+  back.addEventListener('click', e => { if(e.target === back) closeModal(); });
+  back.querySelector('#mCloseDetail').onclick = closeModal;
+  document.body.appendChild(back);
 }
 
 
@@ -179,11 +233,19 @@ function mountFixedActions(c, isOwner){
   if (!auth.currentUser || !isOwner) return;
   const bar = document.createElement('div');
   bar.className = 'fixed-actions';
-  bar.innerHTML = `<button class="btn large" id="fabBattle">배틀 시작</button>`;
+  bar.innerHTML = `
+    <button class="btn large" id="fabEncounter">조우 시작</button>
+    <button class="btn large primary" id="fabBattle">배틀 시작</button>
+  `;
   document.body.appendChild(bar);
+
   bar.querySelector('#fabBattle').onclick = ()=>{
     sessionStorage.setItem('toh.match.intent', JSON.stringify({ charId:c.id, mode:'battle', ts: Date.now() }));
     location.hash = '#/battle';
+  };
+  bar.querySelector('#fabEncounter').onclick = ()=>{
+    sessionStorage.setItem('toh.match.intent', JSON.stringify({ charId:c.id, mode:'encounter', ts: Date.now() }));
+    location.hash = '#/encounter';
   };
 }
 
@@ -295,46 +357,33 @@ function renderBioSub(which, c, sv){
 }  
 
 // 아이템 장착 모달
-async function openItemPicker(c, inv, onSave) {
-  const ensureModalCss = () => {
-    if (document.getElementById('toh-modal-css-char')) return;
-    const st = document.createElement('style');
-    st.id = 'toh-modal-css-char';
-    st.textContent = `
-      .modal-back{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6); backdrop-filter: blur(4px);}
-      .modal-card{background:#0e1116;border:1px solid #273247;border-radius:14px;padding:16px;max-width:800px;width:94vw;max-height:90vh;display:flex;flex-direction:column;}
-      .item-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; overflow-y: auto; padding: 5px; margin: 12px 0; flex-grow: 1; }
-      .item-picker-card { cursor: pointer; border: 2px solid transparent; transition: all 0.2s ease; }
-      .item-picker-card.selected { border-color: #4aa3ff; box-shadow: 0 0 10px #4aa3ff88; transform: translateY(-2px); }
-    `;
-    document.head.appendChild(st);
-  };
-  ensureModalCss();
+async function openItemPicker(c, onSave) {
+  const inv = await getUserInventory();
+  ensureItemCss();
 
   let selectedIds = [...(c.items_equipped || [])];
 
   const back = document.createElement('div');
   back.className = 'modal-back';
+  back.style.zIndex = '10000';
 
   const renderModalContent = () => {
     back.innerHTML = `
-      <div class="modal-card">
+      <div class="modal-card" style="background:#0e1116;border:1px solid #273247;border-radius:14px;padding:16px;max-width:800px;width:94vw;max-height:90vh;display:flex;flex-direction:column;">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
           <div style="font-weight:900; font-size: 18px;">아이템 장착 관리</div>
           <button class="btn ghost" id="mClose">닫기</button>
         </div>
-        <div class="text-dim" style="font-size:13px; margin-top:4px;">장착할 아이템을 최대 3개까지 선택해주세요. (${selectedIds.length} / 3)</div>
-        <div class="item-picker-grid">
+        <div class="text-dim" style="font-size:13px; margin-top:4px;">아이템을 클릭하여 상세 정보를 보고, 다시 클릭하여 장착/해제하세요. (${selectedIds.length} / 3)</div>
+        <div class="item-picker-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; overflow-y: auto; padding: 5px; margin: 12px 0; flex-grow: 1;">
           ${inv.length === 0 ? '<div class="text-dim" style="grid-column: 1 / -1;">보유한 아이템이 없습니다.</div>' :
             inv.map(item => {
               const style = rarityStyle(item.rarity);
               const isSelected = selectedIds.includes(item.id);
-              const uses = (item.uses_remaining ?? '∞');
               return `
-                <div class="kv-card item-picker-card ${isSelected ? 'selected' : ''}" data-item-id="${item.id}" style="padding:10px; border-left: 3px solid ${style.border}; background: ${style.bg};">
-                  <div style="font-weight:700; color: ${style.text};">${esc(item.item_name)}</div>
-                  <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden;">${esc(item.desc_short || '-')}</div>
-                  <div style="font-size:11px; margin-top: 6px; text-align: right; opacity: .7">남은 사용: ${uses}</div>
+                <div class="kv-card item-picker-card ${isSelected ? 'selected' : ''}" data-item-id="${item.id}" style="padding:10px; border: 2px solid ${isSelected ? '#4aa3ff' : 'transparent'}; cursor:pointer;">
+                  <div style="font-weight:700; color: ${style.text}; pointer-events:none;">${esc(item.name)}</div>
+                  <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden; pointer-events:none;">${esc(item.desc_soft || item.desc || '-')}</div>
                 </div>
               `;
             }).join('')
@@ -346,20 +395,25 @@ async function openItemPicker(c, inv, onSave) {
       </div>
     `;
 
+    let lastClickTime = 0;
     back.querySelectorAll('.item-picker-card').forEach(card => {
-      card.onclick = () => {
-        const itemId = card.dataset.itemId;
-        if (selectedIds.includes(itemId)) {
-          selectedIds = selectedIds.filter(id => id !== itemId);
-        } else {
-          if (selectedIds.length < 3) {
-            selectedIds.push(itemId);
-          } else {
-            showToast('아이템은 최대 3개까지 장착할 수 있습니다.');
-          }
-        }
-        renderModalContent();
-      };
+        card.addEventListener('click', () => {
+            const now = new Date().getTime();
+            const itemId = card.dataset.itemId;
+
+            if (now - lastClickTime < 300) { // 더블클릭으로 간주하여 선택/해제
+                if (selectedIds.includes(itemId)) {
+                    selectedIds = selectedIds.filter(id => id !== itemId);
+                } else {
+                    if (selectedIds.length < 3) selectedIds.push(itemId);
+                    else showToast('아이템은 최대 3개까지 장착할 수 있습니다.');
+                }
+                renderModalContent();
+            } else { // 싱글클릭으로 간주하여 상세 정보 표시
+                showItemDetailModal(inv.find(it => it.id === itemId));
+            }
+            lastClickTime = now;
+        });
     });
 
     back.querySelector('#mClose').onclick = () => back.remove();
@@ -371,7 +425,6 @@ async function openItemPicker(c, inv, onSave) {
         onSave();
         back.remove();
       } catch (e) {
-        console.error('Failed to save items:', e);
         showToast('아이템 저장에 실패했습니다: ' + e.message);
       }
     };
@@ -392,16 +445,9 @@ async function renderLoadout(c, view){
     ? c.abilities_equipped.filter(i=>Number.isInteger(i)&&i>=0&&i<abilitiesAll.length).slice(0,2)
     : [];
   
-  // 장착된 아이템 ID를 먼저 가져옵니다.
   const equippedItemIds = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
-
-  // 인벤토리 전체를 불러옵니다.
-  let inv = [];
-  try{
-    inv = await fetchInventory(c.id);
-  } catch(e){
-    showToast('인벤토리 로딩 중 오류가 발생했습니다.');
-  }
+  
+  const inv = await getUserInventory();
 
   view.innerHTML = `
     <div class="p12">
@@ -434,13 +480,12 @@ async function renderLoadout(c, view){
         if(on.length>2){ b.checked = false; showToast('스킬은 딱 2개만!'); return; }
         if(on.length===2){
           try{ await updateAbilitiesEquipped(c.id, on); showToast('스킬 저장 완료'); }
-          catch(e){ console.error('[abilities] update fail', e); showToast('스킬 저장 실패: 로그인/권한을 확인해줘'); }
+          catch(e){ showToast('스킬 저장 실패: 로그인/권한을 확인해줘'); }
         }
       };
     });
   }
 
-  // 장착 슬롯 렌더링
   const slotBox = view.querySelector('#slots');
   const renderSlots = ()=>{
     slotBox.innerHTML = [0,1,2].map(slotIndex => {
@@ -450,13 +495,11 @@ async function renderLoadout(c, view){
       const it = inv.find(i => i.id === docId);
       if(!it) return `<div class="slot" style="color: #ff5b66;">(아이템 없음)</div>`;
       
-      const rcls = rarityClass(it.rarity);
-      const uses = (it.uses_remaining ?? '∞');
+      const style = rarityStyle(it.rarity);
       return `
-        <div class="item ${rcls}">
-          <div class="name">${it.item_name || '아이템'}</div>
-          <div class="meta"><span>${it.rarity || 'common'}</span><span>남은 사용: ${uses}</span></div>
-          <div class="desc">${it.desc_short || '-'}</div>
+        <div class="item" style="border-left: 3px solid ${style.border}; background:${style.bg};">
+          <div class="name" style="color:${style.text}">${it.name || '아이템'}</div>
+          <div class="desc" style="font-size:12px; opacity:0.8;">${it.desc_soft || it.desc || '-'}</div>
         </div>`;
     }).join('');
   };
@@ -464,8 +507,7 @@ async function renderLoadout(c, view){
 
   if(isOwner){
     view.querySelector('#btnEquip')?.addEventListener('click', ()=>{
-      openItemPicker(c, inv, () => {
-        // 모달에서 저장이 완료되면 이 콜백이 실행되어 로드아웃 뷰를 새로고침합니다.
+      openItemPicker(c, () => {
         renderLoadout(c, view);
       });
     });
@@ -484,7 +526,6 @@ function normalizeNarratives(c){
     }));
   }
   if (Array.isArray(c.narrative_items) && c.narrative_items.length){
-    // 레거시: body를 long으로만 사용(요약은 상세 페이지에서만 필요)
     return c.narrative_items.map((it, i) => ({
       id: 'legacy-'+i,
       title: it.title || '서사',
@@ -523,7 +564,6 @@ function renderNarrativePage(c, narrId){
     </div>
   </section>`;
 
-  // [추가] 긴 본문 리치 렌더 (템플릿 주입 후 실행!)
   const nLongNode = document.getElementById('nLong');
   if (nLongNode) nLongNode.innerHTML = renderRich(n.long || '-');
 
@@ -537,9 +577,7 @@ function esc(s){
 
 // --- 인라인 강조(**굵게**, *기울임*) 처리
 function applyInlineMarks(html){
-  // 굵게
   html = html.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
-  // 기울임(양쪽 **가 아닌 단일 * 만) — 구형 엔진 호환 버전
   html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, function(_, pre, inner){
     return pre + '<i>' + inner + '</i>';
   });
@@ -562,12 +600,10 @@ function renderRich(text){
 
     if(empty){ flushList(); continue; }
 
-    // ### / ## / #
     if(/^###\s+/.test(raw)){ flushList(); out.push('<h4 style="font-weight:800;font-size:15px;margin:10px 0 4px;">'+ escd.replace(/^###\s+/, '') +'</h4>'); continue; }
     if(/^##\s+/.test(raw)){  flushList(); out.push('<h3 style="font-weight:850;font-size:16px;margin:12px 0 6px;">'+ escd.replace(/^##\s+/, '') +'</h3>'); continue; }
     if(/^#\s+/.test(raw)){   flushList(); out.push('<h2 style="font-weight:900;font-size:18px;margin:14px 0 8px;">'+ escd.replace(/^#\s+/, '') +'</h2>'); continue; }
 
-    // > 인용
     if(/^>\s+/.test(raw)){
       flushList();
       var q = applyInlineMarks(escd.replace(/^>\s+/, ''));
@@ -575,7 +611,6 @@ function renderRich(text){
       continue;
     }
 
-    // * 글머리
     if(/^\*\s+/.test(raw)){
       if(!inList){ out.push('<ul style="margin:6px 0 8px 18px;list-style:disc;">'); inList=true; }
       var li = applyInlineMarks(escd.replace(/^\*\s+/, ''));
@@ -583,7 +618,6 @@ function renderRich(text){
       continue;
     }
 
-    // 일반 문단
     flushList();
     out.push('<p style="margin:6px 0 6px;">'+ applyInlineMarks(escd) +'</p>');
   }
@@ -626,17 +660,13 @@ function renderHistory(c, view){
   const setTitle = (m)=> view.querySelector('#tlTitle').textContent =
     (m==='battle'?'배틀 타임라인': m==='encounter'?'조우 타임라인':'탐험 타임라인');
 
-  // 상태
   let mode = null;
   let busy = false;
   let done = false;
 
-  // 배틀/조우는 공격자/방어자 두 쿼리를 병합 페이징
-  let lastA=null, lastD=null, doneA=false, doneD=false;   // battle/encounter
-  // 탐험은 단일 커서
+  let lastA=null, lastD=null, doneA=false, doneD=false;
   let lastE=null, doneE=false;
 
-  // 유틸
   const t = (ts)=> {
     try{
       if(!ts) return '';
@@ -655,7 +685,7 @@ function renderHistory(c, view){
       if(mode==='battle'){
         const who = it.winner==='attacker' ? '공격자 승' : it.winner==='defender' ? '방어자 승' : '무승부';
         const when = t(it.endedAt).toLocaleString();
-        go = `#/battle-log/${it.id}`;
+        go = `#/battlelog/${it.id}`;
         html = `
           <div class="kv-card tl-go" data-go="${go}" style="border-left:3px solid ${it.winner==='attacker'?'#3a8bff':it.winner==='defender'?'#ff425a':'#777'};padding-left:10px">
             <div style="font-weight:700">${who}</div>
@@ -698,12 +728,8 @@ function renderHistory(c, view){
       const charRef = `chars/${c.id}`;
 
       if(mode==='battle'){
-        // attacker 쿼리
         if(!doneA){
-          const partsA = [
-            fx.where('attacker_char','==', charRef),
-            fx.orderBy('endedAt','desc'),
-          ];
+          const partsA = [ fx.where('attacker_char','==', charRef), fx.orderBy('endedAt','desc') ];
           if(lastA) partsA.push(fx.startAfter(lastA));
           partsA.push(fx.limit(15));
           const qA = fx.query(fx.collection(db,'battle_logs'), ...partsA);
@@ -713,12 +739,8 @@ function renderHistory(c, view){
           if(sA.docs.length) lastA = sA.docs[sA.docs.length-1];
           out.push(...arrA);
         }
-        // defender 쿼리
         if(!doneD){
-          const partsD = [
-            fx.where('defender_char','==', charRef),
-            fx.orderBy('endedAt','desc'),
-          ];
+          const partsD = [ fx.where('defender_char','==', charRef), fx.orderBy('endedAt','desc') ];
           if(lastD) partsD.push(fx.startAfter(lastD));
           partsD.push(fx.limit(15));
           const qD = fx.query(fx.collection(db,'battle_logs'), ...partsD);
@@ -728,17 +750,12 @@ function renderHistory(c, view){
           if(sD.docs.length) lastD = sD.docs[sD.docs.length-1];
           out.push(...arrD);
         }
-        // 병합 정렬 (최신순)
         out.sort((a,b)=>((b.endedAt?.toMillis?.()??0)-(a.endedAt?.toMillis?.()??0)));
         if(doneA && doneD && out.length===0) done = true;
       }
       else if(mode==='encounter'){
-        // a_char
         if(!doneA){
-          const partsA = [
-            fx.where('a_char','==', charRef),
-            fx.orderBy('endedAt','desc'),
-          ];
+          const partsA = [ fx.where('a_char','==', charRef), fx.orderBy('endedAt','desc') ];
           if(lastA) partsA.push(fx.startAfter(lastA));
           partsA.push(fx.limit(15));
           const qA = fx.query(fx.collection(db,'encounter_logs'), ...partsA);
@@ -748,12 +765,8 @@ function renderHistory(c, view){
           if(sA.docs.length) lastA = sA.docs[sA.docs.length-1];
           out.push(...arrA);
         }
-        // b_char
         if(!doneD){
-          const partsB = [
-            fx.where('b_char','==', charRef),
-            fx.orderBy('endedAt','desc'),
-          ];
+          const partsB = [ fx.where('b_char','==', charRef), fx.orderBy('endedAt','desc') ];
           if(lastD) partsB.push(fx.startAfter(lastD));
           partsB.push(fx.limit(15));
           const qB = fx.query(fx.collection(db,'encounter_logs'), ...partsB);
@@ -806,7 +819,6 @@ function renderHistory(c, view){
     fetchNext();
   }
 
-  // 스크롤 감시(무한 스크롤)
   const io = new IntersectionObserver((entries)=>{
     entries.forEach((en)=>{
       if(en.isIntersecting) fetchNext();
@@ -814,7 +826,6 @@ function renderHistory(c, view){
   }, { root: null, rootMargin: '600px 0px', threshold: 0 });
   io.observe(sent);
 
-  // 카드 클릭 → 해당 타임라인 로드
   view.querySelector('#cardBattle')?.addEventListener('click', ()=> resetAndLoad('battle'));
   view.querySelector('#cardEncounter')?.addEventListener('click', ()=> resetAndLoad('encounter'));
   view.querySelector('#cardExplore')?.addEventListener('click', ()=> resetAndLoad('explore'));
@@ -825,9 +836,7 @@ function closeMatchOverlay(){
   document.querySelector('.modal-wrap')?.remove();
 }
 
-// 배틀/조우 입장용 “의도 토큰”을 세션에 저장하고 라우트 이동
 function setMatchIntentAndGo(charId, mode){
-  // 90초 유효 토큰
   const payload = { charId, mode, ts: Date.now() };
   sessionStorage.setItem('toh.match.intent', JSON.stringify(payload));
   location.hash = mode === 'battle' ? '#/battle' : '#/encounter';
