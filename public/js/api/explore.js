@@ -202,20 +202,26 @@ export function rollThreeChoices(run) {
   };
 }
 
-export async function appendEvent({ runId, runBefore, narrative, choices, delta, dice, summary3 }){
+// /public/js/api/explore.js
+
+// ... (파일 상단은 그대로 둠) ...
+
+export async function appendEvent({ runId, runBefore, narrative, choices, delta, dice, summary3, newItem }){
+  const u = auth.currentUser;
+  if (!u) throw new Error('인증 정보 없음');
+
   const ref = fx.doc(db,'explore_runs', runId);
   const snap = await fx.getDoc(ref);
   if(!snap.exists()) throw new Error('런이 없어');
   const cur = snap.data();
   const stamina = Math.max(0, Math.min(cur.stamina_start, (cur.stamina||0) + (delta||0)));
-  
-  // 💥 저장할 이벤트 객체에 AI가 생성한 상세 정보(item, enemy)를 포함
+
   const newEvent = {
     t: Date.now(),
     note: narrative,
     choice_labels: choices,
     deltaStamina: delta,
-    dice: dice, // 주사위 결과 전체를 저장
+    dice: dice,
   };
 
   const next = {
@@ -224,10 +230,20 @@ export async function appendEvent({ runId, runBefore, narrative, choices, delta,
     prerolls: runBefore.prerolls,
     events: [...(cur.events||[]), newEvent],
     summary3: summary3 ?? (cur.summary3||''),
-    updatedAt: fx.serverTimestamp()
+    updatedAt: fx.serverTimestamp(),
+    // [추가] 선택지 상태를 null로 초기화하여 새로고침 문제 해결
+    pending_choices: null,
   };
+
   await fx.updateDoc(ref, next);
+  
+  // [추가] 새 아이템이 있으면 공유 인벤토리에 추가
+  if (newItem && newItem.id) {
+    const userInvRef = fx.doc(db, 'users', u.uid);
+    await fx.updateDoc(userInvRef, {
+      items_all: fx.arrayUnion(newItem)
+    }, { merge: true }); // 문서가 없으면 생성
+  }
+
   return { ...cur, ...next, id: runId };
 }
-
-
