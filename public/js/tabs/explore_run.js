@@ -239,28 +239,41 @@ export async function showExploreRun() {
     }
   };
 
-  // 다음 턴 준비 (AI에게 시나리오 요청)
+      // 다음 턴 준비 (AI에게 시나리오 요청)
   const prepareNextTurn = async () => {
     const btnMove = root.querySelector('#btnMove');
     if(btnMove) { btnMove.disabled = true; btnMove.textContent = '주변을 살피는 중...'; }
 
-    const { nextPrerolls, choices: diceResults } = rollThreeChoices(state);
-    state.prerolls = nextPrerolls; // 주사위 굴림 결과는 미리 반영
+    // 💥 try...catch 구문 추가
+    try {
+      const { nextPrerolls, choices: diceResults } = rollThreeChoices(state);
+      state.prerolls = nextPrerolls;
 
-    const charInfo = await getCharForAI(state.charRef);
+      const charInfo = await getCharForAI(state.charRef);
 
-    // AI에게 시나리오 전체(서사, 선택지, 결과)를 요청
-    const aiResponse = await requestAdventureNarrative({
-      character: charInfo,
-      world: { name: world.name, loreLong: world.detail?.lore_long },
-      site: { name: site.name, description: site.description },
-      run: { summary3: state.summary3, turn: state.turn, difficulty: state.difficulty },
-      dices: diceResults
-    });
+      const aiResponse = await requestAdventureNarrative({
+        character: charInfo,
+        world: { name: world.name, loreLong: world.detail?.lore_long },
+        site: { name: site.name, description: site.description },
+        run: { summary3: state.summary3, turn: state.turn, difficulty: state.difficulty },
+        dices: diceResults
+      });
 
-    pendingTurn = { ...aiResponse, diceResults }; // AI 응답과 주사위 결과를 함께 저장
-    render(); // 선택지가 포함된 UI로 갱신
+      pendingTurn = { ...aiResponse, diceResults };
+      render(); // 성공 시 선택지가 포함된 UI로 갱신
+
+    } catch (e) {
+      console.error("AI 시나리오 생성 실패:", e);
+      showToast("오류: 시나리오를 생성하지 못했습니다. 잠시 후 다시 시도해주세요.");
+      
+      // 💥 실패 시 버튼을 원래 상태로 복구
+      if(btnMove) {
+        btnMove.disabled = false;
+        btnMove.textContent = '계속 탐험';
+      }
+    }
   };
+
 
   // 유저가 선택지를 클릭했을 때의 처리
   const handleChoice = async (index) => {
