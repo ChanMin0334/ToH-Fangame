@@ -128,7 +128,7 @@ async function viewWorldPick(root){
         <div class="bookmarks">
           <button class="bookmark active" disabled>탐험</button>
           <button class="bookmark ghost" disabled>레이드(준비중)</button>
-          <button class="bookmark ghost" disabled>가방(준비중)</button>
+          <button class="bookmark ghost" id="btnInventory">가방</button>
         </div>
         <div class="bookview p12" id="viewW">
           <div class="kv-label">세계관 선택</div>
