@@ -10,6 +10,85 @@ import { getCharForAI } from '../api/store.js';
 
 const STAMINA_MIN = 0;
 
+
+
+// 리치텍스트 변환: **굵게**, _기울임_, URL 자동링크, 줄바꿈
+function rt(raw) {
+  if (!raw) return '';
+  let s = String(raw);
+  s = esc(s);
+  s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  s = s.replace(/_(.+?)_/g, '<i>$1</i>');
+  s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/\n/g, '<br>');
+  return s;
+}
+
+// 등급별 색상(배경/테두리/글자)
+function rarityStyle(r) {
+  const map = {
+    normal: {bg:'#2a2f3a', border:'#5f6673', text:'#c8d0dc', label:'일반'},
+    rare:   {bg:'#0f2742', border:'#3b78cf', text:'#cfe4ff', label:'레어'},
+    epic:   {bg:'#20163a', border:'#7e5cff', text:'#e6dcff', label:'유니크'},
+    legend: {bg:'#2b220b', border:'#f3c34f', text:'#ffe9ad', label:'레전드'},
+    myth:   {bg:'#3a0f14', border:'#ff5b66', text:'#ffc9ce', label:'신화'},
+  };
+  return map[(r||'').toLowerCase()] || map.normal;
+}
+
+// 이벤트들에서 아이템 뽑아오기(이름/등급/남은 횟수 등 추출)
+function collectLoot(run) {
+  const out = [];
+  const evs = Array.isArray(run.events) ? run.events : [];
+  for (const ev of evs) {
+    const item = ev.item || ev.loot || (ev.dice && ev.dice.item) || null;
+    if (!item) continue;
+    const rarity = (item.rarity || item.tier || 'normal').toLowerCase();
+    out.push({
+      name: item.name || '이름 없는 아이템',
+      rarity,
+      usesLimited: !!(item.usesLimited || item.uses_limited),
+      usesRemaining: item.usesRemaining ?? item.uses_remaining ?? null,
+    });
+  }
+  return out;
+}
+
+// 카드 하나 그리기
+function lootCardHTML(it) {
+  const st = rarityStyle(it.rarity);
+  const uses = it.usesLimited ? ` · 남은 ${it.usesRemaining ?? 0}` : '';
+  return `
+    <div class="card" style="
+      padding:10px;border-radius:10px;
+      background:${st.bg};border:1px solid ${st.border}; color:${st.text};
+      min-width:140px"
+    >
+      <div style="font-weight:800">${esc(it.name)}</div>
+      <div class="text-dim" style="font-size:12px">${st.label}${uses}</div>
+    </div>
+  `;
+}
+
+// 진행 중 누적 경험치(화면 표시용, 실제 지급은 endRun에서 진행)
+function calcRunExp(run) {
+  const turn = run.turn || 0;
+  const chestCnt = (run.events||[]).filter(e=>e.kind==='chest').length;
+  const allyCnt  = (run.events||[]).filter(e=>e.kind==='ally').length;
+  return Math.max(0, Math.round(turn*1.5 + chestCnt + allyCnt));
+}
+
+// 선택지 3개 보정(부족하면 채우고, 많으면 앞에서 3개만)
+function ensureThreeChoices(arr) {
+  let a = Array.isArray(arr) ? arr.slice(0,3) : [];
+  const fallback = ['더 둘러본다', '조심히 후퇴한다', '주위를 탐색한다'];
+  while (a.length < 3) a.push(fallback[a.length % fallback.length]);
+  if (a.length > 3) a = a.slice(0,3);
+  return a;
+}
+
+
+
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 function parseRunId(){
   const h = location.hash || '';
