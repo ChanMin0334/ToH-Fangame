@@ -249,6 +249,8 @@ export async function showExploreRun() {
       } else {
         charInfo.origin_world_info = charInfo.world_id || '알 수 없음';
       }
+
+      const lastEvent = state.events?.slice(-1)[0];
       
       const aiResponse = await requestAdventureNarrative({
 // ... (이하 생략) ...
