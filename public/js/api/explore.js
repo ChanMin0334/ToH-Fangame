@@ -169,6 +169,39 @@ export function rollStep(run){
   return out;
 }
 
+
+// ANCHOR: /public/js/api/explore.js
+
+// ... rollStep 함수 아래에 추가 ...
+
+// 💥 신규 함수: 3개의 선택지 결과를 미리 생성
+export function rollThreeChoices(run) {
+  let remainingPrerolls = Array.isArray(run.prerolls) ? run.prerolls.slice() : [];
+  const choices = [];
+  
+  // 독립적인 이벤트 3개를 생성
+  for (let i = 0; i < 3; i++) {
+    // 임시 run 객체를 만들어 preroll 상태를 전달
+    const tempRun = { ...run, prerolls: remainingPrerolls };
+    const result = rollStep(tempRun);
+    
+    // rollStep이 소비한 preroll을 반영
+    remainingPrerolls = tempRun.prerolls;
+    choices.push(result);
+  }
+
+  // 최종적으로 소비된 preroll 상태와 3개의 선택지 결과를 반환
+  return {
+    nextPrerolls: remainingPrerolls,
+    choices: choices
+  };
+}
+
+export async function appendEvent({ runId, runBefore, narrative, choices, delta, dice, summary3 }){
+// ... (기존과 동일)
+
+
+
 export async function appendEvent({ runId, runBefore, narrative, choices, delta, dice, summary3 }){
   const ref = fx.doc(db,'explore_runs', runId);
   const snap = await fx.getDoc(ref);
