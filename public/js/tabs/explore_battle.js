@@ -2,6 +2,30 @@
 import { auth, db, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
 
+// [유틸] HTML 안전 변환 (태그 깨짐/스크립트 삽입 방지)
+function esc(s){
+  const str = String(s ?? '');
+  return str.replace(/[&<>"']/g, ch => (
+    ch === '&' ? '&amp;' :
+    ch === '<' ? '&lt;'  :
+    ch === '>' ? '&gt;'  :
+    ch === '"' ? '&quot;':
+                 '&#39;'
+  ));
+}
+
+// [유틸] 등급 색상(나중에 카드/드랍표시에 쓸 때 사용)
+function rarityStyle(rarity){
+  switch(rarity){
+    case 'myth':   return 'color:#d33;font-weight:600';
+    case 'legend': return 'color:#b8860b;font-weight:600';
+    case 'epic':   return 'color:#7b68ee';
+    case 'rare':   return 'color:#1e90ff';
+    default:       return 'color:#999';
+  }
+}
+
+
 // ... (esc, rarityStyle 등 유틸 함수는 그대로 둠) ...
 // ...
 
@@ -82,7 +106,10 @@ export async function showExploreBattle() {
   `;
   // ... (내부 HTML 렌더링 코드는 기존과 동일하게 채워주세요) ...
 
-  root.querySelector('#enemyCard').onclick = () => showEnemyInfoModal(enemy);
+  const openEnemyInfo = (typeof showEnemyInfoModal === 'function') ? showEnemyInfoModal
+    : (e)=>alert(`상대: ${e?.name||'???'}\n레벨: ${e?.lv ?? '-'}\n설명: ${e?.desc||''}`);
+  root.querySelector('#enemyCard').onclick = () => openEnemyInfo(enemy);
+
   root.querySelectorAll('[data-action-type]').forEach(btn => {
     btn.onclick = () => { /* 전투 로직 구현 필요 */ };
   });
