@@ -295,8 +295,14 @@ export async function showExploreRun() {
         returnHash: `#/explore-run/${state.id}`
       };
       sessionStorage.setItem('toh.battle.intent', JSON.stringify(battleInfo));
-      location.hash = '#/explore-battle';
+      
+      // 👇 데이터를 저장할 아주 짧은 시간을 준 뒤 페이지를 이동시킵니다.
+      setTimeout(() => {
+        location.hash = '#/explore-battle';
+      }, 50); // 50ms (0.05초) 정도면 충분합니다.
+
       return;
+// ...
     }
 
     let finalDice = { ...chosenDice };
