@@ -92,7 +92,7 @@ function fillVars(tpl, vars){
 
 /* ================= Gemini 호출 ================= */
 // [교체] callGemini: BYOK 폐지 → 서버 프록시만 사용
-async function callGemini(model, systemText, userText, temperature=0.85){
+export async function callGemini(model, systemText, userText, temperature=0.85){
   const payload = {
     model,
     systemText,
