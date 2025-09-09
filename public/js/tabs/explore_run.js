@@ -144,6 +144,9 @@ function eventLineHTML(ev){
 }
 
 export async function showExploreRun(){
+
+  const loadingOverlay = document.getElementById('toh-loading-overlay');
+  if (loadingOverlay) loadingOverlay.remove();
   const root = document.getElementById('view');
   const runId = parseRunId();
   if(!auth.currentUser){
