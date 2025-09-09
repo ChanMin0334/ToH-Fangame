@@ -257,7 +257,8 @@ export async function showExploreRun() {
         world: { name: world.name, loreLong: world.detail?.lore_long },
         site: { name: site.name, description: site.description },
         run: { summary3: state.summary3, turn: state.turn, difficulty: state.difficulty, events: state.events },
-        dices: diceResults
+        dices: diceResults,
+        equippedItems: charInfo.items_equipped || [] 
       });
 
       pendingTurn = { ...aiResponse, diceResults };
