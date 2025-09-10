@@ -425,8 +425,6 @@ async function openItemPicker(c, onSave) {
     `;
 
 // 아이템 장착 모달
-async function openItemPicker(c, onSave) {
-  //... (내용 동일)
     back.querySelectorAll('.item-picker-card').forEach(card => {
         card.addEventListener('click', () => {
             const itemId = card.dataset.itemId;
