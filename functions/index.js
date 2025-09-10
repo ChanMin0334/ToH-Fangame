@@ -1,4 +1,4 @@
-// functions/index.js
+ // functions/index.js
 const { onCall } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
@@ -223,23 +223,6 @@ exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
 
   return { ok:true, done:willEnd, step:turn, staminaNow, event: ev };
 });
-
-// functions/index.js (수정 완료)
-const { onCall } = require("firebase-functions/v2/https");
-const { initializeApp } = require("firebase-admin/app");
-const { getFirestore } = require("firebase-admin/firestore");
-const crypto = require("crypto");
-const functions = require("firebase-functions");
-const fetch = require("node-fetch");
-
-initializeApp();
-const db = getFirestore();
-
-// (기존의 다른 함수들은 그대로 둡니다)
-
-
-
-
 
 // === [탐험 종료 & 보상 확정] onCall ===
 exports.endExplore = onCall({ region:'us-central1' }, async (req)=>{
