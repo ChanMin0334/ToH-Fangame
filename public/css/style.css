@@ -27,8 +27,8 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui, -a
 .bottombar a.active{color:#fff}
 
 
-.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#0e131a;border:1px solid var(--bd);padding:10px 14px;border-radius:10px;z-index:50;opacity:0;transition:opacity .25s}
-.toast.show{opacity:1}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#0e131a;border:1px solid var(--bd);padding:10px 14px;border-radius:10px;z-index:50;opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.show{opacity:1;pointer-events:auto}
 
 
 @media (min-width: 720px){ .grid{grid-template-columns:repeat(3,1fr)} }
