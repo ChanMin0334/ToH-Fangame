@@ -189,11 +189,7 @@ export async function genCharacterFlash2({ world, userInput, injectionGuard }){
   });
 
   // 사용자 파트는 간결히(검증자가 읽기 쉽게)
-  const userCombined = [
-    `WORLD:\n${world?.summary||''}\n\n(세부)\n${world?.detail||''}`,
-    `\n\nINJECTION_GUARD:\n${injectionGuard||inject||''}`,
-    `\n\nUSER_INPUT:\n${userInput||''}`
-  ].join('');
+  const userCombined = userInput || '';
 
   let raw='', parsed=null;
   try{
