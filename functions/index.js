@@ -237,57 +237,8 @@ const db = getFirestore();
 
 // (기존의 다른 함수들은 그대로 둡니다)
 
-// ▼▼▼ AI 프록시 함수 ▼▼▼
-exports.callGeminiProxy = onCall({ region: 'us-central1', secrets: ["GEMINI_API_KEY"] }, async (req) => {
-  if (!req.auth) {
-    throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
-  }
 
-  const { model, systemText, userText, temperature, maxOutputTokens } = req.data;
-  const key = process.env.GEMINI_API_KEY;
 
-  if (!key) {
-    throw new functions.https.HttpsError('internal', '서버에 API 키가 설정되지 않았습니다.');
-  }
-
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model || "gemini-1.5-flash-latest")}:generateContent?key=${key}`;
-
-  const body = {
-    contents: [{ role: "user", parts: [{ text: userText || "" }] }],
-    systemInstruction: { parts: [{ text: systemText || "" }] },
-    generationConfig: {
-      temperature: typeof temperature === "number" ? temperature : 0.85,
-      maxOutputTokens: typeof maxOutputTokens === "number" ? maxOutputTokens : 8000,
-    },
-    safetySettings: [],
-  };
-
-  try {
-    const r = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    if (!r.ok) {
-      const errorBody = await r.json();
-      console.error("Google AI API Error:", JSON.stringify(errorBody));
-      throw new functions.https.HttpsError('internal', `Google AI API returned status ${r.status}`, errorBody);
-    }
-
-    const j = await r.json();
-    const text = j?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-    return { text };
-
-  } catch (error) {
-    console.error("callGeminiProxy function failed:", error);
-    if (error instanceof functions.https.HttpsError) {
-      throw error;
-    }
-    throw new functions.https.HttpsError('internal', 'AI API 호출에 실패했습니다.');
-  }
-});
 
 
 // === [탐험 종료 & 보상 확정] onCall ===
