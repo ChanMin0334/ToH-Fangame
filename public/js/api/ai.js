@@ -85,7 +85,7 @@ function fillVars(tpl, vars){
   return String(tpl||'')
     .replaceAll('{{world_summary}}', vars.world_summary ?? '')
     .replaceAll('{{world_detail}}',  vars.world_detail  ?? '')
-    .replaceAll('{{world_json}}',    '') // 👈 이 부분을 빈 문자열로 수정합니다.
+    .replaceAll('{{world_json}}',    vars.world_json    ?? '')
     .replaceAll('{{inject}}',        vars.inject        ?? '')
     .replaceAll('{{user_input}}',    vars.user_input    ?? '');
 }
