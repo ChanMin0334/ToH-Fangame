@@ -270,8 +270,8 @@ export async function showBattle(){
 
 function renderOpponentCard(matchArea, opp) {
     const intro = truncate(opp.summary || opp.intro || '', 160);
-    const abilities = Array.isArray(opp.abilities_equipped) 
-        ? opp.abilities_equipped.map(i => opp.abilities_all[i]?.name || '스킬').filter(Boolean)
+    const abilities = Array.isArray(opp.abilities_all)
+        ? opp.abilities_all.map(skill => skill?.name || '스킬').filter(Boolean)
         : [];
 
     matchArea.innerHTML = `
