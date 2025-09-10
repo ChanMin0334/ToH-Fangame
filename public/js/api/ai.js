@@ -296,9 +296,15 @@ export async function generateFinalBattleLog(sketchData, battleData) {
     }
   `;
   const raw = await callGemini('gemini-1.5-flash-latest', systemPrompt, userPrompt, 0.8);
+
+  // --- 디버그용 console.log 추가 ---
+  console.log("--- 2단계: AI 최종 로그 응답 (Raw) ---");
+  console.log(raw);
+  // --- 여기까지 ---
+
   const parsed = tryParseJson(raw);
 
-  const winner = sketchData.winner_name === battleData.attacker.name ? 0 : 1; // 0: 공격자 승리, 1: 방어자 승리
+  const winner = sketchData.winner_name === battleData.attacker.name ? 0 : 1;
 
   return {
       title: parsed?.title || "치열한 결투",
@@ -306,7 +312,6 @@ export async function generateFinalBattleLog(sketchData, battleData) {
       winner: winner,
   };
 }
-
 /* ================= ADVENTURE: requestNarrative =================
  * 주사위로 이미 결정된 값(eventKind, deltaStamina 등)을 넘기면
  * AI는 '서술 + 선택지 2~3개 + 3문장 요약'만 만들어준다.
