@@ -92,43 +92,34 @@ function fillVars(tpl, vars){
 
 /* ================= Gemini 호출 ================= */
 // [교체] callGemini: BYOK 폐지 → 서버 프록시만 사용
-// ... (생략) ...
-import { db, fx, func } from './firebase.js'; // func를 import 했는지 확인
-
-import { httpsCallable } from 'firebase/functions'; // httpsCallable 추가
-
-// ... (생략) ...
-
-// [교체] callGemini: Cloudflare 프록시 대신 Firebase Functions 프록시 사용
 export async function callGemini(model, systemText, userText, temperature=0.85){
-  try {
-    // 1. 새로 만든 Firebase 함수를 가리킵니다.
-    const callGeminiProxy = httpsCallable(func, 'callGeminiProxy');
+  const payload = {
+    model,
+    systemText,
+    userText,
+    temperature,
+    maxOutputTokens: getMaxTokens(),
+  };
 
-    // 2. 함수에 보낼 데이터를 준비합니다.
-    const payload = {
-      model,
-      systemText,
-      userText,
-      temperature,
-      maxOutputTokens: getMaxTokens(),
-    };
+  // 프록시 엔드포인트(서버에만 키가 있음)
+  const proxyUrl = 'https://toh-ai-proxy.pokemonrgby.workers.dev/api/ai/generate';
 
-    // 3. 함수를 호출하고 결과를 받습니다.
-    const result = await callGeminiProxy(payload);
+  const res = await fetch(proxyUrl, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
 
-    // 4. 결과에서 text 데이터를 추출하여 반환합니다.
-    const outText = result?.data?.text ?? '';
-    if(!outText) throw new Error('AI 프록시 응답이 비어 있어');
-    return outText;
-
-  } catch (error) {
-    // Firebase Functions에서 보낸 상세 오류 메시지를 포함하여 에러를 표시합니다.
-    const details = error.details ? JSON.stringify(error.details) : '';
-    throw new Error(`AI 프록시 실패: ${error.code} ${error.message} ${details}`);
+  if(!res.ok){
+    const txt = await res.text().catch(()=> '');
+    throw new Error(`AI 프록시 실패: ${res.status} ${txt}`);
   }
+
+  const j = await res.json().catch(()=>null);
+  const outText = j?.text ?? '';
+  if(!outText) throw new Error('AI 프록시 응답이 비어 있어');
+  return outText;
 }
-// ... (생략) ...
 
 
 /* =============== 출력 표준화(새/구 호환) =============== */
@@ -198,11 +189,7 @@ export async function genCharacterFlash2({ world, userInput, injectionGuard }){
   });
 
   // 사용자 파트는 간결히(검증자가 읽기 쉽게)
-  const userCombined = [
-    `WORLD:\n${world?.summary||''}\n\n(세부)\n${world?.detail||''}`,
-    `\n\nINJECTION_GUARD:\n${injectionGuard||inject||''}`,
-    `\n\nUSER_INPUT:\n${userInput||''}`
-  ].join('');
+  const userCombined = userInput || '';
 
   let raw='', parsed=null;
   try{
