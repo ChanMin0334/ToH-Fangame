@@ -78,7 +78,10 @@ export function ensureItemCss() { // [수정] export 추가
   document.head.appendChild(st);
 }
 
-export function showItemDetailModal(item) {
+export function showItemDetailModal(item, context = {}) {
+    const { equippedIds = [], onUpdate = () => {} } = context;
+    const isEquipped = equippedIds.includes(item.id);
+
     const style = rarityStyle(item.rarity);
     const getItemDesc = (it) => (it?.desc_long || it?.desc_soft || it?.desc || it?.description || '').replace(/\n/g, '<br>');
     const getEffectsHtml = (it) => {
@@ -108,11 +111,36 @@ export function showItemDetailModal(item) {
         <div style="font-size:14px; line-height:1.6;">${getItemDesc(item) || '상세 설명이 없습니다.'}</div>
         ${item.effects ? `<hr style="margin:12px 0; border-color:#273247;"><div class="kv-label">효과</div><div style="font-size:13px;">${getEffectsHtml(item)}</div>` : ''}
       </div>
+      <div id="itemActions" style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;"></div>
     </div>
   `;
     const closeModal = () => back.remove();
     back.addEventListener('click', e => { if (e.target === back) closeModal(); });
     back.querySelector('#mCloseDetail').onclick = closeModal;
+
+    const actionsContainer = back.querySelector('#itemActions');
+    if (isEquipped) {
+        const btnUnequip = document.createElement('button');
+        btnUnequip.className = 'btn';
+        btnUnequip.textContent = '장착 해제';
+        btnUnequip.onclick = () => {
+            const newEquipped = equippedIds.filter(id => id !== item.id);
+            onUpdate(newEquipped);
+            closeModal();
+        };
+        actionsContainer.appendChild(btnUnequip);
+    } else if (equippedIds.length < 3) {
+        const btnEquip = document.createElement('button');
+        btnEquip.className = 'btn primary';
+        btnEquip.textContent = '장착하기';
+        btnEquip.onclick = () => {
+            const newEquipped = [...equippedIds, item.id];
+            onUpdate(newEquipped);
+            closeModal();
+        };
+        actionsContainer.appendChild(btnEquip);
+    }
+
     document.body.appendChild(back);
 }
 
@@ -396,24 +424,22 @@ async function openItemPicker(c, onSave) {
       </div>
     `;
 
-    let lastClickTime = 0;
+// 아이템 장착 모달
+async function openItemPicker(c, onSave) {
+  //... (내용 동일)
     back.querySelectorAll('.item-picker-card').forEach(card => {
         card.addEventListener('click', () => {
-            const now = new Date().getTime();
             const itemId = card.dataset.itemId;
-
-            if (now - lastClickTime < 300) { // 더블클릭으로 간주하여 선택/해제
-                if (selectedIds.includes(itemId)) {
-                    selectedIds = selectedIds.filter(id => id !== itemId);
-                } else {
-                    if (selectedIds.length < 3) selectedIds.push(itemId);
-                    else showToast('아이템은 최대 3개까지 장착할 수 있습니다.');
+            const item = inv.find(it => it.id === itemId);
+            if (!item) return;
+            
+            showItemDetailModal(item, {
+                equippedIds: selectedIds,
+                onUpdate: (newSelectedIds) => {
+                    selectedIds = newSelectedIds;
+                    renderModalContent(); // 부모 모달(피커) 새로고침
                 }
-                renderModalContent();
-            } else { // 싱글클릭으로 간주하여 상세 정보 표시
-                showItemDetailModal(inv.find(it => it.id === itemId));
-            }
-            lastClickTime = now;
+            });
         });
     });
 
