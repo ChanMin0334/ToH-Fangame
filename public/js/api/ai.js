@@ -1,332 +1,200 @@
-// /public/js/api/ai.js
-// Firestore configs/prompts에서 프롬프트를 읽고
-// Gemini Flash 2.0 호출 → 새/구 스키마 호환 형태로 표준화해서 반환.
-// 새 스키마: { intro, narratives:[{title,long,short}], skills }
-// 구 스키마 자동 파생: narrative_long, narrative_short
-
+// /public/js/api/ai.js (v4 - 관계, 아이템, 경험치 반영 및 AI 자동 선택)
 import { db, fx } from './firebase.js';
 
-const GEM_ENDPOINT   = 'https://generativelace.googleapis.com/v1beta';
-const DEFAULT_FLASH2 = 'gemini-2.0-flash';
-const FALLBACK_FLASH = 'gemini-1.5-flash-latest';
+const DEFAULT_FLASH2 = 'gemini-1.5-flash-latest';
+const FALLBACK_FLASH = 'gemini-1.5-pro-latest';
 
 const DEBUG = !!localStorage.getItem('toh_debug_ai');
 function dbg(...args){ if(DEBUG) console.log('[AI]', ...args); }
 
-/* =================== BYOK =================== */
-export function getByok(){
-  return (localStorage.getItem('toh_byok')||'').trim();
-}
-export function setByok(k){
-  localStorage.setItem('toh_byok', (k||'').trim());
-}
-
 /* =================== 유틸 =================== */
-// /public/js/api/ai.js
-
-// (기존 내용과 동일)
 function stripFences(text){
   if(!text) return '';
-  // 앞뒤 공백을 먼저 제거한 후, 시작과 끝의 ``` 블록을 제거합니다.
-  return String(text)
-    .trim() // <-- 1. 앞뒤 공백 및 줄바꿈 먼저 제거
-    .replace(/^```(?:json)?\s*/, '') // <-- 2. 시작 블록 제거
-    .replace(/```$/, '')            // <-- 3. 끝 블록 제거
-    .trim(); // <-- 4. 혹시 모를 내부 공백을 위해 한번 더 정리
+  return String(text).trim().replace(/^```(?:json)?\s*/, '').replace(/```$/, '').trim();
 }
-// (기존 내용과 동일)
 function tryParseJson(t){
   if(!t) return null;
   const s = stripFences(t);
   try {
     const parsed = JSON.parse(s);
-    // 성공 시, 분석된 객체를 콘솔에 출력
     console.log("✅ JSON.parse 성공!", parsed);
     return parsed;
   } catch (e) {
-    // 실패 시, 에러 메시지와 분석에 실패한 텍스트를 콘솔에 출력
     console.error("❌ JSON.parse 실패!", e);
     console.error("파싱에 실패한 텍스트:", s);
     return null;
   }
 }
-function limit(str, n){ const s=String(str??''); return s.length>n ? s.slice(0,n) : s; }
 function getMaxTokens(){
   const v = parseInt(localStorage.getItem('toh_ai_max_tokens')||'',10);
-  return Number.isFinite(v)&&v>0 ? v : 8000;
+  return Number.isFinite(v)&&v>0 ? v : 8192;
 }
 
-/* ============ 프롬프트 로드 (configs/prompts) ============ */
+/* ============ 프롬프트 로드 ============ */
 export async function fetchPromptDoc(id){
-  // 경로: configs/prompts (단일 문서), 필드: 문자열 또는 {content|text|value}
   const ref = fx.doc(db,'configs','prompts');
   const snap = await fx.getDoc(ref);
   if(!snap.exists()) throw new Error('프롬프트 저장소(configs/prompts)가 없어');
-
   const all = snap.data() || {};
   const raw = all[id];
-
-  if (raw === undefined || raw === null) {
-    throw new Error(`프롬프트 ${id} 가 없어`);
-  }
-
-  // 문자열/객체 모두 처리
-  let content = '';
-  if (typeof raw === 'string') {
-    content = raw;
-  } else if (typeof raw === 'object') {
-    content = raw.content ?? raw.text ?? raw.value ?? '';
-  } else {
-    content = String(raw ?? '');
-  }
-
-  content = String(content).trim();
-  if(!content){
-    throw new Error(`프롬프트 ${id} 내용이 비어 있어`);
-  }
+  if (raw === undefined || raw === null) throw new Error(`프롬프트 ${id} 가 없어`);
+  let content = (typeof raw === 'object' ? (raw.content ?? raw.text ?? raw.value ?? '') : String(raw ?? '')).trim();
+  if(!content) throw new Error(`프롬프트 ${id} 내용이 비어 있어`);
   return content;
 }
 
-
-async function loadCreatePrompts(){
-  const [system, inject] = await Promise.all([
-    fetchPromptDoc('char_create_system'),
-    fetchPromptDoc('char_create_inject'),
-  ]);
-  return { system, inject };
-}
-
-function fillVars(tpl, vars){
-  return String(tpl||'')
-    .replaceAll('{{world_summary}}', vars.world_summary ?? '')
-    .replaceAll('{{world_detail}}',  vars.world_detail  ?? '')
-    .replaceAll('{{world_json}}',    vars.world_json    ?? '')
-    .replaceAll('{{inject}}',        vars.inject        ?? '')
-    .replaceAll('{{user_input}}',    vars.user_input    ?? '');
-}
-
 /* ================= Gemini 호출 ================= */
-// [교체] callGemini: BYOK 폐지 → 서버 프록시만 사용
-export async function callGemini(model, systemText, userText, temperature=0.85){
-  const payload = {
-    model,
-    systemText,
-    userText,
-    temperature,
-    maxOutputTokens: getMaxTokens(),
-  };
-
-  // 프록시 엔드포인트(서버에만 키가 있음)
+export async function callGemini(model, systemText, userText, temperature=0.9){
+  const payload = { model, systemText, userText, temperature, maxOutputTokens: getMaxTokens() };
   const proxyUrl = 'https://toh-ai-proxy.pokemonrgby.workers.dev/api/ai/generate';
-
   const res = await fetch(proxyUrl, {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify(payload)
   });
-
   if(!res.ok){
     const txt = await res.text().catch(()=> '');
     throw new Error(`AI 프록시 실패: ${res.status} ${txt}`);
   }
-
   const j = await res.json().catch(()=>null);
   const outText = j?.text ?? '';
   if(!outText) throw new Error('AI 프록시 응답이 비어 있어');
   return outText;
 }
 
+/* ================= 배틀 로직 ================= */
 
-/* =============== 출력 표준화(새/구 호환) =============== */
-// 입력(parsed)은 새 포맷을 기대: { intro, narratives:[{title,long,short}], skills }
-// 구(legacy) 포맷도 수용: { intro, narrative_long, narrative_short, skills }
-function normalizeOutput(parsed, fallbackDesc=''){
-  const out = parsed && typeof parsed==='object' ? parsed : {};
-
-  // 공통
-  let intro   = limit(out.intro ?? '', 600);
-  let skills  = Array.isArray(out.skills) ? out.skills : [];
-  skills = skills.slice(0,4).map(s=>({
-    name:   limit(String(s?.name??'').trim(), 24) || '스킬',
-    effect: limit(String(s?.effect??'').trim(), 160) || '-',
-  }));
-  while(skills.length<4) skills.push({name:'스킬', effect:'-'});
-
-  // 새 스키마
-  let nTitle='', nLong='', nShort='';
-  if(Array.isArray(out.narratives) && out.narratives.length){
-    const n0 = out.narratives[0]||{};
-    nTitle = limit(String(n0.title??'').trim(), 40);
-    nLong  = limit(String(n0.long ??'').trim(), 2000);
-    nShort = limit(String(n0.short??'').trim(), 200);
-  }
-
-  // 구 스키마(자동 파생/보정)
-  const legacyLong  = limit(String(out.narrative_long ?? '').trim(), 2000);
-  const legacyShort = limit(String(out.narrative_short?? '').trim(), 200);
-
-  if(!nLong && legacyLong) nLong = legacyLong;
-  if(!nShort && legacyShort) nShort = legacyShort;
-
-  // intro 없으면 desc 일부로 보정(안정성)
-  if(!intro) intro = limit(String(fallbackDesc||'').trim(), 600);
-
-  const narratives = [{
-    title: nTitle || '제목',
-    long:  nLong  || '-',
-    short: nShort || '',
-  }];
-
-  return {
-    // 새
-    intro,
-    narratives,
-    skills,
-    // 구(하위호환)
-    narrative_long: nLong,
-    narrative_short: nShort,
-  };
-}
-
-/* ================= 생성 엔드포인트 ================= */
-export async function genCharacterFlash2({ world, userInput, injectionGuard }){
-  // world: { id, name, summary, detail, rawJson? }
-  // userInput: 문자열(캐릭터 이름/설정 포함)
-  // injectionGuard: 문자열
-  const { system, inject } = await loadCreatePrompts();
-
-  const systemFilled = fillVars(system, {
-    world_summary: world?.summary ?? '',
-    world_detail:  world?.detail  ?? '',
-    world_json:    JSON.stringify(world?.rawJson ?? world ?? {}),
-    inject:        injectionGuard ?? inject ?? '',
-    user_input:    userInput ?? '',
-  });
-
-  // 사용자 파트는 간결히(검증자가 읽기 쉽게)
-  const userCombined = userInput || '';
-
-  let raw='', parsed=null;
-  try{
-    raw    = await callGemini(DEFAULT_FLASH2, systemFilled, userCombined, 0.85);
-    parsed = tryParseJson(raw);
-  }catch(e1){
-    dbg('flash2 실패, 1.5로 폴백', e1);
-    try{
-      raw    = await callGemini(FALLBACK_FLASH, systemFilled, userCombined, 0.8);
-      parsed = tryParseJson(raw);
-    }catch(e2){
-      throw e1; // 최초 에러를 전달
-    }
-  }
-
-  if(DEBUG){
-    window.__ai_debug = window.__ai_debug || {};
-    window.__ai_debug.raw_len   = (raw||'').length;
-    window.__ai_debug.raw_head  = String(raw||'').slice(0, 2000);
-    window.__ai_debug.parsed_ok = !!parsed;
-  }
-
-  const norm = normalizeOutput(parsed, userInput||'');
-  return norm;
-}
-
-// [신규] 배틀 프롬프트 로딩
 export async function fetchBattlePrompts() {
   const ref = fx.doc(db, 'configs', 'prompts');
   const snap = await fx.getDoc(ref);
   if (!snap.exists()) return [];
   const allPrompts = snap.data() || {};
-  // battle_logic_1, battle_logic_2... 와 같은 필드를 배열로 반환
   return Object.keys(allPrompts)
     .filter(k => k.startsWith('battle_logic_'))
     .map(k => allPrompts[k])
     .filter(Boolean);
 }
 
-// [신규] 1차 스케치 생성
-// [신규] 1차 스케치 생성
-export async function generateBattleSketch(battleData) {
+// 1단계: 3개의 전투 시나리오 초안 생성
+export async function generateBattleSketches(battleData) {
   const systemPrompt = await fetchPromptDoc('battle_sketch_system');
-  const winnerName = Math.random() < 0.5 ? battleData.attacker.name : battleData.defender.name;
-
+  
   const userPrompt = `
-    ## 배틀 컨셉 프롬프트 (랜덤 3종)
-    ${battleData.prompts.join('\n\n')}
+    <INPUT>
+      ## 전투 컨셉 (랜덤 3종)
+      ${battleData.prompts.join('\n\n')}
+      
+      ## 캐릭터 관계
+      - ${battleData.relation || '없음'}
 
-    ## 캐릭터 1 정보
-    - 이름: ${battleData.attacker.name}
-    - 출신: ${battleData.attacker.origin}
-    - 최근 서사: ${battleData.attacker.narrative_long}
-    - 이전 서사 요약: ${battleData.attacker.narrative_short_summary}
-    - 스킬: ${JSON.stringify(battleData.attacker.skills)}
-    - 아이템: ${JSON.stringify(battleData.attacker.items)}
+      ## 캐릭터 1 (index 0) 정보
+      - 이름: ${battleData.attacker.name}
+      - 출신: ${battleData.attacker.origin}
+      - 최근 서사: ${battleData.attacker.narrative_long}
+      - 이전 서사 요약: ${battleData.attacker.narrative_short_summary}
+      - 스킬: ${battleData.attacker.skills}
+      - 아이템: ${battleData.attacker.items}
 
-    ## 캐릭터 2 정보
-    - 이름: ${battleData.defender.name}
-    - 출신: ${battleData.defender.origin}
-    - 최근 서사: ${battleData.defender.narrative_long}
-    - 이전 서사 요약: ${battleData.defender.narrative_short_summary}
-    - 스킬: ${JSON.stringify(battleData.defender.skills)}
-    - 아이템: ${JSON.stringify(battleData.defender.items)}
-
-    ## 지시사항
-    - 이번 배틀의 승자는 **'${winnerName}'** 이다.
-    - 승자가 결정된 사실에 맞춰, 이 배틀의 핵심적인 전개 방향을 담은 "스케치"를 2~3개의 짧은 문단으로 작성해라.
-    - 결과는 반드시 JSON 형식이어야 하며, 'sketch' 필드에 문자열로 담아라. 예: { "sketch": "두 캐릭터는..." }
+      ## 캐릭터 2 (index 1) 정보
+      - 이름: ${battleData.defender.name}
+      - 출신: ${battleData.defender.origin}
+      - 최근 서사: ${battleData.defender.narrative_long}
+      - 이전 서사 요약: ${battleData.defender.narrative_short_summary}
+      - 스킬: ${battleData.defender.skills}
+      - 아이템: ${battleData.defender.items}
+    </INPUT>
   `;
-  const raw = await callGemini('gemini-1.5-flash-latest', systemPrompt, userPrompt, 0.9);
 
-  // --- 디버그용 console.log 추가 ---
+  let raw = '';
+  try {
+    raw = await callGemini(DEFAULT_FLASH2, systemPrompt, userPrompt, 1.0);
+  } catch (e1) {
+    dbg('1단계 생성 실패, 폴백 시도', e1);
+    raw = await callGemini(FALLBACK_FLASH, systemPrompt, userPrompt, 1.0);
+  }
+
   console.log("--- 1단계: AI 스케치 응답 (Raw) ---");
   console.log(raw);
-  // --- 여기까지 ---
 
   const parsed = tryParseJson(raw);
-  return {
-      sketch: parsed?.sketch || "두 캐릭터는 격렬하게 맞붙었다.",
-      winner_name: winnerName
-  };
+  if (!Array.isArray(parsed) || parsed.length < 3) {
+      throw new Error('AI가 3개의 유효한 시나리오를 반환하지 않았습니다.');
+  }
+  return parsed;
 }
 
-// [수정] 최종 배틀 로그 생성 (무승부 제외)
-export async function generateFinalBattleLog(sketchData, battleData) {
-    const systemPrompt = await fetchPromptDoc('battle_final_system');
-    const userPrompt = `
-    ## 1차 스케치
-    ${sketchData.sketch}
+// 1.5단계: AI가 3개 중 최고의 시나리오를 선택
+export async function chooseBestSketch(sketches) {
+    const systemPrompt = await fetchPromptDoc('battle_choice_system');
+    const userPrompt = `<INPUT>${JSON.stringify(sketches, null, 2)}</INPUT>`;
 
-    ## 캐릭터 및 컨셉 정보 (스케치 생성 시 사용된 정보와 동일)
-    - 캐릭터 1: ${JSON.stringify(battleData.attacker)}
-    - 캐릭터 2: ${JSON.stringify(battleData.defender)}
-    - 배틀 컨셉: ${JSON.stringify(battleData.prompts)}
-
-    ## 최종 지시사항
-    - 이번 배틀의 승자는 **'${sketchData.winner_name}'** 이다. 이 결론에 맞춰 서사를 완성해야 한다.
-    - 주어진 스케치와 캐릭터 정보를 조합하여, 매우 흥미롭고 상세한 배틀로그를 완성하라.
-    - 결과는 반드시 다음 JSON 형식을 따라야 한다.
-    {
-      "title": "배틀의 제목 (예: 강철과 바람의 춤)",
-      "content": "배틀의 전체 내용을 담은 상세한 서사 (최소 5문단 이상)"
+    let raw = '';
+    try {
+        raw = await callGemini(DEFAULT_FLASH2, systemPrompt, userPrompt, 0.7);
+    } catch (e) {
+        dbg('최고 스케치 선택 실패, 랜덤 선택으로 폴백', e);
+        return { best_sketch_index: Math.floor(Math.random() * 3) };
     }
-  `;
-  const raw = await callGemini('gemini-1.5-flash-latest', systemPrompt, userPrompt, 0.8);
+    
+    console.log("--- 1.5단계: AI 선택 응답 (Raw) ---");
+    console.log(raw);
+    
+    const parsed = tryParseJson(raw);
+    const index = parsed?.best_sketch_index;
 
-  // --- 디버그용 console.log 추가 ---
+    if (typeof index !== 'number' || index < 0 || index > 2) {
+        console.warn('AI가 유효한 인덱스를 반환하지 않아 랜덤 선택합니다.');
+        return { best_sketch_index: Math.floor(Math.random() * 3) };
+    }
+    return { best_sketch_index: index };
+}
+
+
+// 2단계: 선택된 시나리오로 최종 배틀로그 생성
+export async function generateFinalBattleLog(chosenSketch, battleData) {
+    const systemPrompt = await fetchPromptDoc('battle_final_system');
+
+    const userPrompt = `
+    <CONTEXT>
+      ## 선택된 전투 시나리오 (이 내용을 반드시 따라야 합니다)
+      - **승자 인덱스**: ${chosenSketch.winner_index} (${chosenSketch.winner_index === 0 ? battleData.attacker.name : battleData.defender.name}의 승리)
+      - **획득 EXP**: 캐릭터1(${battleData.attacker.name}) ${chosenSketch.exp_char0}, 캐릭터2(${battleData.defender.name}) ${chosenSketch.exp_char1}
+      - **사용된 아이템**: ${JSON.stringify({char0: chosenSketch.items_used_by_char0, char1: chosenSketch.items_used_by_char1})}
+      - **전투 개요**: ${chosenSketch.sketch_text}
+
+      ## 캐릭터 정보
+      - 관계: ${battleData.relation || '없음'}
+      - 캐릭터 1 (index 0, ${battleData.attacker.name}): ${JSON.stringify(battleData.attacker, null, 2)}
+      - 캐릭터 2 (index 1, ${battleData.defender.name}): ${JSON.stringify(battleData.defender, null, 2)}
+    </CONTEXT>
+  `;
+    
+  let raw = '';
+  try {
+    raw = await callGemini(DEFAULT_FLASH2, systemPrompt, userPrompt, 0.85);
+  } catch (e1) {
+    dbg('2단계 생성 실패, 폴백 시도', e1);
+    raw = await callGemini(FALLBACK_FLASH, systemPrompt, userPrompt, 0.85);
+  }
+
   console.log("--- 2단계: AI 최종 로그 응답 (Raw) ---");
   console.log(raw);
-  // --- 여기까지 ---
 
   const parsed = tryParseJson(raw);
-
-  const winner = sketchData.winner_name === battleData.attacker.name ? 0 : 1;
-
+  
   return {
       title: parsed?.title || "치열한 결투",
       content: parsed?.content || "결과를 생성하는 데 실패했습니다.",
-      winner: winner,
+      winner: chosenSketch.winner_index,
+      exp_char0: chosenSketch.exp_char0 || 10,
+      exp_char1: chosenSketch.exp_char1 || 10,
+      items_used_by_char0: chosenSketch.items_used_by_char0 || [],
+      items_used_by_char1: chosenSketch.items_used_by_char1 || [],
   };
 }
+
+
+
 /* ================= ADVENTURE: requestNarrative =================
  * 주사위로 이미 결정된 값(eventKind, deltaStamina 등)을 넘기면
  * AI는 '서술 + 선택지 2~3개 + 3문장 요약'만 만들어준다.
