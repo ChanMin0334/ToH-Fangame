@@ -131,22 +131,29 @@ async function startBattleProcess(myChar, opponentChar) {
         const oppInv = await getUserInventory(opponentChar.owner_uid);
         const getEquippedItems = (char, inv) => (char.items_equipped || []).map(id => inv.find(i => i.id === id)).filter(Boolean);
 
-        const attackerData = {
-            name: myChar.name,
-            narrative_long: myChar.narratives?.[0]?.long || myChar.summary,
-            narrative_short_summary: myChar.narratives?.slice(1).map(n => n.short).join(' '),
-            skills: getEquipped(myChar, myChar.abilities_all, myChar.abilities_equipped),
-            items: getEquippedItems(myChar, myInv),
-            origin: myChar.world_id,
+        const simplifyForAI = (char, inv) => {
+            const equippedSkills = getEquipped(char, char.abilities_all, char.abilities_equipped);
+            const equippedItems = getEquippedItems(char, inv);
+
+            // 스킬과 아이템을 '이름: 설명' 형태의 간단한 문자열로 변환
+            const skillsAsText = equippedSkills.map(s => `${s.name}: ${s.desc_soft}`).join('\n') || '없음';
+            const itemsAsText = equippedItems.map(i => `${i.name}: ${i.desc_soft || i.desc}`).join('\n') || '없음';
+
+            // 이전 서사 요약이 없을 경우를 대비해, 가장 최근 서사의 short 버전을 대신 사용
+            const narrativeSummary = char.narratives?.slice(1).map(n => n.short).join(' ') || char.narratives?.[0]?.short || '특이사항 없음';
+
+            return {
+                name: char.name,
+                narrative_long: char.narratives?.[0]?.long || char.summary,
+                narrative_short_summary: narrativeSummary,
+                skills: skillsAsText,  // 가공된 텍스트로 교체
+                items: itemsAsText,    // 가공된 텍스트로 교체
+                origin: char.world_id,
+            };
         };
-        const defenderData = {
-            name: opponentChar.name,
-            narrative_long: opponentChar.narratives?.[0]?.long || opponentChar.summary,
-            narrative_short_summary: opponentChar.narratives?.slice(1).map(n => n.short).join(' '),
-            skills: getEquipped(opponentChar, opponentChar.abilities_all, opponentChar.abilities_equipped),
-            items: getEquippedItems(opponentChar, oppInv),
-            origin: opponentChar.world_id,
-        };
+
+        const attackerData = simplifyForAI(myChar, myInv);
+        const defenderData = simplifyForAI(opponentChar, oppInv);
 
         progress.update('AI에게 1차 스케치 요청...', 50);
         const battleData = { prompts: chosenPrompts, attacker: attackerData, defender: defenderData };
