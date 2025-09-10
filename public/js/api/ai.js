@@ -33,7 +33,17 @@ function stripFences(text){
 function tryParseJson(t){
   if(!t) return null;
   const s = stripFences(t);
-  try{ return JSON.parse(s); }catch(e){ return null; }
+  try {
+    const parsed = JSON.parse(s);
+    // 성공 시, 분석된 객체를 콘솔에 출력
+    console.log("✅ JSON.parse 성공!", parsed);
+    return parsed;
+  } catch (e) {
+    // 실패 시, 에러 메시지와 분석에 실패한 텍스트를 콘솔에 출력
+    console.error("❌ JSON.parse 실패!", e);
+    console.error("파싱에 실패한 텍스트:", s);
+    return null;
+  }
 }
 function limit(str, n){ const s=String(str??''); return s.length>n ? s.slice(0,n) : s; }
 function getMaxTokens(){
