@@ -94,6 +94,7 @@ function fillVars(tpl, vars){
 // [교체] callGemini: BYOK 폐지 → 서버 프록시만 사용
 // ... (생략) ...
 import { db, fx, func } from './firebase.js'; // func를 import 했는지 확인
+
 import { httpsCallable } from 'firebase/functions'; // httpsCallable 추가
 
 // ... (생략) ...
