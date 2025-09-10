@@ -261,6 +261,12 @@ export async function generateBattleSketch(battleData) {
     - 결과는 반드시 JSON 형식이어야 하며, 'sketch' 필드에 문자열로 담아라. 예: { "sketch": "두 캐릭터는..." }
   `;
   const raw = await callGemini('gemini-1.5-flash-latest', systemPrompt, userPrompt, 0.9);
+
+  // --- 디버그용 console.log 추가 ---
+  console.log("--- 1단계: AI 스케치 응답 (Raw) ---");
+  console.log(raw);
+  // --- 여기까지 ---
+
   const parsed = tryParseJson(raw);
   return {
       sketch: parsed?.sketch || "두 캐릭터는 격렬하게 맞붙었다.",
