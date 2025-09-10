@@ -244,7 +244,15 @@ export async function showBattle(){
 
     const oppId = String(matchData.opponent.id||matchData.opponent.charId||'').replace(/^chars\//,'');
     const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
-    if (!oppDoc.exists()) throw new Error('상대 캐릭터 정보를 찾을 수 없습니다.');
+    
+    if (!oppDoc.exists()) {
+      // 상대 캐릭터가 삭제되었거나 없는 경우, 매칭 정보를 초기화하고 재매칭
+      showToast('상대 정보가 없어 다시 매칭할게.');
+      sessionStorage.removeItem(_lockKey('battle', intent.charId));
+      setTimeout(() => showBattle(), 1000); // 1초 후 재시도
+      return; // 현재 로직 중단
+    }
+    
     opponentCharData = { id: oppDoc.id, ...oppDoc.data() };
     
     renderOpponentCard(document.getElementById('matchArea'), opponentCharData);
