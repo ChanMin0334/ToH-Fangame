@@ -22,14 +22,19 @@ export function setByok(k){
 }
 
 /* =================== 유틸 =================== */
+// /public/js/api/ai.js
+
+// (기존 내용과 동일)
 function stripFences(text){
   if(!text) return '';
-  // ```json ... ```, ``` ... ```, ```\n...\n```
+  // 앞뒤 공백을 먼저 제거한 후, 시작과 끝의 ``` 블록을 제거합니다.
   return String(text)
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/```$/i, '')
-    .trim();
+    .trim() // <-- 1. 앞뒤 공백 및 줄바꿈 먼저 제거
+    .replace(/^```(?:json)?\s*/, '') // <-- 2. 시작 블록 제거
+    .replace(/```$/, '')            // <-- 3. 끝 블록 제거
+    .trim(); // <-- 4. 혹시 모를 내부 공백을 위해 한번 더 정리
 }
+// (기존 내용과 동일)
 function tryParseJson(t){
   if(!t) return null;
   const s = stripFences(t);
