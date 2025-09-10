@@ -52,8 +52,8 @@ function render(root, log, attacker, defender) {
     const isOwnerOfAttacker = currentUserId && attacker.owner_uid === currentUserId;
     const isOwnerOfDefender = currentUserId && defender.owner_uid === currentUserId;
 
-    const winnerIsAttacker = log.winner === 'attacker';
-    const winnerIsDefender = log.winner === 'defender';
+    const winnerIsAttacker = log.winner === 0; // 0: 공격자 승리
+    const winnerIsDefender = log.winner === 1; // 1: 방어자 승리
 
     const characterCard = (char, isWinner, isLoser) => {
         let borderColor = '#273247'; let label = '';
