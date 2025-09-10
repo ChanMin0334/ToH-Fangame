@@ -292,7 +292,7 @@ export async function generateFinalBattleLog(sketchData, battleData) {
   const raw = await callGemini('gemini-1.5-flash-latest', systemPrompt, userPrompt, 0.8);
   const parsed = tryParseJson(raw);
 
-  const winner = sketchData.winner_name === battleData.attacker.name ? 'attacker' : 'defender';
+  const winner = sketchData.winner_name === battleData.attacker.name ? 0 : 1; // 0: 공격자 승리, 1: 방어자 승리
 
   return {
       title: parsed?.title || "치열한 결투",
