@@ -218,7 +218,10 @@ export async function genCharacterFlash2({ world, userInput, injectionGuard }){
 
 // [신규] 배틀 프롬프트 로딩
 export async function fetchBattlePrompts() {
-  const allPrompts = await fetchPromptDoc('prompts'); // 'prompts' 문서 전체를 가져옴
+  const ref = fx.doc(db, 'configs', 'prompts');
+  const snap = await fx.getDoc(ref);
+  if (!snap.exists()) return [];
+  const allPrompts = snap.data() || {};
   // battle_logic_1, battle_logic_2... 와 같은 필드를 배열로 반환
   return Object.keys(allPrompts)
     .filter(k => k.startsWith('battle_logic_'))
