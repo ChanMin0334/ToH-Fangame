@@ -224,6 +224,59 @@ exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
   return { ok:true, done:willEnd, step:turn, staminaNow, event: ev };
 });
 
+exports.callGeminiProxy = onCall({ region: 'us-central1', secrets: ["GEMINI_API_KEY"] }, async (req) => {
+  // 인증된 사용자만 호출 가능
+  if (!req.auth) {
+    throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
+  }
+
+  const { model, systemText, userText, temperature, maxOutputTokens } = req.data;
+  const key = process.env.GEMINI_API_KEY; // secrets에서 API 키를 가져옵니다.
+
+  if (!key) {
+    throw new functions.https.HttpsError('internal', '서버에 API 키가 설정되지 않았습니다.');
+  }
+
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model || "gemini-1.5-flash-latest")}:generateContent?key=${key}`;
+
+  const body = {
+    contents: [{ role: "user", parts: [{ text: userText || "" }] }],
+    systemInstruction: { parts: [{ text: systemText || "" }] },
+    generationConfig: {
+      temperature: typeof temperature === "number" ? temperature : 0.85,
+      maxOutputTokens: typeof maxOutputTokens === "number" ? maxOutputTokens : 8000,
+    },
+    safetySettings: [],
+  };
+
+  try {
+    const r = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!r.ok) {
+      const errorBody = await r.json(); // 구글의 오류는 JSON 형식이므로 .json()으로 파싱
+      // 클라이언트에 오류 정보를 담아 HttpsError를 던집니다.
+      throw new functions.https.HttpsError('internal', r.statusText, errorBody);
+    }
+
+    const j = await r.json();
+    const text = j?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    return { text }; // 성공 시 text를 담아 반환
+
+  } catch (error) {
+    console.error("Gemini API call failed:", error);
+    if (error instanceof functions.https.HttpsError) {
+      throw error; // 이미 HttpsError인 경우 다시 던짐
+    }
+    throw new functions.https.HttpsError('internal', 'AI API 호출에 실패했습니다.');
+  }
+});
+
+
 // === [탐험 종료 & 보상 확정] onCall ===
 exports.endExplore = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
