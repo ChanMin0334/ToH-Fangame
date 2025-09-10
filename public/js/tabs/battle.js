@@ -5,13 +5,6 @@ import { autoMatch } from '../api/match_client.js';
 import { fetchBattlePrompts, generateBattleSketch, generateFinalBattleLog } from '../api/ai.js';
 import { updateAbilitiesEquipped, updateItemsEquipped } from '../api/store.js';
 import { getUserInventory } from '../api/user.js';
-// /public/js/tabs/battle.js
-import { auth, db, fx } from '../api/firebase.js';
-import { showToast } from '../ui/toast.js';
-import { autoMatch } from '../api/match_client.js';
-import { fetchBattlePrompts, generateBattleSketch, generateFinalBattleLog } from '../api/ai.js';
-import { updateAbilitiesEquipped, updateItemsEquipped } from '../api/store.js';
-import { getUserInventory } from '../api/user.js';
 // [수정] char.js의 아이템 상세 표시 관련 함수들을 import합니다.
 import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js'; // <--- 이 부분을 확인하세요
 
