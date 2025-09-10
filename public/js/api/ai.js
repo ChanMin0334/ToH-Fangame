@@ -172,7 +172,7 @@ function normalizeOutput(parsed, fallbackDesc=''){
   if(!intro) intro = limit(String(fallbackDesc||'').trim(), 600);
 
   const narratives = [{
-    title: nTitle || '초기 서사',
+    title: nTitle || '제목',
     long:  nLong  || '-',
     short: nShort || '',
   }];
