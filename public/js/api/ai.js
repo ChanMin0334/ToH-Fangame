@@ -227,13 +227,16 @@ export async function fetchBattlePrompts() {
 }
 
 // [신규] 1차 스케치 생성
+// [신규] 1차 스케치 생성
 export async function generateBattleSketch(battleData) {
   const systemPrompt = await fetchPromptDoc('battle_sketch_system');
+  const winnerName = Math.random() < 0.5 ? battleData.attacker.name : battleData.defender.name;
+
   const userPrompt = `
     ## 배틀 컨셉 프롬프트 (랜덤 3종)
     ${battleData.prompts.join('\n\n')}
 
-    ## 공격자 정보
+    ## 캐릭터 1 정보
     - 이름: ${battleData.attacker.name}
     - 출신: ${battleData.attacker.origin}
     - 최근 서사: ${battleData.attacker.narrative_long}
@@ -241,7 +244,7 @@ export async function generateBattleSketch(battleData) {
     - 스킬: ${JSON.stringify(battleData.attacker.skills)}
     - 아이템: ${JSON.stringify(battleData.attacker.items)}
 
-    ## 방어자 정보
+    ## 캐릭터 2 정보
     - 이름: ${battleData.defender.name}
     - 출신: ${battleData.defender.origin}
     - 최근 서사: ${battleData.defender.narrative_long}
@@ -250,41 +253,43 @@ export async function generateBattleSketch(battleData) {
     - 아이템: ${JSON.stringify(battleData.defender.items)}
 
     ## 지시사항
-    위 정보를 바탕으로, 이 배틀의 핵심적인 전개 방향을 담은 "스케치"를 2~3개의 짧은 문단으로 작성해라.
-    결과는 반드시 JSON 형식이어야 하며, 'sketch' 필드에 문자열로 담아라. 예: { "sketch": "두 캐릭터는..." }
+    - 이번 배틀의 승자는 **'${winnerName}'** 이다.
+    - 승자가 결정된 사실에 맞춰, 이 배틀의 핵심적인 전개 방향을 담은 "스케치"를 2~3개의 짧은 문단으로 작성해라.
+    - 결과는 반드시 JSON 형식이어야 하며, 'sketch' 필드에 문자열로 담아라. 예: { "sketch": "두 캐릭터는..." }
   `;
   const raw = await callGemini('gemini-1.5-flash-latest', systemPrompt, userPrompt, 0.9);
   const parsed = tryParseJson(raw);
-  return parsed?.sketch || "두 캐릭터는 격렬하게 맞붙었다.";
+  return {
+      sketch: parsed?.sketch || "두 캐릭터는 격렬하게 맞붙었다.",
+      winner_name: winnerName
+  };
 }
 
 // [수정] 최종 배틀 로그 생성 (무승부 제외)
-export async function generateFinalBattleLog(sketch, battleData) {
+export async function generateFinalBattleLog(sketchData, battleData) {
     const systemPrompt = await fetchPromptDoc('battle_final_system');
     const userPrompt = `
     ## 1차 스케치
-    ${sketch}
+    ${sketchData.sketch}
 
     ## 캐릭터 및 컨셉 정보 (스케치 생성 시 사용된 정보와 동일)
-    ${JSON.stringify(battleData)}
+    - 캐릭터 1: ${JSON.stringify(battleData.attacker)}
+    - 캐릭터 2: ${JSON.stringify(battleData.defender)}
+    - 배틀 컨셉: ${JSON.stringify(battleData.prompts)}
 
     ## 최종 지시사항
-    주어진 스케치와 캐릭터 정보를 조합하여, 매우 흥미롭고 상세한 배틀로그를 완성하라.
-    결과는 반드시 다음 JSON 형식을 따라야 하며, 'winner'는 반드시 'attacker' 또는 'defender' 중 하나여야 한다. **무승부('draw')는 절대 허용되지 않는다.**
+    - 이번 배틀의 승자는 **'${sketchData.winner_name}'** 이다. 이 결론에 맞춰 서사를 완성해야 한다.
+    - 주어진 스케치와 캐릭터 정보를 조합하여, 매우 흥미롭고 상세한 배틀로그를 완성하라.
+    - 결과는 반드시 다음 JSON 형식을 따라야 한다.
     {
       "title": "배틀의 제목 (예: 강철과 바람의 춤)",
-      "content": "배틀의 전체 내용을 담은 상세한 서사 (최소 5문단 이상)",
-      "winner": "'attacker' 또는 'defender'"
+      "content": "배틀의 전체 내용을 담은 상세한 서사 (최소 5문단 이상)"
     }
   `;
   const raw = await callGemini('gemini-1.5-flash-latest', systemPrompt, userPrompt, 0.8);
   const parsed = tryParseJson(raw);
 
-  // AI가 지시를 어기고 draw나 다른 값을 반환할 경우를 대비한 안전장치
-  let winner = parsed?.winner;
-  if (winner !== 'attacker' && winner !== 'defender') {
-    winner = Math.random() < 0.5 ? 'attacker' : 'defender';
-  }
+  const winner = sketchData.winner_name === battleData.attacker.name ? 'attacker' : 'defender';
 
   return {
       title: parsed?.title || "치열한 결투",
@@ -292,7 +297,6 @@ export async function generateFinalBattleLog(sketch, battleData) {
       winner: winner,
   };
 }
-
 
 /* ================= ADVENTURE: requestNarrative =================
  * 주사위로 이미 결정된 값(eventKind, deltaStamina 등)을 넘기면
