@@ -224,14 +224,27 @@ exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
   return { ok:true, done:willEnd, step:turn, staminaNow, event: ev };
 });
 
+// functions/index.js (수정 완료)
+const { onCall } = require("firebase-functions/v2/https");
+const { initializeApp } = require("firebase-admin/app");
+const { getFirestore } = require("firebase-admin/firestore");
+const crypto = require("crypto");
+const functions = require("firebase-functions");
+const fetch = require("node-fetch");
+
+initializeApp();
+const db = getFirestore();
+
+// (기존의 다른 함수들은 그대로 둡니다)
+
+// ▼▼▼ AI 프록시 함수 ▼▼▼
 exports.callGeminiProxy = onCall({ region: 'us-central1', secrets: ["GEMINI_API_KEY"] }, async (req) => {
-  // 인증된 사용자만 호출 가능
   if (!req.auth) {
     throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
   }
 
   const { model, systemText, userText, temperature, maxOutputTokens } = req.data;
-  const key = process.env.GEMINI_API_KEY; // secrets에서 API 키를 가져옵니다.
+  const key = process.env.GEMINI_API_KEY;
 
   if (!key) {
     throw new functions.https.HttpsError('internal', '서버에 API 키가 설정되지 않았습니다.');
@@ -257,20 +270,20 @@ exports.callGeminiProxy = onCall({ region: 'us-central1', secrets: ["GEMINI_API_
     });
 
     if (!r.ok) {
-      const errorBody = await r.json(); // 구글의 오류는 JSON 형식이므로 .json()으로 파싱
-      // 클라이언트에 오류 정보를 담아 HttpsError를 던집니다.
-      throw new functions.https.HttpsError('internal', r.statusText, errorBody);
+      const errorBody = await r.json();
+      console.error("Google AI API Error:", JSON.stringify(errorBody));
+      throw new functions.https.HttpsError('internal', `Google AI API returned status ${r.status}`, errorBody);
     }
 
     const j = await r.json();
     const text = j?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    return { text }; // 성공 시 text를 담아 반환
+    return { text };
 
   } catch (error) {
-    console.error("Gemini API call failed:", error);
+    console.error("callGeminiProxy function failed:", error);
     if (error instanceof functions.https.HttpsError) {
-      throw error; // 이미 HttpsError인 경우 다시 던짐
+      throw error;
     }
     throw new functions.https.HttpsError('internal', 'AI API 호출에 실패했습니다.');
   }
