@@ -510,7 +510,107 @@ async function openItemPicker(c, onSave) {
 // 스킬/아이템 탭
 // /public/js/tabs/char.js
 
-async function renderLoadout(c, view){
+// 스킬/아이템 탭
+async function renderLoadout(c, view) {
+  const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
+
+  // 스킬과 아이템 데이터를 가져옵니다.
+  const getAbilities = () => c.abilities_all || [];
+  const getItems = () => c.items_all || [];
+  const equippedAbilities = c.abilities_equipped || [];
+  const equippedItems = c.items_equipped || [];
+
+  const allAbilities = getAbilities();
+  const allItems = getItems();
+
+  const rarityColors = {
+    normal: '#c8d0dc', rare: '#cfe4ff', epic: '#e6dcff', legend: '#ffe9ad', myth: '#ffc9ce'
+  };
+
+  const getItemHtml = (item, isEquipped) => {
+    const style = rarityStyle(item.rarity);
+    return `
+      <div class="kv-card item-card ${isEquipped ? 'equipped' : ''}" data-item-id="${item.id}" style="border-left: 3px solid ${style.border}; cursor: pointer;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="font-weight:700; color:${style.text};">${esc(item.name)}</div>
+          ${isEquipped ? '<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">장착중</span>' : ''}
+        </div>
+        <div class="text-dim" style="font-size:12px; margin-top:4px;">${esc(item.desc_soft || item.desc || '-')}</div>
+      </div>
+    `;
+  };
+
+  const getAbilityHtml = (ability, isEquipped) => {
+    const color = rarityColors[ability.rarity] || rarityColors.normal;
+    return `
+      <div class="kv-card ability-card ${isEquipped ? 'equipped' : ''}" style="border-left: 3px solid ${color}80;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="font-weight:700; color:${color};">${esc(ability.name)}</div>
+          ${isEquipped ? '<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">장착중</span>' : ''}
+        </div>
+        <div class="text-dim" style="font-size:12px; margin-top:4px;">${esc(ability.desc || '-')}</div>
+      </div>
+    `;
+  };
+
+  view.innerHTML = `
+    <div class="p12">
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <h4 style="margin:0;">스킬 (장착 ${equippedAbilities.length} / 2)</h4>
+      </div>
+      <div id="abilitiesList" class="col mt8" style="gap:8px;">
+        ${allAbilities.length === 0 ? '<div class="text-dim">보유 스킬이 없습니다.</div>' : allAbilities.map(a => getAbilityHtml(a, equippedAbilities.includes(a.id))).join('')}
+      </div>
+
+      <hr class="my12">
+
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <h4 style="margin:0;">아이템 (장착 ${equippedItems.length} / 3)</h4>
+        ${isOwner ? '<button class="btn" id="btnManageItems">장착 관리</button>' : ''}
+      </div>
+      <div id="itemsList" class="col mt8" style="gap:8px;">
+         ${allItems.length === 0 ? '<div class="text-dim">보유 아이템이 없습니다.</div>' : allItems.map(i => getItemHtml(i, equippedItems.includes(i.id))).join('')}
+      </div>
+    </div>
+  `;
+
+  if (isOwner) {
+    view.querySelector('#btnManageItems')?.addEventListener('click', () => {
+      openItemPicker(c, () => {
+        // 저장 후 콜백: Loadout 탭을 다시 렌더링하여 변경사항을 반영합니다.
+        renderLoadout(c, view);
+      });
+    });
+  }
+
+  // 아이템 카드 클릭 시 상세 정보 모달 표시
+  view.querySelectorAll('.item-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const itemId = card.dataset.itemId;
+      const item = allItems.find(it => it.id === itemId);
+      if (item) {
+        showItemDetailModal(item, {
+          equippedIds: c.items_equipped,
+          onUpdate: async (newEquipped) => {
+            if (isOwner) {
+              try {
+                await updateItemsEquipped(c.id, newEquipped);
+                c.items_equipped = newEquipped; // 로컬 캐릭터 데이터 업데이트
+                showToast('아이템 장착 정보가 변경되었습니다.');
+                renderLoadout(c, view); // 탭 다시 렌더링
+              } catch (e) {
+                showToast(`오류: ${e.message}`);
+              }
+            }
+          }
+        });
+      }
+    });
+  });
+}
+
+// 표준 narratives → {id,title,long,short} 배열, 없으면 legacy narrative_items 변환
+function normalizeNarratives(c){
 
 
 // 표준 narratives → {id,title,long,short} 배열, 없으면 legacy narrative_items 변환
