@@ -5,8 +5,8 @@ import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 if (!admin.apps.length) admin.initializeApp();
 
 type Mode = 'battle'|'encounter';
-const COOLDOWN_SEC = 60;
-const LOCK_SEC = 90;
+const COOLDOWN_SEC = 300;
+const LOCK_SEC = 600;
 
 function nowSec(){ return Math.floor(Date.now()/1000); }
 function gaussWeight(delta: number, sigma=150){ return Math.exp(-(delta*delta)/(2*sigma*sigma)); }
