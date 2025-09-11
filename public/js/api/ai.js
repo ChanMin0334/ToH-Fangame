@@ -193,7 +193,48 @@ export async function generateFinalBattleLog(chosenSketch, battleData) {
   };
 }
 
+/* ================= 생성 엔드포인트 ================= */
+export async function genCharacterFlash2({ world, userInput, injectionGuard }){
+  // world: { id, name, summary, detail, rawJson? }
+  // userInput: 문자열(캐릭터 이름/설정 포함)
+  // injectionGuard: 문자열
+  const { system, inject } = await loadCreatePrompts();
 
+  const systemFilled = fillVars(system, {
+    world_summary: world?.summary ?? '',
+    world_detail:  world?.detail  ?? '',
+    world_json:    JSON.stringify(world?.rawJson ?? world ?? {}),
+    inject:        injectionGuard ?? inject ?? '',
+    user_input:    userInput ?? '',
+  });
+
+  // 사용자 파트는 간결히(검증자가 읽기 쉽게)
+  const userCombined = userInput || '';
+
+  let raw='', parsed=null;
+  try{
+    raw    = await callGemini(DEFAULT_FLASH2, systemFilled, userCombined, 0.85);
+    parsed = tryParseJson(raw);
+  }catch(e1){
+    dbg('flash2 실패, 1.5로 폴백', e1);
+    try{
+      raw    = await callGemini(FALLBACK_FLASH, systemFilled, userCombined, 0.8);
+      parsed = tryParseJson(raw);
+    }catch(e2){
+      throw e1; // 최초 에러를 전달
+    }
+  }
+
+  if(DEBUG){
+    window.__ai_debug = window.__ai_debug || {};
+    window.__ai_debug.raw_len   = (raw||'').length;
+    window.__ai_debug.raw_head  = String(raw||'').slice(0, 2000);
+    window.__ai_debug.parsed_ok = !!parsed;
+  }
+
+  const norm = normalizeOutput(parsed, userInput||'');
+  return norm;
+}
 
 
 /* ================= ADVENTURE: requestNarrative =================
