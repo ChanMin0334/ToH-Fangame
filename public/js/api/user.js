@@ -140,15 +140,17 @@ export async function restoreAvatarFromGoogle(){
   return url;
 }
 
-export async function getUserInventory() {
-  const u = auth.currentUser;
-  if (!u) return [];
+// (수정 후 코드)
+export async function getUserInventory(uid = null) {
+  const targetUid = uid || auth.currentUser?.uid;
+  if (!targetUid) return [];
+  
   try {
-    const userDocRef = fx.doc(db, 'users', u.uid);
+    const userDocRef = fx.doc(db, 'users', targetUid);
     const userDocSnap = await fx.getDoc(userDocRef);
     return userDocSnap.exists() ? (userDocSnap.data().items_all || []) : [];
   } catch (e) {
-    console.error("Failed to get user inventory:", e);
+    console.error(`Failed to get inventory for UID ${targetUid}:`, e);
     return [];
   }
 }
