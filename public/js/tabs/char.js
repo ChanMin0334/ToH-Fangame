@@ -87,6 +87,8 @@ export function ensureItemCss() {
 // [교체] adventure.js의 showItemDetailModal 함수로 교체합니다.
 // (battle.js에서 필요한 onUpdate 콜백 기능이 포함되어 있습니다)
 export function showItemDetailModal(item, context = {}) {
+    ensureItemCss();
+    if (document.querySelector('.modal-back[data-kind="item-detail"]')) return;
     const { equippedIds = [], onUpdate = () => {} } = context;
     const isEquipped = equippedIds.includes(item.id);
 
@@ -102,6 +104,7 @@ export function showItemDetailModal(item, context = {}) {
 
     const back = document.createElement('div');
     back.className = 'modal-back';
+  
     back.style.zIndex = '10001'; // 아이템 피커 모달 위에 표시되도록 z-index 증가
     back.innerHTML = `
     <div class="modal-card" style="background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:720px;width:92vw;">
@@ -442,6 +445,7 @@ async function openItemPicker(c, onSave) {
 
   const back = document.createElement('div');
   back.className = 'modal-back';
+  back.dataset.kind = 'item-detail';
   back.style.zIndex = '10000';
 
   const renderModalContent = () => {
@@ -460,7 +464,7 @@ async function openItemPicker(c, onSave) {
               return `
                 <div class="kv-card item-picker-card ${isSelected ? 'selected' : ''}" data-item-id="${item.id}" style="padding:10px; border: 2px solid ${isSelected ? '#4aa3ff' : 'transparent'}; cursor:pointer;">
                   <div style="font-weight:700; color: ${style.text}; pointer-events:none;">${esc(item.name)}</div>
-                  <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden; pointer-events:none;">${esc(item.desc_soft || item.desc || '-')}</div>
+                  <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden; pointer-events:none;">${esc(item.desc_soft || item.desc || item.description || (item.desc_long ? String(item.desc_long).split('\n')[0] : '-') )}</div>
                 </div>
               `;
             }).join('')
@@ -585,7 +589,7 @@ async function renderLoadout(c, view){
       return `
         <button class="item" data-item-id="${it.id}" style="text-align:left; cursor:pointer; border-left: 3px solid ${style.border}; background:${style.bg};">
           <div class="name" style="color:${style.text}">${it.name || '아이템'}</div>
-          <div class="desc" style="font-size:12px; opacity:0.8;">${it.desc_soft || it.desc || '-'}</div>
+          <div class="desc" style="font-size:12px; opacity:0.8;">${esc(it.desc_soft || it.desc || it.description || (it.desc_long ? String(it.desc_long).split('\n')[0] : '-') )}</div>
         </button>`;
     }).join('');
 
