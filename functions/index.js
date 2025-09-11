@@ -164,15 +164,14 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
     if(!uid) throw new functions.https.HttpsError('unauthenticated','로그인이 필요해');
 
     const seconds = Math.max(1, Math.min(600, Number(req.data?.seconds || 60)));
-    const dbx = admin.firestore();
-    const userRef = dbx.doc(`users/${uid}`);
+    const userRef = db.doc(`users/${uid}`);
 
-    await dbx.runTransaction(async (tx)=>{
-      const now = admin.firestore.Timestamp.now();
+    await db.runTransaction(async (tx)=>{
+      const now = Timestamp.now();
       const snap = await tx.get(userRef);
       const exist = snap.exists ? snap.get('cooldown_all_until') : null;
-      const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis()); // 절대 단축 불가
-      const until = admin.firestore.Timestamp.fromMillis(baseMs + seconds*1000);
+      const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis()); // 단축 불가
+      const until = Timestamp.fromMillis(baseMs + seconds*1000);
       tx.set(userRef, { cooldown_all_until: until }, { merge:true });
     });
 
@@ -183,6 +182,31 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
     throw new functions.https.HttpsError('internal','cooldown-internal-error',{message:err?.message||String(err)});
   }
 });
+
+
+// === [1회용] 현재 Auth 유저 수를 세서 userQuota/meta.total 에 반영 ===
+const admin = require('firebase-admin'); // 맨 위에 이미 있다면 중복 제거
+exports.syncUserQuotaOnce = onCall({ region:'us-central1' }, async (req)=>{
+  const caller = req.auth?.uid;
+  const OWNER_UID = 'pf0u8SQl5gbVHqQU4VFl2ur5zKa2'; // 본인 UID로 교체!
+  if (!caller || caller !== OWNER_UID) {
+    throw new functions.https.HttpsError('permission-denied','권한 없음');
+  }
+
+  // 모든 Auth 유저 수 세기
+  let nextPageToken = undefined, count = 0;
+  do {
+    const page = await admin.auth().listUsers(1000, nextPageToken);
+    count += page.users.length;
+    nextPageToken = page.pageToken;
+  } while (nextPageToken);
+
+  await QUOTA_REF.set({ total: count, updatedAt: Timestamp.now() }, { merge:true });
+  return { ok:true, total: count };
+});
+
+
+
 
 // === [탐험 시작] onCall ===
 exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
