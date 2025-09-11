@@ -650,6 +650,26 @@ async function renderLoadout(c, view) {
   });
 }
 
+function normalizeNarratives(c){
+  if (Array.isArray(c.narratives) && c.narratives.length){
+    return c.narratives.map(n => ({
+      id: n.id || ('n'+Math.random().toString(36).slice(2)),
+      title: n.title || '서사',
+      long: n.long || '',
+      short: n.short || ''
+    }));
+  }
+  if (Array.isArray(c.narrative_items) && c.narrative_items.length){
+    return c.narrative_items.map((it, i) => ({
+      id: 'legacy-'+i,
+      title: it.title || '서사',
+      long: it.body || '',
+      short: ''
+    }));
+  }
+  return [];
+}
+
 
 // 서사 전용 페이지: 제목 → long → short (short는 여기에서만 노출)
 function renderNarrativePage(c, narrId){
