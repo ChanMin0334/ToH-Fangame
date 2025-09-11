@@ -520,8 +520,20 @@ async function renderLoadout(c, view){
   
   const equippedItemIds = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
   
-  // [수정] 내 인벤토리가 아닌, 현재 보고 있는 캐릭터의 아이템 목록을 사용합니다.
-  const inv = isOwner ? await getUserInventory() : (Array.isArray(c.items_all) ? c.items_all : []);
+  // [핵심 수정] 상대방 캐릭터일 경우, 상대방의 user 문서를 읽어와 인벤토리를 가져옵니다.
+  let inv = [];
+  if (isOwner) {
+    inv = await getUserInventory();
+  } else {
+    try {
+      const userDocRef = fx.doc(db, 'users', c.owner_uid);
+      const userDocSnap = await fx.getDoc(userDocRef);
+      inv = userDocSnap.exists() ? (userDocSnap.data().items_all || []) : [];
+    } catch (e) {
+      console.error("Failed to get opponent inventory:", e);
+      inv = []; // 실패 시 빈 배열로 처리
+    }
+  }
 
   view.innerHTML = `
     <div class="p12">
@@ -531,7 +543,7 @@ async function renderLoadout(c, view){
         : `<div class="grid2 mt8">
             ${abilitiesAll.map((ab,i)=>`
               <label class="skill">
-                <input type="checkbox" data-i="${i}" ${isOwner && equippedAb.includes(i) ? 'checked' : ''} ${isOwner ? '' : 'disabled'}/>
+                <input type="checkbox" data-i="${i}" ${equippedAb.includes(i) ? 'checked' : ''} ${isOwner ? '' : 'disabled'}/>
                 <div>
                   <div class="name">${ab?.name || ('스킬 ' + (i+1))}</div>
                   <div class="desc">${ab?.desc_soft || '-'}</div>
@@ -597,7 +609,6 @@ async function renderLoadout(c, view){
     });
   }
 }
-
 
 
 // 표준 narratives → {id,title,long,short} 배열, 없으면 legacy narrative_items 변환
