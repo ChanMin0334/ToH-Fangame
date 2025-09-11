@@ -6,11 +6,11 @@ const STAMINA_BASE = 10;
 
 // (이벤트/아이템 테이블 등은 가독성을 위해 생략)
 const EVENT_TABLE = {
-  easy:   { safe:400, item:250, narrative:200, risk:100, combat:50 },
-  normal: { safe:300, item:200, narrative:200, risk:150, combat:150 },
-  hard:   { safe:220, item:180, narrative:180, risk:220, combat:200 },
-  vhard:  { safe:150, item:150, narrative:150, risk:250, combat:300 },
-  legend: { safe:100, item:120, narrative:130, risk:250, combat:400 },
+  easy:   { safe:150, item:270, narrative:200, risk:230, combat:150 },
+  normal: { safe:120, item:275, narrative:180, risk:235, combat:190 },
+  hard:   { safe:90,  item:280, narrative:160, risk:240, combat:230 },
+  vhard:  { safe:60,  item:285, narrative:140, risk:245, combat:270 },
+  legend: { safe:30,  item:290, narrative:120, risk:250, combat:310 },
 };
 // ANCHOR: /public/js/api/explore.js
 // ... (파일 상단)
