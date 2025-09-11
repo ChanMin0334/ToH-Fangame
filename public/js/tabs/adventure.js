@@ -697,7 +697,7 @@ async function openItemPicker(char) {
           ${useBadgeHtml(item)}
         </div>
         <div style="font-size:12px;opacity:.85;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
-          ${esc(item.desc_soft || item.desc || item.description || '')}
+          ${esc(item.desc_soft || item.desc || item.description || (item.desc_long ? String(item.desc_long).split('\n')[0] : ''))}
         </div>
       `;
 
