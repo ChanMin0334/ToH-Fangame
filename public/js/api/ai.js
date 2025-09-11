@@ -229,7 +229,7 @@ export async function generateFinalBattleLog(chosenSketch, battleData) {
 export async function genCharacterFlash2({ world, userInput }){
   // [수정] 존재하지 않는 loadCreatePrompts 대신 fetchPromptDoc을 직접 사용합니다.
   // create.js에 정의된 PROMPT_DOC_ID ('char_create')를 사용합니다.
-  const systemPrompt = await fetchPromptDoc('char_create');
+  const systemPrompt = await fetchPromptDoc('char_create_system');
 
   // [수정] 존재하지 않는 fillVars 대신, 간단한 replace 함수로 프롬프트 내용을 채웁니다.
   const systemFilled = systemPrompt
