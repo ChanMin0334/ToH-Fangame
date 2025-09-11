@@ -89,7 +89,7 @@ export function ensureItemCss() {
 export function showItemDetailModal(item, context = {}) {
     ensureItemCss();
     if (document.querySelector('.modal-back[data-kind="item-detail"]')) return;
-    const { equippedIds = [], onUpdate = () => {} } = context;
+    const { equippedIds = [], onUpdate = null } = context;
     const isEquipped = equippedIds.includes(item.id);
 
     const style = rarityStyle(item.rarity);
@@ -131,28 +131,33 @@ export function showItemDetailModal(item, context = {}) {
     back.querySelector('#mCloseDetail').onclick = closeModal;
 
     const actionsContainer = back.querySelector('#itemActions');
-    // 장착/해제 버튼 로직 (battle.js에서 사용)
-    if (isEquipped) {
-        const btnUnequip = document.createElement('button');
-        btnUnequip.className = 'btn';
-        btnUnequip.textContent = '장착 해제';
-        btnUnequip.onclick = () => {
-            const newEquipped = equippedIds.filter(id => id !== item.id);
-            onUpdate(newEquipped);
-            closeModal();
-        };
-        actionsContainer.appendChild(btnUnequip);
-    } else if (onUpdate !== null && equippedIds.length < 3) {
-        const btnEquip = document.createElement('button');
-        btnEquip.className = 'btn primary';
-        btnEquip.textContent = '장착하기';
-        btnEquip.onclick = () => {
-            const newEquipped = [...equippedIds, item.id];
-            onUpdate(newEquipped);
-            closeModal();
-        };
-        actionsContainer.appendChild(btnEquip);
-    }
+
+// 인벤토리(피커)에서만 버튼을 노출: onUpdate가 함수로 넘어온 경우에 한정
+if (typeof onUpdate === 'function') {
+  if (isEquipped) {
+    const btnUnequip = document.createElement('button');
+    btnUnequip.className = 'btn';
+    btnUnequip.textContent = '장착 해제';
+    btnUnequip.onclick = () => {
+      const newEquipped = equippedIds.filter(id => id !== item.id);
+      onUpdate(newEquipped);
+      closeModal();
+    };
+    actionsContainer.appendChild(btnUnequip);
+  } else if (equippedIds.length < 3) {
+    const btnEquip = document.createElement('button');
+    btnEquip.className = 'btn primary';
+    btnEquip.textContent = '장착하기';
+    btnEquip.onclick = () => {
+      const newEquipped = [...equippedIds, item.id];
+      onUpdate(newEquipped);
+      closeModal();
+    };
+    actionsContainer.appendChild(btnEquip);
+  }
+}
+// onUpdate가 없으면(= 피커 밖에서 띄운 상세창이면) 버튼 영역은 비워둔다.
+
 
     document.body.appendChild(back);
 }
