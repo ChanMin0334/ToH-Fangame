@@ -191,9 +191,28 @@ async function startBattleProcess(myChar, opponentChar) {
 
         const logRef = await fx.addDoc(fx.collection(db, 'battle_logs'), logData);
 
-        // TODO: 여기서 finalLog.exp_char0, finalLog.exp_char1을 각 캐릭터에게 부여하고
-        // finalLog.items_used_by_char0, finalLog.items_used_by_char1을 각 인벤토리에서 차감하는 로직 필요
-        // (예: grantExp(myChar.id, finalLog.exp_char0), consumeItems(myChar.id, finalLog.items_used_by_char0))
+        // [수정] Cloudflare Worker를 호출하여 후처리 실행
+        try {
+            progress.update('서버에 결과 반영 중...', 98);
+            
+            // 5단계에서 복사한 본인의 Worker URL을 여기에 붙여넣으세요.
+            const workerUrl = 'https://toh-battle-processor.pokemonrgby.workers.dev'; 
+
+            const res = await fetch(workerUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ logId: logRef.id })
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error || 'Worker에서 오류가 발생했습니다.');
+            }
+
+        } catch (e) {
+            console.error('배틀 결과 반영 실패:', e);
+            showToast(`결과를 반영하는 중 서버 오류가 발생했습니다: ${e.message}`);
+        }
 
         progress.update('완료!', 100);
         setTimeout(() => {
