@@ -312,7 +312,7 @@ export async function showBattle(){
         }
         if (getCooldownRemainMs() > 0) return;
         btnStart.disabled = true;
-        applyGlobalCooldown(60);
+        applyGlobalCooldown(300);
         await startBattleProcess(myCharData, opponentCharData);
     };
 
