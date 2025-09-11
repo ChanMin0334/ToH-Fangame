@@ -508,6 +508,8 @@ async function openItemPicker(c, onSave) {
 
 
 // 스킬/아이템 탭
+// /public/js/tabs/char.js
+
 async function renderLoadout(c, view){
   const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
 
@@ -515,20 +517,22 @@ async function renderLoadout(c, view){
   const equippedAb = Array.isArray(c.abilities_equipped)
     ? c.abilities_equipped.filter(i=>Number.isInteger(i)&&i>=0&&i<abilitiesAll.length).slice(0,2)
     : [];
-  
+
   const equippedItemIds = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
-  
-  const inv = await getUserInventory();
+
+  // [수정] 내 인벤토리가 아닌, 현재 캐릭터의 아이템 목록을 사용합니다.
+  const inv = Array.isArray(c.items_all) ? c.items_all : [];
 
   view.innerHTML = `
     <div class="p12">
-      <h4>스킬 (4개 중 <b>반드시 2개</b> 선택)</h4>
+      <h4>스킬 (4개 중 <b>${isOwner ? '반드시 2개 선택' : '목록'}</b>)</h4>
       ${abilitiesAll.length===0
         ? `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
         : `<div class="grid2 mt8">
             ${abilitiesAll.map((ab,i)=>`
               <label class="skill">
-                <input type="checkbox" data-i="${i}" ${equippedAb.includes(i)?'checked':''} ${isOwner ? '' : 'disabled'}/>
+                {/* [수정] isOwner일 때만 checked 속성을 적용합니다. */}
+                <input type="checkbox" data-i="${i}" ${isOwner && equippedAb.includes(i) ? 'checked' : ''} ${isOwner ? '' : 'disabled'}/>
                 <div>
                   <div class="name">${ab?.name || ('스킬 ' + (i+1))}</div>
                   <div class="desc">${ab?.desc_soft || '-'}</div>
@@ -562,17 +566,29 @@ async function renderLoadout(c, view){
     slotBox.innerHTML = [0,1,2].map(slotIndex => {
       const docId = equippedItemIds[slotIndex];
       if(!docId) return `<div class="slot">(비어 있음)</div>`;
-      
+
       const it = inv.find(i => i.id === docId);
-      if(!it) return `<div class="slot" style="color: #ff5b66;">(아이템 없음)</div>`;
-      
+      if(!it) return `<div class="slot" style="color: #ff5b66;">(아이템 정보 없음)</div>`;
+
       const style = rarityStyle(it.rarity);
+      // [수정] div를 button으로 변경하고, 클릭 이벤트를 추가합니다.
       return `
-        <div class="item" style="border-left: 3px solid ${style.border}; background:${style.bg};">
+        <button class="item" data-item-id="${it.id}" style="text-align:left; cursor:pointer; border-left: 3px solid ${style.border}; background:${style.bg};">
           <div class="name" style="color:${style.text}">${it.name || '아이템'}</div>
           <div class="desc" style="font-size:12px; opacity:0.8;">${it.desc_soft || it.desc || '-'}</div>
-        </div>`;
+        </button>`;
     }).join('');
+
+    // [추가] 생성된 아이템 슬롯 버튼에 클릭 이벤트 핸들러를 연결합니다.
+    slotBox.querySelectorAll('.item[data-item-id]').forEach(btn => {
+        btn.onclick = () => {
+            const itemId = btn.dataset.itemId;
+            const item = inv.find(i => i.id === itemId);
+            if(item) {
+                showItemDetailModal(item);
+            }
+        };
+    });
   };
   renderSlots();
 
