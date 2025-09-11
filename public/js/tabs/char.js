@@ -52,6 +52,7 @@ export function rarityStyle(r) {
   return map[(r || '').toLowerCase()] || map.normal;
 }
 
+// [추가] adventure.js에서 가져온 함수들
 export function isConsumableItem(it){ return !!(it?.consumable || it?.isConsumable); }
 export function getUsesLeft(it){
   if (typeof it?.uses === 'number') return it.uses;
@@ -62,7 +63,6 @@ export function useBadgeHtml(it){
   if (!isConsumableItem(it)) return '';
   const left = getUsesLeft(it);
   const label = (left === null) ? '소모품' : `남은 ${left}회`;
-// (기존 내용과 동일)
   return `<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">${esc(label)}</span>`;
 }
 
@@ -84,6 +84,8 @@ export function ensureItemCss() {
   document.head.appendChild(st);
 }
 
+// [교체] adventure.js의 showItemDetailModal 함수로 교체합니다.
+// (battle.js에서 필요한 onUpdate 콜백 기능이 포함되어 있습니다)
 export function showItemDetailModal(item, context = {}) {
     const { equippedIds = [], onUpdate = () => {} } = context;
     const isEquipped = equippedIds.includes(item.id);
@@ -100,7 +102,7 @@ export function showItemDetailModal(item, context = {}) {
 
     const back = document.createElement('div');
     back.className = 'modal-back';
-    back.style.zIndex = '10001';
+    back.style.zIndex = '10001'; // 아이템 피커 모달 위에 표시되도록 z-index 증가
     back.innerHTML = `
     <div class="modal-card" style="background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:720px;width:92vw;">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
@@ -125,6 +127,7 @@ export function showItemDetailModal(item, context = {}) {
     back.querySelector('#mCloseDetail').onclick = closeModal;
 
     const actionsContainer = back.querySelector('#itemActions');
+    // 장착/해제 버튼 로직 (battle.js에서 사용)
     if (isEquipped) {
         const btnUnequip = document.createElement('button');
         btnUnequip.className = 'btn';
@@ -135,7 +138,7 @@ export function showItemDetailModal(item, context = {}) {
             closeModal();
         };
         actionsContainer.appendChild(btnUnequip);
-    } else if (equippedIds.length < 3) {
+    } else if (onUpdate !== null && equippedIds.length < 3) {
         const btnEquip = document.createElement('button');
         btnEquip.className = 'btn primary';
         btnEquip.textContent = '장착하기';
@@ -149,7 +152,6 @@ export function showItemDetailModal(item, context = {}) {
 
     document.body.appendChild(back);
 }
-
 
 // ---------- entry ----------
 export async function showCharDetail(){
