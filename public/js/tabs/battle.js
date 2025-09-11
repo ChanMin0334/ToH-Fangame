@@ -1,12 +1,11 @@
-// /public/js/tabs/battle.js
+// /public/js/tabs/battle.js 상단
 import { auth, db, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
 import { autoMatch } from '../api/match_client.js';
-import { fetchBattlePrompts, generateBattleSketch, generateFinalBattleLog } from '../api/ai.js';
-import { updateAbilitiesEquipped, updateItemsEquipped } from '../api/store.js';
+import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateFinalBattleLog } from '../api/ai.js';
+import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js';
 import { getUserInventory } from '../api/user.js';
-// [수정] char.js의 아이템 상세 표시 관련 함수들을 import합니다.
-import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js'; // <--- 이 부분을 확인하세요
+import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js';
 
 // ---------- utils ----------
 function truncate(s, n){ s=String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
@@ -120,6 +119,7 @@ function showBattleProgressUI(myChar, opponentChar) {
 // getRelationBetween 함수를 store.js 에서 import 해야 합니다.
 import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js';
 
+// /public/js/tabs/battle.js 의 startBattleProcess 함수
 async function startBattleProcess(myChar, opponentChar) {
     const progress = showBattleProgressUI(myChar, opponentChar);
     try {
