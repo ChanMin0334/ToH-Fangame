@@ -286,8 +286,14 @@ if (btnLike) {
 
     try {
       btnLike.disabled = true;
-      const { likeChar } = await import('../api/store.js');
-      await likeChar(c.id);
+     // Firestore 규칙에 맞춰 3필드만 정확히 변경
+      const ref = fx.doc(db, 'chars', c.id);
+      await fx.updateDoc(ref, {
+        likes_total:  fx.increment(1),
+        likes_weekly: fx.increment(1),
+        updatedAt:    fx.serverTimestamp()
+      });
+
 
       // 성공 시 로컬에 기록하여 중복 방지
       localStorage.setItem(LIKED_KEY, '1');
