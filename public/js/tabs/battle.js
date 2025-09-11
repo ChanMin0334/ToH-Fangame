@@ -454,24 +454,21 @@ async function openItemPicker(c, onSave) {
       </div>
     `;
 
-    let lastClickTime = 0;
     back.querySelectorAll('.item-picker-card').forEach(card => {
         card.addEventListener('click', () => {
-            const now = new Date().getTime();
             const itemId = card.dataset.itemId;
+            const item = inv.find(it => it.id === itemId);
+            if (!item) return;
 
-            if (now - lastClickTime < 300) { // 더블클릭으로 간주
-                if (selectedIds.includes(itemId)) {
-                    selectedIds = selectedIds.filter(id => id !== itemId);
-                } else {
-                    if (selectedIds.length < 3) selectedIds.push(itemId);
-                    else showToast('아이템은 최대 3개까지 장착할 수 있습니다.');
+            // ◀◀◀ 이 부분을 통째로 교체하세요.
+            // 상세 모달을 호출하고, 선택 결과를 콜백으로 받아 picker를 새로고침합니다.
+            showItemDetailModal(item, {
+                equippedIds: selectedIds,
+                onUpdate: (newSelectedIds) => {
+                    selectedIds = newSelectedIds;
+                    renderModalContent(); // 부모 모달(picker) UI 새로고침
                 }
-                renderModalContent();
-            } else { // 싱글클릭
-                showItemDetailModal(inv.find(it => it.id === itemId));
-            }
-            lastClickTime = now;
+            });
         });
     });
 
