@@ -4,7 +4,8 @@ import { getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDo
 import { getAuth } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-storage.js';
 import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
-import { initializeAppCheck } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app-check.js';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app-check.js';
+
 
 
 
@@ -24,11 +25,13 @@ export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const func = getFunctions(app, 'us-central1');
+// App Check (디버그/운영 공통) — 반드시 app 생성 "후"에!
+initializeAppCheck(app, {
+  provider: new ReCaptchaV3Provider('YOUR_RECAPTCHA_V3_SITE_KEY'),
+  isTokenAutoRefreshEnabled: true
+});
 
 
-// 디버그 토큰 모드: 콘솔에 토큰이 찍히면,
-// Firebase 콘솔 → App Check → 디버그 토큰에 등록해주고 새로고침하면 정상 호출됨.
-initializeAppCheck(app, { isTokenAutoRefreshEnabled: true });
 
 // 콘솔/디버그 편의: 전역 바인딩
 if (typeof window !== 'undefined') {
