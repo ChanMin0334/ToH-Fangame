@@ -518,8 +518,9 @@ async function renderLoadout(c, view){
   
   const equippedItemIds = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
   
-  // [수정] 내 인벤토리가 아닌, 현재 보고 있는 캐릭터의 아이템 목록을 사용합니다.
-  const inv = Array.isArray(c.items_all) ? c.items_all : [];
+  // [핵심 수정] 내 캐릭터(isOwner)일 때는 전체 인벤토리에서,
+  // 상대방 캐릭터일 때는 해당 캐릭터의 정보(c.items_all)에서 아이템을 찾습니다.
+  const inv = isOwner ? await getUserInventory() : (Array.isArray(c.items_all) ? c.items_all : []);
 
   view.innerHTML = `
     <div class="p12">
@@ -568,7 +569,6 @@ async function renderLoadout(c, view){
       if(!it) return `<div class="slot" style="color: #ff5b66;">(아이템 정보 없음)</div>`;
 
       const style = rarityStyle(it.rarity);
-      // [수정] div를 button으로 변경하고, 클릭 이벤트를 추가합니다.
       return `
         <button class="item" data-item-id="${it.id}" style="text-align:left; cursor:pointer; border-left: 3px solid ${style.border}; background:${style.bg};">
           <div class="name" style="color:${style.text}">${it.name || '아이템'}</div>
@@ -576,13 +576,11 @@ async function renderLoadout(c, view){
         </button>`;
     }).join('');
 
-    // [추가] 생성된 아이템 슬롯 버튼에 클릭 이벤트 핸들러를 연결합니다.
     slotBox.querySelectorAll('.item[data-item-id]').forEach(btn => {
         btn.onclick = () => {
             const itemId = btn.dataset.itemId;
             const item = inv.find(i => i.id === itemId);
             if(item) {
-                // [수정] 이제 isOwner 체크 없이 누구나 상세 정보를 볼 수 있습니다.
                 showItemDetailModal(item);
             }
         };
@@ -593,13 +591,12 @@ async function renderLoadout(c, view){
   if(isOwner){
     view.querySelector('#btnEquip')?.addEventListener('click', ()=>{
       openItemPicker(c, () => {
-        // 아이템 선택/교체 후 현재 탭을 다시 렌더링하여 변경사항을 즉시 반영합니다.
-        // 이 때 c 객체는 최신 정보가 아닐 수 있으므로, 페이지를 새로고침하는 것이 가장 확실합니다.
         showCharDetail();
       });
     });
   }
 }
+
 
 
 // 표준 narratives → {id,title,long,short} 배열, 없으면 legacy narrative_items 변환
