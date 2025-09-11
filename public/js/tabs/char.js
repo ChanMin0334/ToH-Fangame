@@ -689,6 +689,7 @@ function renderHistory(c, view){
   const t = (ts)=> {
     try{
       if(!ts) return '';
+      if (typeof ts.toDate === 'function') return ts.toDate(); // Firestore Timestamp 객체 처리
       if (typeof ts.toMillis === 'function') return new Date(ts.toMillis());
       if (typeof ts === 'number') return new Date(ts);
       return new Date(ts);
@@ -702,16 +703,38 @@ function renderHistory(c, view){
       let go = '#';
       let html = '';
       if(mode==='battle'){
-        const who = it.winner==='attacker' ? '공격자 승' : it.winner==='defender' ? '방어자 승' : '무승부';
+        const isAttacker = it.attacker_char === `chars/${c.id}`;
+        const opponentSnapshot = isAttacker ? it.defender_snapshot : it.attacker_snapshot;
+        const myExp = isAttacker ? it.exp_char0 : it.exp_char1;
+
+        let resultText, resultColor;
+        if ((isAttacker && it.winner === 0) || (!isAttacker && it.winner === 1)) {
+            resultText = '승리'; resultColor = '#3a8bff';
+        } else if ((isAttacker && it.winner === 1) || (!isAttacker && it.winner === 0)) {
+            resultText = '패배'; resultColor = '#ff425a';
+        } else {
+            resultText = '무승부'; resultColor = '#777';
+        }
+        
         const when = t(it.endedAt).toLocaleString();
         go = `#/battlelog/${it.id}`;
         html = `
-          <div class="kv-card tl-go" data-go="${go}" style="border-left:3px solid ${it.winner==='attacker'?'#3a8bff':it.winner==='defender'?'#ff425a':'#777'};padding-left:10px">
-            <div style="font-weight:700">${who}</div>
-            <div class="text-dim" style="font-size:12px">${when}</div>
-            <div class="text-dim" style="font-size:12px">id: ${it.id}</div>
+          <div class="kv-card tl-go" data-go="${go}" style="border-left:3px solid ${resultColor}; padding: 10px; display: flex; align-items: center; gap: 12px;">
+            <div style="flex-shrink: 0;">
+                <img src="${esc(opponentSnapshot.thumb_url || '')}" onerror="this.style.display='none'" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover;">
+            </div>
+            <div style="flex-grow: 1; min-width: 0;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <strong style="color: ${resultColor}; font-size: 16px;">${resultText}</strong>
+                    <span style="font-weight: 700;">vs ${esc(opponentSnapshot.name)}</span>
+                </div>
+                <div class="text-dim" style="font-size: 12px; margin-top: 4px;">
+                    <span>${when}</span>
+                    <span style="margin-left: 12px;">획득 EXP: <strong>+${esc(myExp)}</strong></span>
+                </div>
+            </div>
           </div>`;
-      }else if(mode==='encounter'){
+      } else if(mode==='encounter'){
         const when = t(it.endedAt).toLocaleString();
         go = `#/encounter-log/${it.id}`;
         html = `
@@ -831,7 +854,7 @@ function renderHistory(c, view){
     mode = newMode;
     setTitle(mode);
     box.innerHTML = '';
-    empty.style.display = '';
+    empty.style.display = 'block'; // [수정] empty의 display를 block으로 초기화
     busy = false; done = false;
     lastA = lastD = lastE = null;
     doneA = doneD = doneE = false;
