@@ -225,38 +225,35 @@ export async function generateFinalBattleLog(chosenSketch, battleData) {
 }
 
 /* ================= 생성 엔드포인트 ================= */
-export async function genCharacterFlash2({ world, userInput, injectionGuard }){
-  // world: { id, name, summary, detail, rawJson? }
-  // userInput: 문자열(캐릭터 이름/설정 포함)
-  // injectionGuard: 문자열
-  const { system, inject } = await loadCreatePrompts();
+/* ================= 생성 엔드포인트 ================= */
+export async function genCharacterFlash2({ world, userInput }){
+  // [수정] 존재하지 않는 loadCreatePrompts 대신 fetchPromptDoc을 직접 사용합니다.
+  // create.js에 정의된 PROMPT_DOC_ID ('char_create')를 사용합니다.
+  const systemPrompt = await fetchPromptDoc('char_create');
 
-  const systemFilled = fillVars(system, {
-    world_summary: world?.summary ?? '',
-    world_detail:  world?.detail  ?? '',
-    world_json:    JSON.stringify(world?.rawJson ?? world ?? {}),
-    inject:        injectionGuard ?? inject ?? '',
-    user_input:    userInput ?? '',
-  });
+  // [수정] 존재하지 않는 fillVars 대신, 간단한 replace 함수로 프롬프트 내용을 채웁니다.
+  const systemFilled = systemPrompt
+      .replace(/{world_summary}/g, world?.summary ?? '')
+      .replace(/{world_detail}/g, world?.detail ?? '')
+      .replace(/{world_json}/g, JSON.stringify(world?.rawJson ?? world ?? {}))
+      .replace(/{user_input}/g, userInput ?? '');
 
-  // 사용자 파트는 간결히(검증자가 읽기 쉽게)
   const userCombined = userInput || '';
 
   let raw='', parsed=null;
-  const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
+  const { primary, fallback } = pickModels();
   try{
-    raw    = await callGemini(primary, systemFilled, userCombined, 0.85); // <-- 모델 이름 변경
+    raw    = await callGemini(primary, systemFilled, userCombined, 0.85);
     parsed = tryParseJson(raw);
   }catch(e1){
     dbg('flash2 실패, 폴백 시도', e1);
     try{
-      raw    = await callGemini(fallback, systemFilled, userCombined, 0.8); // <-- 모델 이름 변경
+      raw    = await callGemini(fallback, systemFilled, userCombined, 0.8);
       parsed = tryParseJson(raw);
     }catch(e2){
       throw e1; // 최초 에러를 전달
     }
   }
-
 
   if(DEBUG){
     window.__ai_debug = window.__ai_debug || {};
