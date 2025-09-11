@@ -1,7 +1,7 @@
 // /public/js/tabs/char.js
 import { db, auth, fx } from '../api/firebase.js';
-// [추가] startAfter 함수를 firebase/firestore에서 직접 가져옵니다.
-import { startAfter } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
+// [추가] getDocFromServer와 getDocsFromServer 함수를 직접 가져옵니다.
+import { startAfter, getDocFromServer, getDocsFromServer } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 import {
   tierOf, uploadAvatarSquare, updateAbilitiesEquipped, updateItemsEquipped,
   getCharMainImageUrl, fetchWorlds
@@ -162,7 +162,8 @@ export async function showCharDetail(){
   }
 
   try{
-    const snap = await fx.getDoc(fx.doc(db,'chars', charId));
+    // [수정] fx.getDoc -> getDocFromServer: 캐시를 무시하고 항상 서버에서 최신 캐릭터 정보를 가져옵니다.
+    const snap = await getDocFromServer(fx.doc(db,'chars', charId));
     if(!snap.exists()){
       root.innerHTML='<section class="container narrow"><p>캐릭터가 없네</p></section>';
       return;
@@ -768,7 +769,7 @@ function renderHistory(c, view){
     box.appendChild(frag);
   }
 
-  async function fetchNext(){
+async function fetchNext(){
     if(busy || done || !mode) return;
     busy = true;
     const out = [];
@@ -778,10 +779,11 @@ function renderHistory(c, view){
       if(mode==='battle'){
         if(!doneA){
           const partsA = [ fx.where('attacker_char','==', charRef), fx.orderBy('endedAt','desc') ];
-          if(lastA) partsA.push(startAfter(lastA)); // [수정] fx.startAfter -> startAfter
+          if(lastA) partsA.push(startAfter(lastA));
           partsA.push(fx.limit(15));
           const qA = fx.query(fx.collection(db,'battle_logs'), ...partsA);
-          const sA = await fx.getDocs(qA);
+          // [수정] fx.getDocs -> getDocsFromServer: 항상 서버에서 최신 목록을 가져옵니다.
+          const sA = await getDocsFromServer(qA);
           const arrA=[]; sA.forEach(d=>arrA.push({ id:d.id, ...d.data() }));
           if(arrA.length < 15) doneA = true;
           if(sA.docs.length) lastA = sA.docs[sA.docs.length-1];
@@ -789,10 +791,11 @@ function renderHistory(c, view){
         }
         if(!doneD){
           const partsD = [ fx.where('defender_char','==', charRef), fx.orderBy('endedAt','desc') ];
-          if(lastD) partsD.push(startAfter(lastD)); // [수정] fx.startAfter -> startAfter
+          if(lastD) partsD.push(startAfter(lastD));
           partsD.push(fx.limit(15));
           const qD = fx.query(fx.collection(db,'battle_logs'), ...partsD);
-          const sD = await fx.getDocs(qD);
+          // [수정] fx.getDocs -> getDocsFromServer: 항상 서버에서 최신 목록을 가져옵니다.
+          const sD = await getDocsFromServer(qD);
           const arrD=[]; sD.forEach(d=>arrD.push({ id:d.id, ...d.data() }));
           if(arrD.length < 15) doneD = true;
           if(sD.docs.length) lastD = sD.docs[sD.docs.length-1];
@@ -804,10 +807,11 @@ function renderHistory(c, view){
       else if(mode==='encounter'){
         if(!doneA){
           const partsA = [ fx.where('a_char','==', charRef), fx.orderBy('endedAt','desc') ];
-          if(lastA) partsA.push(startAfter(lastA)); // [수정] fx.startAfter -> startAfter
+          if(lastA) partsA.push(startAfter(lastA));
           partsA.push(fx.limit(15));
           const qA = fx.query(fx.collection(db,'encounter_logs'), ...partsA);
-          const sA = await fx.getDocs(qA);
+          // [수정] fx.getDocs -> getDocsFromServer: 항상 서버에서 최신 목록을 가져옵니다.
+          const sA = await getDocsFromServer(qA);
           const arrA=[]; sA.forEach(d=>arrA.push({ id:d.id, ...d.data() }));
           if(arrA.length < 15) doneA = true;
           if(sA.docs.length) lastA = sA.docs[sA.docs.length-1];
@@ -815,10 +819,11 @@ function renderHistory(c, view){
         }
         if(!doneD){
           const partsB = [ fx.where('b_char','==', charRef), fx.orderBy('endedAt','desc') ];
-          if(lastD) partsB.push(startAfter(lastD)); // [수정] fx.startAfter -> startAfter
+          if(lastD) partsB.push(startAfter(lastD));
           partsB.push(fx.limit(15));
           const qB = fx.query(fx.collection(db,'encounter_logs'), ...partsB);
-          const sB = await fx.getDocs(qB);
+          // [수정] fx.getDocs -> getDocsFromServer: 항상 서버에서 최신 목록을 가져옵니다.
+          const sB = await getDocsFromServer(qB);
           const arrB=[]; sB.forEach(d=>arrB.push({ id:d.id, ...d.data() }));
           if(arrB.length < 15) doneD = true;
           if(sB.docs.length) lastD = sB.docs[sB.docs.length-1];
@@ -830,14 +835,15 @@ function renderHistory(c, view){
       else if(mode==='explore'){
         if(!doneE){
           const parts = [ fx.orderBy('at','desc') ];
-          if(lastE) parts.push(startAfter(lastE)); // [수정] fx.startAfter -> startAfter
+          if(lastE) parts.push(startAfter(lastE));
           parts.push(fx.limit(15));
           const q = fx.query(
             fx.collection(db,'explore_runs'),
             fx.where('charRef','==', `chars/${c.id}`),
             ...parts
           );
-          const s = await fx.getDocs(q);
+          // [수정] fx.getDocs -> getDocsFromServer: 항상 서버에서 최신 목록을 가져옵니다.
+          const s = await getDocsFromServer(q);
           const arr=[]; s.forEach(d=>arr.push({ id:d.id, ...d.data() }));
           if(arr.length < 15) doneE = true;
           if(s.docs.length) lastE = s.docs[s.docs.length-1];
