@@ -1,5 +1,7 @@
 // /public/js/tabs/char.js
 import { db, auth, fx } from '../api/firebase.js';
+// [추가] startAfter 함수를 firebase/firestore에서 직접 가져옵니다.
+import { startAfter } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 import {
   tierOf, uploadAvatarSquare, updateAbilitiesEquipped, updateItemsEquipped,
   getCharMainImageUrl, fetchWorlds
@@ -776,7 +778,7 @@ function renderHistory(c, view){
       if(mode==='battle'){
         if(!doneA){
           const partsA = [ fx.where('attacker_char','==', charRef), fx.orderBy('endedAt','desc') ];
-          if(lastA) partsA.push(fx.startAfter(lastA));
+          if(lastA) partsA.push(startAfter(lastA)); // [수정] fx.startAfter -> startAfter
           partsA.push(fx.limit(15));
           const qA = fx.query(fx.collection(db,'battle_logs'), ...partsA);
           const sA = await fx.getDocs(qA);
@@ -787,7 +789,7 @@ function renderHistory(c, view){
         }
         if(!doneD){
           const partsD = [ fx.where('defender_char','==', charRef), fx.orderBy('endedAt','desc') ];
-          if(lastD) partsD.push(fx.startAfter(lastD));
+          if(lastD) partsD.push(startAfter(lastD)); // [수정] fx.startAfter -> startAfter
           partsD.push(fx.limit(15));
           const qD = fx.query(fx.collection(db,'battle_logs'), ...partsD);
           const sD = await fx.getDocs(qD);
@@ -802,7 +804,7 @@ function renderHistory(c, view){
       else if(mode==='encounter'){
         if(!doneA){
           const partsA = [ fx.where('a_char','==', charRef), fx.orderBy('endedAt','desc') ];
-          if(lastA) partsA.push(fx.startAfter(lastA));
+          if(lastA) partsA.push(startAfter(lastA)); // [수정] fx.startAfter -> startAfter
           partsA.push(fx.limit(15));
           const qA = fx.query(fx.collection(db,'encounter_logs'), ...partsA);
           const sA = await fx.getDocs(qA);
@@ -813,7 +815,7 @@ function renderHistory(c, view){
         }
         if(!doneD){
           const partsB = [ fx.where('b_char','==', charRef), fx.orderBy('endedAt','desc') ];
-          if(lastD) partsB.push(fx.startAfter(lastD));
+          if(lastD) partsB.push(startAfter(lastD)); // [수정] fx.startAfter -> startAfter
           partsB.push(fx.limit(15));
           const qB = fx.query(fx.collection(db,'encounter_logs'), ...partsB);
           const sB = await fx.getDocs(qB);
@@ -828,7 +830,7 @@ function renderHistory(c, view){
       else if(mode==='explore'){
         if(!doneE){
           const parts = [ fx.orderBy('at','desc') ];
-          if(lastE) parts.push(fx.startAfter(lastE));
+          if(lastE) parts.push(startAfter(lastE)); // [수정] fx.startAfter -> startAfter
           parts.push(fx.limit(15));
           const q = fx.query(
             fx.collection(db,'explore_runs'),
