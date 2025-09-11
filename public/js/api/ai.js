@@ -271,9 +271,16 @@ function normalizeOutput(parsed, userInput=''){
   const p = parsed || {};
   const name = String(p.name || '').trim();
   const intro = String(p.intro || p.summary || '').trim();
-  const nlong = String(p.narrative_long || p.narrative || '').trim();
-  const nshort = String(p.narrative_short || '').trim();
   
+  // [수정] AI가 보내준 narratives 배열을 직접 사용하도록 변경
+  const narratives = (Array.isArray(p.narratives) ? p.narratives : [])
+    .slice(0, 1) // 우선 첫 번째 서사만 사용
+    .map(n => ({
+        title: String(n?.title || '서사').slice(0, 60),
+        long: String(n?.long || '').slice(0, 2000),
+        short: String(n?.short || '').slice(0, 200),
+    }));
+
   const skills = (Array.isArray(p.skills) ? p.skills : [])
     .slice(0, 4)
     .map(s => ({
@@ -281,9 +288,9 @@ function normalizeOutput(parsed, userInput=''){
       effect: String(s?.effect || s?.desc || '').slice(0, 160)
     }));
   
-  return { name, intro, narrative_long: nlong, narrative_short: nshort, skills };
+  // [수정] narratives 배열을 그대로 반환
+  return { name, intro, narratives, skills };
 }
-
 
 
 /* ================= ADVENTURE: requestNarrative =================
