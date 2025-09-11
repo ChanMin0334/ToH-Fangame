@@ -104,6 +104,7 @@ export function showItemDetailModal(item, context = {}) {
 
     const back = document.createElement('div');
     back.className = 'modal-back';
+    back.dataset.kind = 'item-detail';  // 중복 방지용 식별자
   
     back.style.zIndex = '10001'; // 아이템 피커 모달 위에 표시되도록 z-index 증가
     back.innerHTML = `
@@ -445,7 +446,8 @@ async function openItemPicker(c, onSave) {
 
   const back = document.createElement('div');
   back.className = 'modal-back';
-  back.dataset.kind = 'item-detail';
+  back.dataset.kind = 'item-picker';  // 상세 모달과 구분!
+
   back.style.zIndex = '10000';
 
   const renderModalContent = () => {
@@ -499,7 +501,7 @@ async function openItemPicker(c, onSave) {
         await updateItemsEquipped(c.id, selectedIds);
         showToast('아이템 장착 정보가 저장되었습니다.');
         c.items_equipped = selectedIds;
-        onSave();
+        onSave(selectedIds);  // 저장된 장착 목록을 콜백으로 넘겨줘
         back.remove();
       } catch (e) {
         showToast('아이템 저장에 실패했습니다: ' + e.message);
@@ -607,8 +609,17 @@ async function renderLoadout(c, view){
 
   if(isOwner){
     view.querySelector('#btnEquip')?.addEventListener('click', ()=>{
-      openItemPicker(c, () => {
-        showCharDetail();
+      openItemPicker(c, (newIds) => {
+        if (Array.isArray(newIds)) {
+    // 로컬 상태 반영
+          c.items_equipped = [...newIds];
+    // 이 함수 스코프 상단의 equippedItemIds 값을 동기화
+          equippedItemIds.length = 0;
+          equippedItemIds.push(...newIds);
+    // 슬롯 UI만 다시 그림
+          renderSlots();
+          showToast('아이템 장착이 갱신됐어!');
+        }
       });
     });
   }
