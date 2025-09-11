@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.3/fireba
 import { getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit, serverTimestamp, writeBatch, arrayUnion } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 import { getAuth } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-storage.js';
-import { getFunctions } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA4ilV6tRpqZrkgXRTKdFP_YjAl3CmfYWo",
@@ -21,6 +21,12 @@ export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const func = getFunctions(app, 'us-central1');
 
+// 콘솔/디버그 편의: 전역 바인딩
+if (typeof window !== 'undefined') {
+  window.__fx = func;                 // functions 인스턴스
+  window.__httpsCallable = httpsCallable; // 호출기
+}
+
 // 편의를 위한 네임스페이스 export
 export const fx = {
   doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
@@ -33,4 +39,12 @@ export * as ax from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js
 // ⚠️ store.js와의 호환성을 위해 serverTimestamp를 직접 export합니다.
 // 이 라인이 새로운 SyntaxError를 해결할 것입니다.
 export { serverTimestamp };
+
+// onCall 편의 래퍼
+export function callFn(name, data) {
+  return httpsCallable(func, name)(data).then(r => r.data);
+}
+if (typeof window !== 'undefined') {
+  window.__callFn = callFn; // 콘솔에서 __callFn('함수명', {..})
+}
 
