@@ -137,7 +137,10 @@ async function startBattleProcess(myChar, opponentChar) {
             const equippedSkills = getEquipped(char, char.abilities_all, char.abilities_equipped);
             const equippedItems = getEquippedItems(char, inv);
             const skillsAsText = equippedSkills.map(s => `${s.name}: ${s.desc_soft}`).join('\n') || '없음';
-            const itemsAsText = equippedItems.map(i => `${i.name}: ${i.desc_soft || i.desc}`).join('\n') || '없음';
+            const itemsAsText = equippedItems
+             .map(i => `${i.name}: ${i.desc_soft || i.desc || i.description || (i.desc_long ? String(i.desc_long).split('\n')[0] : '')}`)
+             .join('\n') || '없음';
+
             const narrativeSummary = char.narratives?.slice(1).map(n => n.short).join(' ') || char.narratives?.[0]?.short || '특이사항 없음';
             return {
                 name: char.name,
@@ -373,7 +376,11 @@ async function renderLoadoutForMatch(box, myChar){
                 const item = equippedItems[i];
                 const style = item ? rarityStyle(item.rarity) : null;
                 return `<div class="kv-card" style="min-height:44px;display:flex; flex-direction:column; align-items:center;justify-content:center;padding:8px;font-size:13px;text-align:center; ${item ? `border-left: 3px solid ${style.border}; background:${style.bg};` : ''}">
-                          ${item ? `<span style="font-weight:bold; color:${style.text};">${esc(item.name)}</span>` : '(비어 있음)'}
+                          ${item ? `<div>
+                            <div style="font-weight:bold; color:${style.text};">${esc(item.name)}</div>
+                            <div style="font-size:12px; opacity:.8">${esc(item.desc_soft || item.desc || item.description || (item.desc_long ? String(item.desc_long).split('\n')[0] : ''))}</div>
+                          </div>` : '(비어 있음)'}
+
                         </div>`;
             }).join('')}
           </div>
@@ -442,7 +449,7 @@ async function openItemPicker(c, onSave) {
               return `
                 <div class="kv-card item-picker-card ${isSelected ? 'selected' : ''}" data-item-id="${item.id}" style="padding:10px; border: 2px solid ${isSelected ? '#4aa3ff' : 'transparent'}; cursor:pointer;">
                   <div style="font-weight:700; color: ${style.text}; pointer-events:none;">${esc(item.name)}</div>
-                  <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden; pointer-events:none;">${esc(item.desc_soft || item.desc || '-')}</div>
+                  <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden; pointer-events:none;">${esc(item.desc_soft || item.desc || item.description || (item.desc_long ? String(item.desc_long).split('\n')[0] : '-') )}</div>
                 </div>
               `;
             }).join('')
