@@ -27,7 +27,7 @@ export const storage = getStorage(app);
 export const func = getFunctions(app, 'us-central1');
 // App Check (디버그/운영 공통) — 반드시 app 생성 "후"에!
 initializeAppCheck(app, {
-  provider: new ReCaptchaV3Provider('YOUR_RECAPTCHA_V3_SITE_KEY'),
+  provider: new ReCaptchaV3Provider('6LdeSsYrAAAAAOe1CiosO37ln1-CFEi3O-tIDgUm'),
   isTokenAutoRefreshEnabled: true
 });
 
