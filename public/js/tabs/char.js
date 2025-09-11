@@ -507,27 +507,26 @@ async function openItemPicker(c, onSave) {
 }
 
 
-// 스킬/아이템 탭
-// /public/js/tabs/char.js
+// ANCHOR: /public/js/tabs/char.js
+// ... (파일의 다른 부분은 그대로 둡니다)
 
-// 스킬/아이템 탭
-// ANCHOR: /public/js/tabs/char.js, line 700
 // 스킬/아이템 탭
 async function renderLoadout(c, view) {
   const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
 
-  // [수정] 유저의 전체 인벤토리를 기준으로 아이템 목록을 표시합니다.
+  // [수정] 유저 인벤토리와 캐릭터 스킬 정보를 가져옵니다.
   const allAbilities = c.abilities_all || [];
-  const userInventory = await getUserInventory(); // 유저의 공유 인벤토리 가져오기
+  const userInventory = await getUserInventory();
   const equippedAbilityIndices = c.abilities_equipped || [];
   const equippedItemIds = c.items_equipped || [];
 
   view.innerHTML = `
     <div class="p12">
       <div class="row" style="justify-content:space-between; align-items:center;">
-        <h4 style="margin:0;">스킬 (장착 ${equippedAbilityIndices.length} / 2)</h4>
-              </div>
-      <div id="abilitiesList" class="col mt8" style="gap:8px;"></div>
+        <h4 style="margin:0;">스킬 (정확히 2개 선택)</h4>
+      </div>
+      <div id="abilitiesList" class="grid2 mt8" style="gap:8px;">
+        </div>
 
       <hr class="my12">
 
@@ -535,40 +534,39 @@ async function renderLoadout(c, view) {
         <h4 style="margin:0;">아이템 (장착 ${equippedItemIds.length} / 3)</h4>
         ${isOwner ? '<button class="btn" id="btnManageItems">장착 관리</button>' : ''}
       </div>
-      <div id="itemsList" class="col mt8" style="gap:8px;"></div>
+      <div id="itemsList" class="col mt8" style="gap:8px;">
+        </div>
     </div>
   `;
 
-  // 스킬 목록 렌더링
+  // --- 스킬 렌더링 (체크박스 방식) ---
   const abilitiesList = view.querySelector('#abilitiesList');
   if (allAbilities.length > 0) {
     abilitiesList.innerHTML = allAbilities.map((ability, index) => {
       const isEquipped = equippedAbilityIndices.includes(index);
-      const style = rarityStyle(ability.rarity); // 스킬도 희귀도가 있다면 적용
+      const style = rarityStyle(ability.rarity);
       return `
-        <div class="kv-card ability-card ${isEquipped ? 'equipped' : ''}" style="border-left: 3px solid ${style.border};">
-          <div style="display:flex; align-items:center; gap:8px;">
+        <label class="kv-card" style="display:flex; gap:10px; align-items:flex-start; padding:12px; cursor:pointer; border-left: 3px solid ${style.border};">
+          <input type="checkbox" class="ability-checkbox" data-index="${index}" ${isEquipped ? 'checked' : ''} style="margin-top:4px;" ${!isOwner ? 'disabled' : ''}>
+          <div style="flex:1;">
             <div style="font-weight:700; color:${style.text};">${esc(ability.name)}</div>
-            ${isEquipped ? '<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">장착중</span>' : ''}
+            <div class="text-dim" style="font-size:12px; margin-top:4px; min-height: 2.4em;">${esc(ability.desc_soft || ability.desc || '-')}</div>
           </div>
-          <div class="text-dim" style="font-size:12px; margin-top:4px;">${esc(ability.desc_soft || ability.desc || '-')}</div>
-        </div>
+        </label>
       `;
     }).join('');
   } else {
     abilitiesList.innerHTML = '<div class="text-dim">보유 스킬이 없습니다.</div>';
   }
 
-  // 아이템 목록 렌더링
+  // --- 아이템 렌더링 (기존과 동일, UI 길이 문제만 수정) ---
   const itemsList = view.querySelector('#itemsList');
-  if (userInventory.length > 0) {
-    // 장착된 아이템을 먼저 보여주기 위해 정렬
+  if (userInventory.length > 0) {
     const sortedInventory = [...userInventory].sort((a, b) => {
         const aIsEquipped = equippedItemIds.includes(a.id);
         const bIsEquipped = equippedItemIds.includes(b.id);
-        return bIsEquipped - aIsEquipped; // true(1)가 false(0)보다 앞에 오도록
+        return bIsEquipped - aIsEquipped;
     });
-
     itemsList.innerHTML = sortedInventory.map(item => {
       const isEquipped = equippedItemIds.includes(item.id);
       const style = rarityStyle(item.rarity);
@@ -578,7 +576,7 @@ async function renderLoadout(c, view) {
             <div style="font-weight:700; color:${style.text};">${esc(item.name)}</div>
             ${isEquipped ? '<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">장착중</span>' : ''}
           </div>
-          <div class="text-dim" style="font-size:12px; margin-top:4px;">${esc(item.desc_soft || item.desc || '-')}</div>
+          <div class="text-dim" style="font-size:12px; margin-top:4px; min-height: 2.4em;">${esc(item.desc_soft || item.desc || '-')}</div>
         </div>
       `;
     }).join('');
@@ -586,8 +584,38 @@ async function renderLoadout(c, view) {
     itemsList.innerHTML = '<div class="text-dim">보유 아이템이 없습니다.</div>';
   }
 
-  // 이벤트 리스너 연결
+
+  // --- 이벤트 리스너 연결 ---
   if (isOwner) {
+    // 스킬 체크박스 이벤트
+    view.querySelectorAll('.ability-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', async () => {
+        const allCheckboxes = view.querySelectorAll('.ability-checkbox');
+        const selectedIndices = Array.from(allCheckboxes)
+          .filter(cb => cb.checked)
+          .map(cb => parseInt(cb.dataset.index, 10));
+
+        if (selectedIndices.length > 2) {
+          checkbox.checked = false; // 선택 해제
+          showToast('스킬은 최대 2개까지만 선택할 수 있습니다.');
+          return;
+        }
+
+        if (selectedIndices.length === 2) {
+          try {
+            await updateAbilitiesEquipped(c.id, selectedIndices);
+            c.abilities_equipped = selectedIndices; // 로컬 데이터 업데이트
+            showToast('스킬 장착 정보가 저장되었습니다.');
+          } catch (e) {
+            showToast('스킬 저장에 실패했습니다: ' + e.message);
+            // 실패 시 UI 원상 복구 (페이지 새로고침이 간단)
+            renderLoadout(c, view);
+          }
+        }
+      });
+    });
+
+    // 아이템 장착 관리 버튼 이벤트
     view.querySelector('#btnManageItems')?.addEventListener('click', () => {
       openItemPicker(c, () => {
         renderLoadout(c, view); // 저장 후 탭 새로고침
@@ -595,8 +623,10 @@ async function renderLoadout(c, view) {
     });
   }
 
+  // 아이템 카드 클릭 이벤트 (상세 보기)
   view.querySelectorAll('.item-card').forEach(card => {
     card.addEventListener('click', () => {
+      // (이하 아이템 상세 보기 로직은 기존과 동일)
       const itemId = card.dataset.itemId;
       const item = userInventory.find(it => it.id === itemId);
       if (item) {
@@ -608,7 +638,7 @@ async function renderLoadout(c, view) {
                 await updateItemsEquipped(c.id, newEquipped);
                 c.items_equipped = newEquipped;
                 showToast('아이템 장착 정보가 변경되었습니다.');
-                renderLoadout(c, view); // 탭 다시 렌더링
+                renderLoadout(c, view);
               } catch (e) {
                 showToast(`오류: ${e.message}`);
               }
@@ -619,7 +649,6 @@ async function renderLoadout(c, view) {
     });
   });
 }
-
 
 
 // 서사 전용 페이지: 제목 → long → short (short는 여기에서만 노출)
