@@ -6,7 +6,7 @@ import { showToast } from '../ui/toast.js';
 
 // ====== 설정 ======
 const MAX_CHAR_COUNT = 4;
-const CREATE_COOLDOWN_SEC = 30;
+const CREATE_COOLDOWN_SEC = 300;
 const LS_KEY_CREATE_LAST_AT = 'charCreateLastAt';
 
 // ====== 유틸 ======
