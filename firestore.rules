@@ -72,7 +72,7 @@ service cloud.firestore {
     // 하지만 문서를 생성하거나 수정하는 것은 오직 자기 자신만 가능합니다.
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow create, update: if isOwner(userId);
+      allow create, update: if request.auth.uid == userId;
     }
 
     // (이하 다른 규칙들은 이전과 동일합니다)
