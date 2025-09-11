@@ -60,8 +60,14 @@ match /battle_logs/{logId} {
   allow create: if isSignedIn() &&
     charOwner(request.resource.data.attacker_char) == request.auth.uid;
 
-  // 한번 생성된 배틀 로그는 수정하거나 삭제할 수 없습니다.
-  allow update, delete: if false;
+  // [수정됨] 공격자 또는 방어자 캐릭터의 소유자에게 업데이트를 허용합니다.
+  allow update: if isSignedIn() && (
+    charOwner(resource.data.attacker_char) == request.auth.uid ||
+    charOwner(resource.data.defender_char) == request.auth.uid
+  );
+
+  // [참고] 삭제는 여전히 비활성화 상태로 둡니다.
+  allow delete: if false;
 }
 
 
