@@ -195,21 +195,6 @@ export async function generateFinalBattleLog(chosenSketch, battleData) {
 
 
 
-/* ================= ADVENTURE: requestNarrative =================
- * (이하 기존 탐험 관련 코드는 변경 없이 그대로 유지)
- */
-export async function requestAdventureNarrative({
-  character,
-  world,
-  site,
-  run,
-  dices,
-  equippedItems,
-  prevTurnLog
-}){
-// ... (이하 내용은 기존 코드와 동일)
-
-
 
 /* ================= ADVENTURE: requestNarrative =================
  * 주사위로 이미 결정된 값(eventKind, deltaStamina 등)을 넘기면
