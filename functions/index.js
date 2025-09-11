@@ -7,28 +7,6 @@ const crypto = require('crypto');
 initializeApp();
 const db = getFirestore();
 
-
-
-const functions = require('firebase-functions'); // (v1) 가입/탈퇴 트리거용
-const { FieldValue, Timestamp } = require('firebase-admin/firestore'); // 카운터 증감/시간
-const QUOTA_REF = db.doc('userQuota/meta');
- // 유저 수/한도 저장 위치(문서 1개)
-
-
-
-// [유저 수/한도] 읽기 (문서 없으면 기본값으로 생성)
-async function readUserQuota() {
-  const snap = await QUOTA_REF.get();
-  if (!snap.exists) {
-    await QUOTA_REF.set({ limit: 5, total: 0, updatedAt: Timestamp.now() }, { merge: true });
-    return { limit: 5, total: 0 };
-  }
-  const d = snap.data() || {};
-  return { limit: d.limit ?? 5, total: d.total ?? 0 };
-}
-
-
-
 // === [탐험 난이도/룰 테이블 & 헬퍼] ===
 const EXPLORE_CONFIG = {
   staminaStart: 10,
@@ -62,44 +40,6 @@ function pickWeighted(cands, myElo){
   }
   return bag.length ? bag[Math.floor(Math.random()*bag.length)] : null;
 }
-
-
-
-// === [신규 가입 제한] 총 유저 수가 limit(기본 5) 이상이면 "가입 직전" 차단 ===
-// (기존 유저 로그인/이용에는 영향 없음)
-exports.gateBeforeCreate = functions.auth.user().beforeCreate(async (user, context) => {
-  const { limit, total } = await readUserQuota();
-  if (total >= limit) {
-    // 가입 시도 화면에 이 메시지를 그대로 보여주면 됨
-    throw new functions.auth.HttpsError(
-      'resource-exhausted',
-      `지금은 가입 인원 한도(${limit}명)에 도달했어. 나중에 다시 시도해줘.`
-    );
-  }
-  // 통과 시: 아무 것도 안 던지면 그대로 가입 진행
-});
-
-
-// [가입 완료] 실제로 계정이 만들어지면 total += 1
-exports.onUserCreateInc = functions.auth.user().onCreate(async (user) => {
-  await QUOTA_REF.set({
-    total: FieldValue.increment(1),
-    updatedAt: Timestamp.now()
-  }, { merge: true });
-});
-
-// [유저 삭제] 계정이 삭제되면 total -= 1 (음수 방지)
-exports.onUserDeleteDec = functions.auth.user().onDelete(async (user) => {
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(QUOTA_REF);
-    const cur = snap.exists ? (snap.get('total') || 0) : 0;
-    const next = Math.max(0, cur - 1);
-    tx.set(QUOTA_REF, { total: next, updatedAt: Timestamp.now() }, { merge: true });
-  });
-});
-
-
-
 
 exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
@@ -164,14 +104,15 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
     if(!uid) throw new functions.https.HttpsError('unauthenticated','로그인이 필요해');
 
     const seconds = Math.max(1, Math.min(600, Number(req.data?.seconds || 60)));
-    const userRef = db.doc(`users/${uid}`);
+    const dbx = admin.firestore();
+    const userRef = dbx.doc(`users/${uid}`);
 
-    await db.runTransaction(async (tx)=>{
-      const now = Timestamp.now();
+    await dbx.runTransaction(async (tx)=>{
+      const now = admin.firestore.Timestamp.now();
       const snap = await tx.get(userRef);
       const exist = snap.exists ? snap.get('cooldown_all_until') : null;
-      const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis()); // 단축 불가
-      const until = Timestamp.fromMillis(baseMs + seconds*1000);
+      const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis()); // 절대 단축 불가
+      const until = admin.firestore.Timestamp.fromMillis(baseMs + seconds*1000);
       tx.set(userRef, { cooldown_all_until: until }, { merge:true });
     });
 
@@ -182,31 +123,6 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
     throw new functions.https.HttpsError('internal','cooldown-internal-error',{message:err?.message||String(err)});
   }
 });
-
-
-// === [1회용] 현재 Auth 유저 수를 세서 userQuota/meta.total 에 반영 ===
-const admin = require('firebase-admin'); // 맨 위에 이미 있다면 중복 제거
-exports.syncUserQuotaOnce = onCall({ region:'us-central1' }, async (req)=>{
-  const caller = req.auth?.uid;
-  const OWNER_UID = 'pf0u8SQl5gbVHqQU4VFl2ur5zKa2'; // 본인 UID로 교체!
-  if (!caller || caller !== OWNER_UID) {
-    throw new functions.https.HttpsError('permission-denied','권한 없음');
-  }
-
-  // 모든 Auth 유저 수 세기
-  let nextPageToken = undefined, count = 0;
-  do {
-    const page = await admin.auth().listUsers(1000, nextPageToken);
-    count += page.users.length;
-    nextPageToken = page.pageToken;
-  } while (nextPageToken);
-
-  await QUOTA_REF.set({ total: count, updatedAt: Timestamp.now() }, { merge:true });
-  return { ok:true, total: count };
-});
-
-
-
 
 // === [탐험 시작] onCall ===
 exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
@@ -356,17 +272,3 @@ exports.endExplore = onCall({ region:'us-central1' }, async (req)=>{
   return { ok:true, exp, itemId: itemRef.id };
 });
 
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
-const admin = require('firebase-admin'); // 이미 있으면 생략
-
-// Firestore에 ops/admin/syncQuota/run 문서가 '생성'되면 1회 동기화
-exports.syncUserQuotaByFlag = onDocumentCreated('ops/admin/syncQuota/run', async (event) => {
-  let nextPageToken, count = 0;
-  do {
-    const res = await admin.auth().listUsers(1000, nextPageToken);
-    count += res.users.length;
-    nextPageToken = res.pageToken;
-  } while (nextPageToken);
-
-  await QUOTA_REF.set({ total: count, updatedAt: Timestamp.now() }, { merge: true });
-});
