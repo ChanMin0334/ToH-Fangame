@@ -406,3 +406,29 @@ export async function getCharForAI(charRefOrId){
     _raw: c            // 필요 시 참조용(프롬프트엔 쓰지 말 것)
   };
 }
+
+// /public/js/api/store.js 파일 맨 아래에 추가
+
+export async function getRelationBetween(charId1, charId2) {
+  if (!charId1 || !charId2) return null;
+  const sortedIds = [charId1, charId2].sort();
+  const relationId = `${sortedIds[0]}__${sortedIds[1]}`;
+  
+  try {
+    // char.js의 더미 데이터처럼 관계에 대한 상세 메모가 있는지 먼저 확인
+    const relRef = fx.doc(db, 'relations', relationId, 'meta', 'note');
+    const relSnap = await fx.getDoc(relRef);
+    if (relSnap.exists()) {
+      return relSnap.data().note || '알려지지 않은 관계';
+    }
+    
+    // 상세 메모가 없다면, 관계 문서 자체가 존재하는지만 확인
+    const baseRelRef = fx.doc(db, 'relations', relationId);
+    const baseRelSnap = await fx.getDoc(baseRelRef);
+    return baseRelSnap.exists() ? '일반 관계' : null;
+
+  } catch (e) {
+    console.warn(`[getRelationBetween] failed for ${relationId}`, e);
+    return null;
+  }
+}
