@@ -64,12 +64,16 @@ export function useBadgeHtml(it){
   return `<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">${esc(label)}</span>`;
 }
 
-export function ensureItemCss() { // [수정] export 추가
+export function ensureItemCss() {
   if (document.getElementById('toh-item-css')) return;
   const st = document.createElement('style');
-// (기존 내용과 동일)
   st.id = 'toh-item-css';
   st.textContent = `
+  /* [추가] 모달 창을 위한 스타일 */
+  .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999}
+  .modal-card{background:#0e1116;border:1px solid #273247;border-radius:14px;padding:16px;max-width:800px;width:94vw;max-height:90vh;display:flex;flex-direction:column;}
+
+  /* 아이템 카드 효과 */
   .shine-effect { position: relative; overflow: hidden; }
   .shine-effect::after { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%); transform: rotate(30deg); animation: shine 3s infinite ease-in-out; pointer-events: none; }
   @keyframes shine { 0% { transform: translateX(-75%) translateY(-25%) rotate(30deg); } 100% { transform: translateX(75%) translateY(25%) rotate(30deg); } }
