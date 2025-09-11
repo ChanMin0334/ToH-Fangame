@@ -97,7 +97,6 @@ function showLoading(show = true, text = '불러오는 중...') {
 // ---------- 메인 로직 ----------
 
 export async function showExploreRun() {
-  // [핵심 수정] 이전에 남아있을 수 있는 로딩 화면을 여기서 제거합니다.
   const loadingOverlay = document.getElementById('toh-loading-overlay');
   if (loadingOverlay) {
     loadingOverlay.remove();
@@ -113,7 +112,28 @@ export async function showExploreRun() {
     return;
   }
 
+  // --- [수정된 로직 시작] ---
+
   let state = await getActiveRun(runId);
+  
+  // 1. 캐릭터 존재 여부 확인
+  const charId = state.charRef.split('/')[1];
+  const charSnap = await fx.getDoc(fx.doc(db, 'chars', charId));
+
+  if (!charSnap.exists()) {
+    showToast('탐험 중인 캐릭터가 삭제되어 탐험을 종료합니다.');
+    // endRun 함수를 직접 호출하여 탐험을 'char_deleted' 상태로 종료
+    await fx.updateDoc(fx.doc(db, 'explore_runs', runId), {
+      status: 'ended',
+      endedAt: fx.serverTimestamp(),
+      reason: 'char_deleted'
+    });
+    // 잠시 후 탐험 선택 화면으로 이동
+    setTimeout(() => location.hash = '#/adventure', 1500);
+    showLoading(false);
+    return;
+  }
+
   
   if (state.pending_battle) {
     location.hash = `#/explore-battle/${runId}`;
