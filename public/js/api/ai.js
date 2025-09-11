@@ -150,7 +150,7 @@ export async function chooseBestSketch(sketches) {
 
     let raw = '';
     try {
-        raw = await callGemini(DEFAULT_FLASH2, systemPrompt, userPrompt, 0.7);
+        raw = await callGemini(primary, systemPrompt, userPrompt, 0.7);
     } catch (e) {
         dbg('최고 스케치 선택 실패, 랜덤 선택으로 폴백', e);
         return { best_sketch_index: Math.floor(Math.random() * 3) };
