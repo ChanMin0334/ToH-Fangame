@@ -6,9 +6,7 @@ import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from 'https://ww
 import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { initializeAppCheck } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app-check.js';
 
-// 디버그 토큰 모드: 콘솔에 토큰이 찍히면,
-// Firebase 콘솔 → App Check → 디버그 토큰에 등록해주고 새로고침하면 정상 호출됨.
-initializeAppCheck(app, { isTokenAutoRefreshEnabled: true });
+
 
 
 const firebaseConfig = {
@@ -26,6 +24,11 @@ export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const func = getFunctions(app, 'us-central1');
+
+
+// 디버그 토큰 모드: 콘솔에 토큰이 찍히면,
+// Firebase 콘솔 → App Check → 디버그 토큰에 등록해주고 새로고침하면 정상 호출됨.
+initializeAppCheck(app, { isTokenAutoRefreshEnabled: true });
 
 // 콘솔/디버그 편의: 전역 바인딩
 if (typeof window !== 'undefined') {
