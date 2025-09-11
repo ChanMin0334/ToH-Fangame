@@ -1,9 +1,11 @@
-// /public/js/tabs/battle.js 상단
+// /public/js/tabs/battle.js
 import { auth, db, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
 import { autoMatch } from '../api/match_client.js';
-import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateFinalBattleLog } from '../api/ai.js';
-import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js';
+// ai.js에서 새로운 함수들을 가져오도록 수정
+import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateFinalBattleLog } from '../api/ai.js'; 
+// getRelationBetween을 추가
+import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js'; 
 import { getUserInventory } from '../api/user.js';
 import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js';
 
@@ -115,9 +117,6 @@ function showBattleProgressUI(myChar, opponentChar) {
     remove: () => { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 500); }
   };
 }
-
-// getRelationBetween 함수를 store.js 에서 import 해야 합니다.
-import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js';
 
 // /public/js/tabs/battle.js 의 startBattleProcess 함수
 async function startBattleProcess(myChar, opponentChar) {
