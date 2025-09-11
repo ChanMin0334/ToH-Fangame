@@ -11,7 +11,8 @@ const db = getFirestore();
 
 const functions = require('firebase-functions'); // (v1) 가입/탈퇴 트리거용
 const { FieldValue, Timestamp } = require('firebase-admin/firestore'); // 카운터 증감/시간
-const QUOTA_REF = db.doc('ops/userQuota/meta'); // 유저 수/한도 저장 위치(문서 1개)
+const QUOTA_REF = db.doc('userQuota/meta');
+ // 유저 수/한도 저장 위치(문서 1개)
 
 
 
