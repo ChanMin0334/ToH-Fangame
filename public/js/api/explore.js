@@ -12,13 +12,51 @@ const EVENT_TABLE = {
   vhard:  { safe:150, item:150, narrative:150, risk:250, combat:300 },
   legend: { safe:100, item:120, narrative:130, risk:250, combat:400 },
 };
-const RARITY_TABLE = [
-  { upto:500,  rarity:'normal' },
-  { upto:800,  rarity:'rare'   },
-  { upto:930,  rarity:'epic'   },
-  { upto:980,  rarity:'legend' },
-  { upto:1000, rarity:'myth'   },
-];
+// ANCHOR: /public/js/api/explore.js
+// ... (파일 상단)
+const RARITY_TABLES_BY_DIFFICULTY = {
+  // Normal: 50% / Rare: 30% / Epic: 13% / Legend: 5% / Myth: 2%
+  normal: [
+    { upto: 500, rarity: 'normal' },
+    { upto: 800, rarity: 'rare'   },
+    { upto: 930, rarity: 'epic'   },
+    { upto: 980, rarity: 'legend' },
+    { upto: 1000, rarity: 'myth'  },
+  ],
+  // Easy: 60% / Rare: 25% / Epic: 10% / Legend: 4% / Myth: 1%
+  easy: [
+    { upto: 600, rarity: 'normal' },
+    { upto: 850, rarity: 'rare'   },
+    { upto: 950, rarity: 'epic'   },
+    { upto: 990, rarity: 'legend' },
+    { upto: 1000, rarity: 'myth'  },
+  ],
+  // Hard: 40% / Rare: 35% / Epic: 17% / Legend: 6% / Myth: 2%
+  hard: [
+    { upto: 400, rarity: 'normal' },
+    { upto: 750, rarity: 'rare'   },
+    { upto: 920, rarity: 'epic'   },
+    { upto: 980, rarity: 'legend' },
+    { upto: 1000, rarity: 'myth'  },
+  ],
+  // Vhard: 30% / Rare: 40% / Epic: 20% / Legend: 8% / Myth: 2%
+  vhard: [
+    { upto: 300, rarity: 'normal' },
+    { upto: 700, rarity: 'rare'   },
+    { upto: 900, rarity: 'epic'   },
+    { upto: 980, rarity: 'legend' },
+    { upto: 1000, rarity: 'myth'  },
+  ],
+  // Legend: 20% / Rare: 40% / Epic: 25% / Legend: 10% / Myth: 5%
+  legend: [
+    { upto: 200, rarity: 'normal' },
+    { upto: 600, rarity: 'rare'   },
+    { upto: 850, rarity: 'epic'   },
+    { upto: 950, rarity: 'legend' },
+    { upto: 1000, rarity: 'myth'  },
+  ],
+};
+// ...
 const COMBAT_TIER = {
   easy:   [{p:600,t:'trash'},{p:950,t:'normal'},{p:1000,t:'elite'}],
   normal: [{p:350,t:'trash'},{p:900,t:'normal'},{p:980,t:'elite'},{p:1000,t:'boss'}],
@@ -150,7 +188,7 @@ export function rollStep(run){
     acc += weight; if(eRoll.value<=acc){ kind = k; break; }
   }
   const sRoll = popRoll(run, 5); run.prerolls = sRoll.next;
-  const baseDelta = { safe:[0,2], item:[0,1], narrative:[0,1], risk:[-3,-1], combat:[-5,-2] }[kind] || [0,0];
+  const baseDelta = { safe:[0,1], item:[-1,-1], narrative:[-1,-1], risk:[-3,-1], combat:[-5,-2] }[kind] || [0,0];
   const mul = { easy:.8, normal:1.0, hard:1.15, vhard:1.3, legend:1.5 }[diff] || 1.0;
   const lo = Math.round(baseDelta[0]*mul), hi = Math.round(baseDelta[1]*mul);
   const deltaStamina = (lo===hi) ? lo : (lo<0 ? -((sRoll.value%(-lo+ -hi+1)) + -hi) : (sRoll.value%(hi-lo+1))+lo);
@@ -158,7 +196,11 @@ export function rollStep(run){
 
   if(kind==='item'){
     const r = popRoll(run, 1000); run.prerolls = r.next;
-    const rarity = (RARITY_TABLE.find(x=> r.value<=x.upto) || RARITY_TABLE.at(-1)).rarity;
+
+    // 현재 난이도에 맞는 희귀도 테이블을 선택 (없으면 normal 기본값)
+    const currentRarityTable = RARITY_TABLES_BY_DIFFICULTY[diff] || RARITY_TABLES_BY_DIFFICULTY.normal;
+    // 선택된 테이블에서 희귀도를 결정
+    const rarity = (currentRarityTable.find(x=> r.value<=x.upto) || currentRarityTable.at(-1)).rarity;
     
     // 💥 아이템 상세 정보 추가
     const isConsumable = (popRoll(run, 10).value <= 7); // 70% 확률로 소모성
