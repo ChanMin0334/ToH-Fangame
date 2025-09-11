@@ -110,18 +110,19 @@ function buildCharPayloadFromAi(out, world, name, desc){
   }));
   while(abilities.length < 4) abilities.push({ name:'', desc_soft:'' });
 
-  // 서사(다중 확장 고려: narratives 배열 + latest id)
+  // [수정] AI가 보내준 narratives 배열에서 첫 번째 서사를 가져오도록 수정
+  const firstNarrative = (Array.isArray(out?.narratives) && out.narratives[0]) ? out.narratives[0] : {};
   const nid = 'n' + Date.now();
   const narrative = {
     id: nid,
-    title: safe(deriveTitle(name, world?.name||world?.id||'world', out), 60),
-    long:  safe(out?.narrative_long, 2000),
-    short: safe(out?.narrative_short, 200),
-    encounters: [], // 추후 업데이트용
+    title: safe(firstNarrative.title || deriveTitle(name, world?.name||world?.id||'world', out), 60),
+    long:  safe(firstNarrative.long, 2000),
+    short: safe(firstNarrative.short, 200),
+    encounters: [],
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
-
+  
   const payload = {
     world_id: world?.id || world?.name || 'world',
     name: safe(name, 20),
