@@ -518,8 +518,7 @@ async function renderLoadout(c, view){
   
   const equippedItemIds = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
   
-  // [핵심 수정] 내 캐릭터(isOwner)일 때는 전체 인벤토리에서,
-  // 상대방 캐릭터일 때는 해당 캐릭터의 정보(c.items_all)에서 아이템을 찾습니다.
+  // [수정] 내 인벤토리가 아닌, 현재 보고 있는 캐릭터의 아이템 목록을 사용합니다.
   const inv = isOwner ? await getUserInventory() : (Array.isArray(c.items_all) ? c.items_all : []);
 
   view.innerHTML = `
