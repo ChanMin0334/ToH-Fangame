@@ -514,97 +514,111 @@ async function openItemPicker(c, onSave) {
 
 
 // 스킬/아이템 탭
-// (수정 후 코드)
-// 스킬/아이템 탭
-async function renderLoadout(c, view){
-  const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
 
-  const abilitiesAll = Array.isArray(c.abilities_all) ? c.abilities_all : [];
-  const equippedAb = Array.isArray(c.abilities_equipped)
-    ? c.abilities_equipped.filter(i=>Number.isInteger(i)&&i>=0&&i<abilitiesAll.length).slice(0,2)
-    : [];
-  
-  const equippedItemIds = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
-  
-  const inv = await getUserInventory(isOwner ? null : c.owner_uid);
+async function renderLoadout(c, view) {
+    const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
 
-  // [수정] 깨진 레이아웃을 수정하고, CSS 클래스를 추가하여 안정성을 높입니다.
-  view.innerHTML = `
+    // 1. 먼저 비어있는 레이아웃을 빠르게 그립니다. (로딩 표시)
+    view.innerHTML = `
     <div class="p12 loadout-container">
       <div class="loadout-section">
         <h4 class="loadout-title">스킬 (4개 중 ${isOwner ? '<b>반드시 2개 선택</b>' : '<b>목록</b>'})</h4>
-        ${abilitiesAll.length === 0
-          ? `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
-          : `<div class="grid2 mt8">
-              ${abilitiesAll.map((ab,i)=>`
-                <label class="kv-card skill-card">
-                  <input type="checkbox" data-i="${i}" ${equippedAb.includes(i) ? 'checked' : ''} ${isOwner ? '' : 'disabled'}/>
-                  <div>
-                    <div class="name">${esc(ab?.name || ('스킬 ' + (i+1)))}</div>
-                    <div class="desc">${esc(ab?.desc_soft || '-')}</div>
-                  </div>
-                </label>`).join('')}
-            </div>`}
+        <div id="skill-list" class="grid2 mt8">
+            <div class="text-dim">스킬 정보 로딩 중...</div>
+        </div>
       </div>
       <div class="loadout-section">
         <h4 class="loadout-title">아이템 장착 (최대 3개)</h4>
-        <div class="grid3 mt8" id="slots"></div>
+        <div id="slots" class="grid3 mt8">
+            <div class="item-slot-card empty">로딩 중...</div>
+            <div class="item-slot-card empty">로딩 중...</div>
+            <div class="item-slot-card empty">로딩 중...</div>
+        </div>
         ${isOwner ? `<button id="btnEquip" class="btn mt8">인벤토리에서 선택/교체</button>` : ''}
       </div>
     </div>
   `;
 
-  if(isOwner && abilitiesAll.length>0){
-    const boxes = Array.from(view.querySelectorAll('.skill-card input[type=checkbox]'));
-    boxes.forEach(b=>{
-      b.onchange = async ()=>{
-        const on = boxes.filter(x=>x.checked).map(x=>+x.dataset.i);
-        if(on.length>2){ b.checked = false; showToast('스킬은 딱 2개만!'); return; }
-        if(on.length===2){
-          try{ await updateAbilitiesEquipped(c.id, on); showToast('스킬 저장 완료'); }
-          catch(e){ showToast('스킬 저장 실패: 로그인/권한을 확인해줘'); }
-        }
-      };
-    });
-  }
+    // 2. 필요한 모든 데이터를 비동기적으로 불러옵니다.
+    const abilitiesAll = Array.isArray(c.abilities_all) ? c.abilities_all : [];
+    const equippedAb = Array.isArray(c.abilities_equipped) ? c.abilities_equipped.slice(0, 2) : [];
+    const equippedItemIds = Array.isArray(c.items_equipped) ? c.items_equipped.slice(0, 3) : [];
+    const inv = await getUserInventory(isOwner ? null : c.owner_uid);
 
-  const slotBox = view.querySelector('#slots');
-  const renderSlots = ()=>{
-    slotBox.innerHTML = [0,1,2].map(slotIndex => {
-      const docId = equippedItemIds[slotIndex];
-      if(!docId) return `<div class="item-slot-card empty">(비어 있음)</div>`;
+    // 3. 데이터가 모두 준비되면 실제 내용을 채워넣습니다.
+    
+    // 스킬 목록 렌더링
+    const skillListBox = view.querySelector('#skill-list');
+    if (abilitiesAll.length > 0) {
+        skillListBox.innerHTML = abilitiesAll.map((ab, i) => `
+            <label class="kv-card skill-card">
+              <input type="checkbox" data-i="${i}" ${equippedAb.includes(i) ? 'checked' : ''} ${isOwner ? '' : 'disabled'}/>
+              <div>
+                <div class="name">${esc(ab?.name || ('스킬 ' + (i + 1)))}</div>
+                <div class="desc">${esc(ab?.desc_soft || ab?.desc || '-')}</div>
+              </div>
+            </label>
+        `).join('');
+    } else {
+        skillListBox.innerHTML = `<div class="kv-card text-dim" style="grid-column: 1 / -1;">등록된 스킬이 없어.</div>`;
+    }
 
-      const it = inv.find(i => i.id === docId);
-      if(!it) return `<div class="item-slot-card error">(아이템 정보 없음)</div>`;
+    // 아이템 슬롯 렌더링
+    const slotBox = view.querySelector('#slots');
+    slotBox.innerHTML = [0, 1, 2].map(slotIndex => {
+        const docId = equippedItemIds[slotIndex];
+        if (!docId) return `<div class="item-slot-card empty">(비어 있음)</div>`;
 
-      const style = rarityStyle(it.rarity);
-      return `
-        <button class="item-slot-card" data-item-id="${it.id}" style="border-left-color: ${style.border}; background:${style.bg};">
-          <div class="name" style="color:${style.text}">${esc(it.name || '아이템')}</div>
-          <div class="desc">${esc(it.desc_soft || it.desc || '-')}</div>
-        </button>`;
+        const it = inv.find(i => i.id === docId);
+        if (!it) return `<div class="item-slot-card error">(아이템 정보 없음)</div>`;
+
+        const style = rarityStyle(it.rarity);
+        return `
+            <button class="item-slot-card" data-item-id="${it.id}" style="border-left-color: ${style.border}; background:${style.bg};">
+              <div class="name" style="color:${style.text}">${esc(it.name || '아이템')}</div>
+              <div class="desc">${esc(it.desc_soft || it.desc || '-')}</div>
+            </button>`;
     }).join('');
 
+    // 4. 이벤트 핸들러를 연결합니다.
+    
+    // 아이템 클릭 시 상세 모달
     slotBox.querySelectorAll('.item-slot-card[data-item-id]').forEach(btn => {
         btn.onclick = () => {
             const itemId = btn.dataset.itemId;
             const item = inv.find(i => i.id === itemId);
-            if(item) {
-                // [핵심 수정] isOwner 정보를 함께 전달합니다.
+            if (item) {
                 showItemDetailModal(item, { isOwner });
             }
         };
     });
-  };
-  renderSlots();
-
-  if(isOwner){
-    view.querySelector('#btnEquip')?.addEventListener('click', ()=>{
-      openItemPicker(c, () => {
-        showCharDetail();
-      });
-    });
-  }
+    
+    // (소유자일 경우) 스킬 선택 및 아이템 교체 버튼
+    if (isOwner) {
+        if (abilitiesAll.length > 0) {
+            const boxes = Array.from(view.querySelectorAll('.skill-card input[type=checkbox]'));
+            boxes.forEach(b => {
+                b.onchange = async () => {
+                    const on = boxes.filter(x => x.checked).map(x => +x.dataset.i);
+                    if (on.length > 2) { b.checked = false; showToast('스킬은 딱 2개만!'); return; }
+                    if (on.length === 2) {
+                        try { await updateAbilitiesEquipped(c.id, on); showToast('스킬 저장 완료'); }
+                        catch (e) { showToast('스킬 저장 실패: 로그인/권한을 확인해줘'); }
+                    }
+                };
+            });
+        }
+        
+        const btnEquip = view.querySelector('#btnEquip');
+        if (btnEquip) {
+            btnEquip.onclick = () => {
+                openItemPicker(c, () => {
+                    // 아이템 교체 후 현재 탭을 다시 렌더링하여 변경사항을 즉시 반영
+                    renderLoadout(c, view); 
+                });
+            };
+        }
+    }
 }
 
 
