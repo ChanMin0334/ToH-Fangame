@@ -20,13 +20,48 @@ function userRef(uid){ return fx.doc(db,'users', uid); }
 export async function ensureUserDoc(){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
-  const ref = fx.doc(db,'users', u.uid);
-  const snap = await fx.getDoc(ref);
+
+  const quotaRef = fx.doc(db,'userQuota','meta');
+  const userRef  = fx.doc(db,'users', u.uid);
 
   const fallbackNick = (u.displayName || '모험가').slice(0,20);
   const now = Date.now();
 
-  if(!snap.exists()){
+  // === 핵심: "users/{uid} 첫 생성" + "userQuota/meta.total +1"을 같은 트랜잭션으로 ===
+  return fx.runTransaction(db, async (tx) => {
+    const qSnap = await tx.get(quotaRef);
+    const q = qSnap.exists() ? (qSnap.data() || {}) : { limit: 5, total: 0 };
+
+    // 이미 내 문서가 있으면 슬롯 소비 없이 기존 로직만 보정
+    const uSnap = await tx.get(userRef);
+    if (uSnap.exists()) {
+      const cur = uSnap.data() || {};
+      const patch = { updatedAt: now };
+
+      if (cur.uid !== u.uid) patch.uid = u.uid;
+      if (typeof cur.createdAt !== 'number') patch.createdAt = now;
+      if ((!cur.avatarURL || cur.avatarURL==='') && u.photoURL) patch.avatarURL = u.photoURL;
+      if (!cur.nickname) {
+        patch.nickname = fallbackNick;
+        patch.nickname_lower = fallbackNick.toLowerCase();
+        if (typeof cur.lastNicknameChangeAt !== 'number') patch.lastNicknameChangeAt = 0;
+      }
+
+      if (Object.keys(patch).length > 0) {
+        tx.set(userRef, patch, { merge:true });
+      }
+      return { ...cur, ...patch };
+    }
+
+    // 여기서부터는 "처음 가입" — 쿼터 검사
+    const limit = Number(q.limit ?? 5);
+    const total = Number(q.total ?? 0);
+    if (total >= limit) {
+      // 규칙에서도 막히지만, 사용자 메시지용으로 명확히 던짐
+      throw new Error('지금은 가입 인원 한도(5명)가 꽉 찼어. 나중에 다시 시도해줘 🥺');
+    }
+
+    // ① 내 users/{uid} 문서를 만들고
     const base = {
       uid: u.uid,
       nickname: fallbackNick,
@@ -36,29 +71,15 @@ export async function ensureUserDoc(){
       updatedAt: now,
       lastNicknameChangeAt: 0
     };
-    await fx.setDoc(ref, base, { merge:true });
+    tx.set(userRef, base, { merge:true });
+
+    // ② 같은 트랜잭션에서 쿼터 +1 (규칙이 이 형태만 허용)
+    tx.update(quotaRef, { total: total + 1, updatedAt: now });
+
     return base;
-    }else{
-    const cur = snap.data() || {};
-    const patch = { updatedAt: now };
-
-    if(cur.uid !== u.uid) patch.uid = u.uid;
-    if(typeof cur.createdAt !== 'number') patch.createdAt = now;
-
-    if((!cur.avatarURL || cur.avatarURL==='') && u.photoURL) patch.avatarURL = u.photoURL;
-
-    if(!cur.nickname){
-      patch.nickname = fallbackNick;
-      patch.nickname_lower = fallbackNick.toLowerCase();
-      if(typeof cur.lastNicknameChangeAt !== 'number') patch.lastNicknameChangeAt = 0;
-    }
-
-    if(Object.keys(patch).length > 0){
-      await fx.setDoc(ref, patch, { merge:true });
-    }
-    return { ...cur, ...patch };
-  }
+  });
 }
+
 
 
 export async function loadUserProfile(){
