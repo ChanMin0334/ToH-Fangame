@@ -266,6 +266,25 @@ export async function genCharacterFlash2({ world, userInput }){
   return norm;
 }
 
+// [추가] AI 응답을 안전하게 정규화하는 함수
+function normalizeOutput(parsed, userInput=''){
+  const p = parsed || {};
+  const name = String(p.name || '').trim();
+  const intro = String(p.intro || p.summary || '').trim();
+  const nlong = String(p.narrative_long || p.narrative || '').trim();
+  const nshort = String(p.narrative_short || '').trim();
+  
+  const skills = (Array.isArray(p.skills) ? p.skills : [])
+    .slice(0, 4)
+    .map(s => ({
+      name: String(s?.name || '').slice(0, 24),
+      effect: String(s?.effect || s?.desc || '').slice(0, 160)
+    }));
+  
+  return { name, intro, narrative_long: nlong, narrative_short: nshort, skills };
+}
+
+
 
 /* ================= ADVENTURE: requestNarrative =================
  * 주사위로 이미 결정된 값(eventKind, deltaStamina 등)을 넘기면
