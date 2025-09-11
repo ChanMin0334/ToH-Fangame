@@ -356,3 +356,17 @@ exports.endExplore = onCall({ region:'us-central1' }, async (req)=>{
   return { ok:true, exp, itemId: itemRef.id };
 });
 
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const admin = require('firebase-admin'); // 이미 있으면 생략
+
+// Firestore에 ops/admin/syncQuota/run 문서가 '생성'되면 1회 동기화
+exports.syncUserQuotaByFlag = onDocumentCreated('ops/admin/syncQuota/run', async (event) => {
+  let nextPageToken, count = 0;
+  do {
+    const res = await admin.auth().listUsers(1000, nextPageToken);
+    count += res.users.length;
+    nextPageToken = res.pageToken;
+  } while (nextPageToken);
+
+  await QUOTA_REF.set({ total: count, updatedAt: Timestamp.now() }, { merge: true });
+});
