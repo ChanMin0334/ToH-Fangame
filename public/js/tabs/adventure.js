@@ -6,6 +6,7 @@ import { EXPLORE_COOLDOWN_KEY, getRemain as getCdRemain } from '../api/cooldown.
 import { createRun } from '../api/explore.js';
 import { findMyActiveRun } from '../api/explore.js';
 import { formatRemain } from '../api/cooldown.js';
+import { getUserInventory } from '../api/user.js'; // ◀◀◀ 이 줄을 추가하세요.
 
 
 // adventure.js 파일 상단, import 바로 아래에 추가
@@ -649,7 +650,7 @@ function viewPrep(root, world, site, char){
 
 // ===== 아이템 목록 및 상세 정보 표시 =====
 async function openItemPicker(char) {
-  const allItems = Array.isArray(char.items_all) ? char.items_all : [];
+  const allItems = await getUserInventory(); // ◀◀◀ 이 줄을 수정하세요.
   
   // 필요한 CSS 주입
   ensureModalCss();
