@@ -148,12 +148,20 @@ export async function chooseBestSketch(sketches) {
     const systemPrompt = await fetchPromptDoc('battle_choice_system');
     const userPrompt = `<INPUT>${JSON.stringify(sketches, null, 2)}</INPUT>`;
 
+    const { primary, fallback } = pickModels(); // [추가] 이 함수 안에서도 모델을 선택하도록 추가합니다.
+
     let raw = '';
     try {
         raw = await callGemini(primary, systemPrompt, userPrompt, 0.7);
     } catch (e) {
-        dbg('최고 스케치 선택 실패, 랜덤 선택으로 폴백', e);
-        return { best_sketch_index: Math.floor(Math.random() * 3) };
+        dbg('최고 스케치 선택 실패, 폴백 시도', e);
+        // [수정] 폴백 시에도 모델을 지정해줍니다.
+        try {
+            raw = await callGemini(fallback, systemPrompt, userPrompt, 0.7);
+        } catch (e2) {
+            dbg('폴백도 실패, 랜덤 선택으로 대체', e2);
+            return { best_sketch_index: Math.floor(Math.random() * 3) };
+        }
     }
 
     
