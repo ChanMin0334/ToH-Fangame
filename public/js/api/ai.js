@@ -2,7 +2,7 @@
 import { db, fx } from './firebase.js';
 
 const DEFAULT_FLASH2 = 'gemini-1.5-flash-latest';
-const FALLBACK_FLASH = 'gemini-1.5-pro-latest';
+const FALLBACK_FLASH = 'gemini-1.5-flash-latest';
 
 const DEBUG = !!localStorage.getItem('toh_debug_ai');
 function dbg(...args){ if(DEBUG) console.log('[AI]', ...args); }
