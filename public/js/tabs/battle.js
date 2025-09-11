@@ -117,16 +117,19 @@ function showBattleProgressUI(myChar, opponentChar) {
   };
 }
 
+// getRelationBetween 함수를 store.js 에서 import 해야 합니다.
+import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js';
+
 async function startBattleProcess(myChar, opponentChar) {
     const progress = showBattleProgressUI(myChar, opponentChar);
     try {
-        progress.update('배틀 로직 프롬프트 로딩...', 10);
+        progress.update('배틀 컨셉 로딩...', 10);
         const battlePrompts = await fetchBattlePrompts();
         const chosenPrompts = battlePrompts.sort(() => 0.5 - Math.random()).slice(0, 3);
 
-        progress.update('캐릭터 데이터 수집...', 30);
-        const getEquipped = (char, all, equipped) => (Array.isArray(all) && Array.isArray(equipped)) ? all.filter((_, i) => equipped.includes(i)) : [];
+        progress.update('캐릭터 데이터 및 관계 분석...', 20);
         
+        const getEquipped = (char, all, equipped) => (Array.isArray(all) && Array.isArray(equipped)) ? all.filter((_, i) => equipped.includes(i)) : [];
         const myInv = await getUserInventory(myChar.owner_uid);
         const oppInv = await getUserInventory(opponentChar.owner_uid);
         const getEquippedItems = (char, inv) => (char.items_equipped || []).map(id => inv.find(i => i.id === id)).filter(Boolean);
@@ -134,44 +137,63 @@ async function startBattleProcess(myChar, opponentChar) {
         const simplifyForAI = (char, inv) => {
             const equippedSkills = getEquipped(char, char.abilities_all, char.abilities_equipped);
             const equippedItems = getEquippedItems(char, inv);
-
-            // 스킬과 아이템을 '이름: 설명' 형태의 간단한 문자열로 변환
             const skillsAsText = equippedSkills.map(s => `${s.name}: ${s.desc_soft}`).join('\n') || '없음';
             const itemsAsText = equippedItems.map(i => `${i.name}: ${i.desc_soft || i.desc}`).join('\n') || '없음';
-
-            // 이전 서사 요약이 없을 경우를 대비해, 가장 최근 서사의 short 버전을 대신 사용
             const narrativeSummary = char.narratives?.slice(1).map(n => n.short).join(' ') || char.narratives?.[0]?.short || '특이사항 없음';
-
             return {
                 name: char.name,
                 narrative_long: char.narratives?.[0]?.long || char.summary,
                 narrative_short_summary: narrativeSummary,
-                skills: skillsAsText,  // 가공된 텍스트로 교체
-                items: itemsAsText,    // 가공된 텍스트로 교체
+                skills: skillsAsText,
+                items: itemsAsText,
                 origin: char.world_id,
             };
         };
-
         const attackerData = simplifyForAI(myChar, myInv);
         const defenderData = simplifyForAI(opponentChar, oppInv);
+        
+        // 두 캐릭터의 관계 조회
+        const relation = await getRelationBetween(myChar.id, opponentChar.id);
 
-        progress.update('AI에게 1차 스케치 요청...', 50);
-        const battleData = { prompts: chosenPrompts, attacker: attackerData, defender: defenderData };
-        const sketch = await generateBattleSketch(battleData);
+        const battleData = { 
+            prompts: chosenPrompts, 
+            attacker: attackerData, 
+            defender: defenderData,
+            relation: relation // 조회된 관계 정보 추가
+        };
+        
+        progress.update('AI가 3가지 전투 시나리오 구상 중...', 40);
+        const sketches = await generateBattleSketches(battleData);
 
-        progress.update('AI에게 최종 배틀 로그 생성 요청...', 80);
-        const finalLog = await generateFinalBattleLog(sketch, battleData);
+        progress.update('AI가 가장 흥미로운 시나리오 선택 중...', 65);
+        const choice = await chooseBestSketch(sketches);
+        const chosenSketch = sketches[choice.best_sketch_index];
+
+        progress.update('선택된 시나리오로 최종 배틀 로그 생성 중...', 80);
+        const finalLog = await generateFinalBattleLog(chosenSketch, battleData);
 
         progress.update('배틀 결과 저장...', 95);
+
+        // 경험치 밸런스 조정 (서버리스 환경이므로 클라이언트에서 수행)
+        const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
+        finalLog.exp_char0 = clamp(finalLog.exp_char0, 5, 50);
+        finalLog.exp_char1 = clamp(finalLog.exp_char1, 5, 50);
+
         const logData = {
             attacker_char: `chars/${myChar.id}`,
             defender_char: `chars/${opponentChar.id}`,
-            attacker_snapshot: { name: myChar.name, thumb_url: myChar.thumb_url },
-            defender_snapshot: { name: opponentChar.name, thumb_url: opponentChar.thumb_url },
-            ...finalLog,
+            attacker_snapshot: { name: myChar.name, thumb_url: myChar.thumb_url || null },
+            defender_snapshot: { name: opponentChar.name, thumb_url: opponentChar.thumb_url || null },
+            relation_at_battle: relation || null,
+            ...finalLog, // title, content, winner, exp, items_used 등 포함
             endedAt: fx.serverTimestamp()
         };
+        
         const logRef = await fx.addDoc(fx.collection(db, 'battle_logs'), logData);
+
+        // TODO: 여기서 finalLog.exp_char0, finalLog.exp_char1을 각 캐릭터에게 부여하고
+        // finalLog.items_used_by_char0, finalLog.items_used_by_char1을 각 인벤토리에서 차감하는 로직 필요
+        // (예: grantExp(myChar.id, finalLog.exp_char0), consumeItems(myChar.id, finalLog.items_used_by_char0))
 
         progress.update('완료!', 100);
         setTimeout(() => {
@@ -187,7 +209,6 @@ async function startBattleProcess(myChar, opponentChar) {
         if (btnStart) mountCooldownOnButton(btnStart, '배틀 시작');
     }
 }
-
 // ---------- entry ----------
 export async function showBattle(){
   ensureSpinCss();
