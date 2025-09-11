@@ -511,128 +511,116 @@ async function openItemPicker(c, onSave) {
 // /public/js/tabs/char.js
 
 // 스킬/아이템 탭
+// ANCHOR: /public/js/tabs/char.js, line 700
+// 스킬/아이템 탭
 async function renderLoadout(c, view) {
-  const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
+  const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
 
-  // 스킬과 아이템 데이터를 가져옵니다.
-  const getAbilities = () => c.abilities_all || [];
-  const getItems = () => c.items_all || [];
-  const equippedAbilities = c.abilities_equipped || [];
-  const equippedItems = c.items_equipped || [];
+  // [수정] 유저의 전체 인벤토리를 기준으로 아이템 목록을 표시합니다.
+  const allAbilities = c.abilities_all || [];
+  const userInventory = await getUserInventory(); // 유저의 공유 인벤토리 가져오기
+  const equippedAbilityIndices = c.abilities_equipped || [];
+  const equippedItemIds = c.items_equipped || [];
 
-  const allAbilities = getAbilities();
-  const allItems = getItems();
+  view.innerHTML = `
+    <div class="p12">
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <h4 style="margin:0;">스킬 (장착 ${equippedAbilityIndices.length} / 2)</h4>
+              </div>
+      <div id="abilitiesList" class="col mt8" style="gap:8px;"></div>
 
-  const rarityColors = {
-    normal: '#c8d0dc', rare: '#cfe4ff', epic: '#e6dcff', legend: '#ffe9ad', myth: '#ffc9ce'
-  };
+      <hr class="my12">
 
-  const getItemHtml = (item, isEquipped) => {
-    const style = rarityStyle(item.rarity);
-    return `
-      <div class="kv-card item-card ${isEquipped ? 'equipped' : ''}" data-item-id="${item.id}" style="border-left: 3px solid ${style.border}; cursor: pointer;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div style="font-weight:700; color:${style.text};">${esc(item.name)}</div>
-          ${isEquipped ? '<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">장착중</span>' : ''}
-        </div>
-        <div class="text-dim" style="font-size:12px; margin-top:4px;">${esc(item.desc_soft || item.desc || '-')}</div>
-      </div>
-    `;
-  };
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <h4 style="margin:0;">아이템 (장착 ${equippedItemIds.length} / 3)</h4>
+        ${isOwner ? '<button class="btn" id="btnManageItems">장착 관리</button>' : ''}
+      </div>
+      <div id="itemsList" class="col mt8" style="gap:8px;"></div>
+    </div>
+  `;
 
-  const getAbilityHtml = (ability, isEquipped) => {
-    const color = rarityColors[ability.rarity] || rarityColors.normal;
-    return `
-      <div class="kv-card ability-card ${isEquipped ? 'equipped' : ''}" style="border-left: 3px solid ${color}80;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div style="font-weight:700; color:${color};">${esc(ability.name)}</div>
-          ${isEquipped ? '<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">장착중</span>' : ''}
-        </div>
-        <div class="text-dim" style="font-size:12px; margin-top:4px;">${esc(ability.desc || '-')}</div>
-      </div>
-    `;
-  };
+  // 스킬 목록 렌더링
+  const abilitiesList = view.querySelector('#abilitiesList');
+  if (allAbilities.length > 0) {
+    abilitiesList.innerHTML = allAbilities.map((ability, index) => {
+      const isEquipped = equippedAbilityIndices.includes(index);
+      const style = rarityStyle(ability.rarity); // 스킬도 희귀도가 있다면 적용
+      return `
+        <div class="kv-card ability-card ${isEquipped ? 'equipped' : ''}" style="border-left: 3px solid ${style.border};">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="font-weight:700; color:${style.text};">${esc(ability.name)}</div>
+            ${isEquipped ? '<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">장착중</span>' : ''}
+          </div>
+          <div class="text-dim" style="font-size:12px; margin-top:4px;">${esc(ability.desc_soft || ability.desc || '-')}</div>
+        </div>
+      `;
+    }).join('');
+  } else {
+    abilitiesList.innerHTML = '<div class="text-dim">보유 스킬이 없습니다.</div>';
+  }
 
-  view.innerHTML = `
-    <div class="p12">
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <h4 style="margin:0;">스킬 (장착 ${equippedAbilities.length} / 2)</h4>
-      </div>
-      <div id="abilitiesList" class="col mt8" style="gap:8px;">
-        ${allAbilities.length === 0 ? '<div class="text-dim">보유 스킬이 없습니다.</div>' : allAbilities.map(a => getAbilityHtml(a, equippedAbilities.includes(a.id))).join('')}
-      </div>
-
-      <hr class="my12">
-
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <h4 style="margin:0;">아이템 (장착 ${equippedItems.length} / 3)</h4>
-        ${isOwner ? '<button class="btn" id="btnManageItems">장착 관리</button>' : ''}
-      </div>
-      <div id="itemsList" class="col mt8" style="gap:8px;">
-         ${allItems.length === 0 ? '<div class="text-dim">보유 아이템이 없습니다.</div>' : allItems.map(i => getItemHtml(i, equippedItems.includes(i.id))).join('')}
-      </div>
-    </div>
-  `;
-
-  if (isOwner) {
-    view.querySelector('#btnManageItems')?.addEventListener('click', () => {
-      openItemPicker(c, () => {
-        // 저장 후 콜백: Loadout 탭을 다시 렌더링하여 변경사항을 반영합니다.
-        renderLoadout(c, view);
-      });
+  // 아이템 목록 렌더링
+  const itemsList = view.querySelector('#itemsList');
+  if (userInventory.length > 0) {
+    // 장착된 아이템을 먼저 보여주기 위해 정렬
+    const sortedInventory = [...userInventory].sort((a, b) => {
+        const aIsEquipped = equippedItemIds.includes(a.id);
+        const bIsEquipped = equippedItemIds.includes(b.id);
+        return bIsEquipped - aIsEquipped; // true(1)가 false(0)보다 앞에 오도록
     });
-  }
 
-  // 아이템 카드 클릭 시 상세 정보 모달 표시
-  view.querySelectorAll('.item-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const itemId = card.dataset.itemId;
-      const item = allItems.find(it => it.id === itemId);
-      if (item) {
-        showItemDetailModal(item, {
-          equippedIds: c.items_equipped,
-          onUpdate: async (newEquipped) => {
-            if (isOwner) {
-              try {
-                await updateItemsEquipped(c.id, newEquipped);
-                c.items_equipped = newEquipped; // 로컬 캐릭터 데이터 업데이트
-                showToast('아이템 장착 정보가 변경되었습니다.');
-                renderLoadout(c, view); // 탭 다시 렌더링
-              } catch (e) {
-                showToast(`오류: ${e.message}`);
-              }
-            }
-          }
-        });
-      }
-    });
-  });
+    itemsList.innerHTML = sortedInventory.map(item => {
+      const isEquipped = equippedItemIds.includes(item.id);
+      const style = rarityStyle(item.rarity);
+      return `
+        <div class="kv-card item-card" data-item-id="${item.id}" style="border-left: 3px solid ${style.border}; cursor: pointer; ${isEquipped ? 'background-color: rgba(74, 163, 255, 0.1);' : ''}">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="font-weight:700; color:${style.text};">${esc(item.name)}</div>
+            ${isEquipped ? '<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">장착중</span>' : ''}
+          </div>
+          <div class="text-dim" style="font-size:12px; margin-top:4px;">${esc(item.desc_soft || item.desc || '-')}</div>
+        </div>
+      `;
+    }).join('');
+  } else {
+    itemsList.innerHTML = '<div class="text-dim">보유 아이템이 없습니다.</div>';
+  }
+
+  // 이벤트 리스너 연결
+  if (isOwner) {
+    view.querySelector('#btnManageItems')?.addEventListener('click', () => {
+      openItemPicker(c, () => {
+        renderLoadout(c, view); // 저장 후 탭 새로고침
+      });
+    });
+  }
+
+  view.querySelectorAll('.item-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const itemId = card.dataset.itemId;
+      const item = userInventory.find(it => it.id === itemId);
+      if (item) {
+        showItemDetailModal(item, {
+          equippedIds: c.items_equipped,
+          onUpdate: async (newEquipped) => {
+            if (isOwner) {
+              try {
+                await updateItemsEquipped(c.id, newEquipped);
+                c.items_equipped = newEquipped;
+                showToast('아이템 장착 정보가 변경되었습니다.');
+                renderLoadout(c, view); // 탭 다시 렌더링
+              } catch (e) {
+                showToast(`오류: ${e.message}`);
+              }
+            }
+          }
+        });
+      }
+    });
+  });
 }
 
-// 표준 narratives → {id,title,long,short} 배열, 없으면 legacy narrative_items 변환
-function normalizeNarratives(c){
 
-
-// 표준 narratives → {id,title,long,short} 배열, 없으면 legacy narrative_items 변환
-function normalizeNarratives(c){
-  if (Array.isArray(c.narratives) && c.narratives.length){
-    return c.narratives.map(n => ({
-      id: n.id || ('n'+Math.random().toString(36).slice(2)),
-      title: n.title || '서사',
-      long: n.long || '',
-      short: n.short || ''
-    }));
-  }
-  if (Array.isArray(c.narrative_items) && c.narrative_items.length){
-    return c.narrative_items.map((it, i) => ({
-      id: 'legacy-'+i,
-      title: it.title || '서사',
-      long: it.body || '',
-      short: ''
-    }));
-  }
-  return [];
-}
 
 // 서사 전용 페이지: 제목 → long → short (short는 여기에서만 노출)
 function renderNarrativePage(c, narrId){
