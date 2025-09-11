@@ -258,7 +258,46 @@ async function render(c){
       i.click();
     });
   }
-  root.querySelector('#btnLike')?.addEventListener('click', ()=> showToast('좋아요는 다음 패치!'));
+  const btnLike = root.querySelector('#btnLike');
+  if (btnLike) {
+    const LIKED_KEY = `toh_liked_${c.id}`;
+    // 이미 좋아요를 눌렀다면 버튼을 비활성화하고 스타일 변경
+    if (localStorage.getItem(LIKED_KEY)) {
+      btnLike.style.background = '#ff69b4';
+      btnLike.innerHTML = '❤️';
+      btnLike.disabled = true;
+    }
+
+    btnLike.addEventListener('click', async () => {
+      if (!auth.currentUser) return showToast('로그인해야 좋아요를 누를 수 있어.');
+      if (isOwner) return showToast('자기 캐릭터는 좋아할 수 없어!');
+      if (localStorage.getItem(LIKED_KEY)) return showToast('이미 좋아한 캐릭터야.');
+
+      try {
+        btnLike.disabled = true;
+        const { likeChar } = await import('../api/store.js');
+        await likeChar(c.id);
+
+        // 성공 시 로컬에 기록하여 중복 방지
+        localStorage.setItem(LIKED_KEY, '1');
+
+        showToast('좋아요! 이 캐릭터를 응원합니다.');
+        btnLike.style.background = '#ff69b4';
+        btnLike.innerHTML = '❤️';
+
+        // 화면의 좋아요 카운트도 즉시 업데이트
+        const likeStat = root.querySelector('.stat-like .v');
+        if (likeStat) likeStat.textContent = (parseInt(likeStat.textContent, 10) || 0) + 1;
+        const weekStat = root.querySelector('.stat-week .v');
+        if (weekStat) weekStat.textContent = (parseInt(weekStat.textContent, 10) || 0) + 1;
+
+      } catch (e) {
+        console.error('[like] error', e);
+        showToast(`좋아요 실패: ${e.message}`);
+        btnLike.disabled = false; // 실패 시 다시 누를 수 있도록 복구
+      }
+    });
+  }
 
   const bv = root.querySelector('#bookview');
   const tabs = root.querySelectorAll('.bookmark');
