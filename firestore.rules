@@ -89,7 +89,7 @@ match /battle_logs/{logId} {
     }
     match /friendships/{pairId} {
       allow read, delete: if isSignedIn() && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
-      create: if isSignedIn() && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
+      allow create: if isSignedIn() && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
     }
     match /matchSessions/{sid} {
       allow read: if isSignedIn() && (request.auth.uid == resource.data.a_owner || request.auth.uid == resource.data.b_owner);
