@@ -407,6 +407,24 @@ export async function getCharForAI(charRefOrId){
   };
 }
 
+// ◀◀◀ 여기에 새 함수를 추가하세요.
+export async function likeChar(charId) {
+  const u = auth.currentUser;
+  if (!u) throw new Error('로그인이 필요해');
+  if (!charId) throw new Error('캐릭터 ID가 필요해');
+
+  const charRef = fx.doc(db, 'chars', charId);
+
+  // Firestore의 increment를 사용하여 안전하게 카운트 증가
+  await fx.updateDoc(charRef, {
+    likes_total: fx.increment(1),
+    likes_weekly: fx.increment(1),
+    updatedAt: Date.now()
+  });
+
+  return true;
+}
+
 // /public/js/api/store.js 파일 맨 아래에 추가
 
 export async function getRelationBetween(charId1, charId2) {
