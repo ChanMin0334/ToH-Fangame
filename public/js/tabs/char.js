@@ -259,45 +259,45 @@ async function render(c){
     });
   }
   const btnLike = root.querySelector('#btnLike');
-  if (btnLike) {
-    const LIKED_KEY = `toh_liked_${c.id}`;
-    // 이미 좋아요를 눌렀다면 버튼을 비활성화하고 스타일 변경
-    if (localStorage.getItem(LIKED_KEY)) {
+if (btnLike) {
+  const LIKED_KEY = `toh_liked_${c.id}`;
+  // 이미 좋아요를 눌렀다면 버튼을 비활성화하고 스타일 변경
+  if (localStorage.getItem(LIKED_KEY)) {
+    btnLike.style.background = '#ff69b4';
+    btnLike.innerHTML = '❤️';
+    btnLike.disabled = true;
+  }
+
+  btnLike.addEventListener('click', async () => {
+    if (!auth.currentUser) return showToast('로그인해야 좋아요를 누를 수 있어.');
+    if (isOwner) return showToast('자기 캐릭터는 좋아할 수 없어!');
+    if (localStorage.getItem(LIKED_KEY)) return showToast('이미 좋아한 캐릭터야.');
+
+    try {
+      btnLike.disabled = true;
+      const { likeChar } = await import('../api/store.js');
+      await likeChar(c.id);
+
+      // 성공 시 로컬에 기록하여 중복 방지
+      localStorage.setItem(LIKED_KEY, '1');
+
+      showToast('좋아요! 이 캐릭터를 응원합니다.');
       btnLike.style.background = '#ff69b4';
       btnLike.innerHTML = '❤️';
-      btnLike.disabled = true;
+
+      // 화면의 좋아요 카운트도 즉시 업데이트
+      const likeStat = root.querySelector('.stat-like .v');
+      if (likeStat) likeStat.textContent = (parseInt(likeStat.textContent, 10) || 0) + 1;
+      const weekStat = root.querySelector('.stat-week .v');
+      if (weekStat) weekStat.textContent = (parseInt(weekStat.textContent, 10) || 0) + 1;
+
+    } catch (e) {
+      console.error('[like] error', e);
+      showToast(`좋아요 실패: ${e.message}`);
+      btnLike.disabled = false; // 실패 시 다시 누를 수 있도록 복구
     }
-
-    btnLike.addEventListener('click', async () => {
-      if (!auth.currentUser) return showToast('로그인해야 좋아요를 누를 수 있어.');
-      if (isOwner) return showToast('자기 캐릭터는 좋아할 수 없어!');
-      if (localStorage.getItem(LIKED_KEY)) return showToast('이미 좋아한 캐릭터야.');
-
-      try {
-        btnLike.disabled = true;
-        const { likeChar } = await import('../api/store.js');
-        await likeChar(c.id);
-
-        // 성공 시 로컬에 기록하여 중복 방지
-        localStorage.setItem(LIKED_KEY, '1');
-
-        showToast('좋아요! 이 캐릭터를 응원합니다.');
-        btnLike.style.background = '#ff69b4';
-        btnLike.innerHTML = '❤️';
-
-        // 화면의 좋아요 카운트도 즉시 업데이트
-        const likeStat = root.querySelector('.stat-like .v');
-        if (likeStat) likeStat.textContent = (parseInt(likeStat.textContent, 10) || 0) + 1;
-        const weekStat = root.querySelector('.stat-week .v');
-        if (weekStat) weekStat.textContent = (parseInt(weekStat.textContent, 10) || 0) + 1;
-
-      } catch (e) {
-        console.error('[like] error', e);
-        showToast(`좋아요 실패: ${e.message}`);
-        btnLike.disabled = false; // 실패 시 다시 누를 수 있도록 복구
-      }
-    });
-  }
+  });
+}
 
   const bv = root.querySelector('#bookview');
   const tabs = root.querySelectorAll('.bookmark');
@@ -507,169 +507,121 @@ async function openItemPicker(c, onSave) {
 }
 
 
-// ANCHOR: /public/js/tabs/char.js
-// ... (파일의 다른 부분은 그대로 둡니다)
-
 // 스킬/아이템 탭
-async function renderLoadout(c, view) {
-  const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
+async function renderLoadout(c, view){
+  const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
 
-  // [수정] 유저 인벤토리와 캐릭터 스킬 정보를 가져옵니다.
-  const allAbilities = c.abilities_all || [];
-  const userInventory = await getUserInventory();
-  const equippedAbilityIndices = c.abilities_equipped || [];
-  const equippedItemIds = c.items_equipped || [];
+  const abilitiesAll = Array.isArray(c.abilities_all) ? c.abilities_all : [];
+  const equippedAb = Array.isArray(c.abilities_equipped)
+    ? c.abilities_equipped.filter(i=>Number.isInteger(i)&&i>=0&&i<abilitiesAll.length).slice(0,2)
+    : [];
+  
+  const equippedItemIds = Array.isArray(c.items_equipped)? c.items_equipped.slice(0,3): [];
+  
+  // [수정] 내 인벤토리가 아닌, 현재 보고 있는 캐릭터의 아이템 목록을 사용합니다.
+  const inv = Array.isArray(c.items_all) ? c.items_all : [];
 
-  view.innerHTML = `
-    <div class="p12">
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <h4 style="margin:0;">스킬 (정확히 2개 선택)</h4>
-      </div>
-      <div id="abilitiesList" class="grid2 mt8" style="gap:8px;">
-        </div>
+  view.innerHTML = `
+    <div class="p12">
+      <h4>스킬 (4개 중 <b>${isOwner ? '반드시 2개 선택' : '목록'}</b>)</h4>
+      ${abilitiesAll.length===0
+        ? `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
+        : `<div class="grid2 mt8">
+            ${abilitiesAll.map((ab,i)=>`
+              <label class="skill">
+                <input type="checkbox" data-i="${i}" ${isOwner && equippedAb.includes(i) ? 'checked' : ''} ${isOwner ? '' : 'disabled'}/>
+                <div>
+                  <div class="name">${ab?.name || ('스킬 ' + (i+1))}</div>
+                  <div class="desc">${ab?.desc_soft || '-'}</div>
+                </div>
+              </label>`).join('')}
+          </div>`}
+    </div>
+    <div class="p12">
+      <h4 class="mt12">아이템 장착 (최대 3개)</h4>
+      <div class="grid3 mt8" id="slots"></div>
+      ${isOwner ? `<button id="btnEquip" class="btn mt8">인벤토리에서 선택/교체</button>` : ''}
+    </div>
+  `;
 
-      <hr class="my12">
-
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <h4 style="margin:0;">아이템 (장착 ${equippedItemIds.length} / 3)</h4>
-        ${isOwner ? '<button class="btn" id="btnManageItems">장착 관리</button>' : ''}
-      </div>
-      <div id="itemsList" class="col mt8" style="gap:8px;">
-        </div>
-    </div>
-  `;
-
-  // --- 스킬 렌더링 (체크박스 방식) ---
-  const abilitiesList = view.querySelector('#abilitiesList');
-  if (allAbilities.length > 0) {
-    abilitiesList.innerHTML = allAbilities.map((ability, index) => {
-      const isEquipped = equippedAbilityIndices.includes(index);
-      const style = rarityStyle(ability.rarity);
-      return `
-        <label class="kv-card" style="display:flex; gap:10px; align-items:flex-start; padding:12px; cursor:pointer; border-left: 3px solid ${style.border};">
-          <input type="checkbox" class="ability-checkbox" data-index="${index}" ${isEquipped ? 'checked' : ''} style="margin-top:4px;" ${!isOwner ? 'disabled' : ''}>
-          <div style="flex:1;">
-            <div style="font-weight:700; color:${style.text};">${esc(ability.name)}</div>
-            <div class="text-dim" style="font-size:12px; margin-top:4px; min-height: 2.4em;">${esc(ability.desc_soft || ability.desc || '-')}</div>
-          </div>
-        </label>
-      `;
-    }).join('');
-  } else {
-    abilitiesList.innerHTML = '<div class="text-dim">보유 스킬이 없습니다.</div>';
-  }
-
-  // --- 아이템 렌더링 (기존과 동일, UI 길이 문제만 수정) ---
-  const itemsList = view.querySelector('#itemsList');
-  if (userInventory.length > 0) {
-    const sortedInventory = [...userInventory].sort((a, b) => {
-        const aIsEquipped = equippedItemIds.includes(a.id);
-        const bIsEquipped = equippedItemIds.includes(b.id);
-        return bIsEquipped - aIsEquipped;
+  if(isOwner && abilitiesAll.length>0){
+    const boxes = Array.from(view.querySelectorAll('.skill input[type=checkbox]'));
+    boxes.forEach(b=>{
+      b.onchange = async ()=>{
+        const on = boxes.filter(x=>x.checked).map(x=>+x.dataset.i);
+        if(on.length>2){ b.checked = false; showToast('스킬은 딱 2개만!'); return; }
+        if(on.length===2){
+          try{ await updateAbilitiesEquipped(c.id, on); showToast('스킬 저장 완료'); }
+          catch(e){ showToast('스킬 저장 실패: 로그인/권한을 확인해줘'); }
+        }
+      };
     });
-    itemsList.innerHTML = sortedInventory.map(item => {
-      const isEquipped = equippedItemIds.includes(item.id);
-      const style = rarityStyle(item.rarity);
-      return `
-        <div class="kv-card item-card" data-item-id="${item.id}" style="border-left: 3px solid ${style.border}; cursor: pointer; ${isEquipped ? 'background-color: rgba(74, 163, 255, 0.1);' : ''}">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <div style="font-weight:700; color:${style.text};">${esc(item.name)}</div>
-            ${isEquipped ? '<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">장착중</span>' : ''}
-          </div>
-          <div class="text-dim" style="font-size:12px; margin-top:4px; min-height: 2.4em;">${esc(item.desc_soft || item.desc || '-')}</div>
-        </div>
-      `;
-    }).join('');
-  } else {
-    itemsList.innerHTML = '<div class="text-dim">보유 아이템이 없습니다.</div>';
-  }
+  }
 
+  const slotBox = view.querySelector('#slots');
+  const renderSlots = ()=>{
+    slotBox.innerHTML = [0,1,2].map(slotIndex => {
+      const docId = equippedItemIds[slotIndex];
+      if(!docId) return `<div class="slot">(비어 있음)</div>`;
 
-  // --- 이벤트 리스너 연결 ---
-  if (isOwner) {
-    // 스킬 체크박스 이벤트
-    view.querySelectorAll('.ability-checkbox').forEach(checkbox => {
-      checkbox.addEventListener('change', async () => {
-        const allCheckboxes = view.querySelectorAll('.ability-checkbox');
-        const selectedIndices = Array.from(allCheckboxes)
-          .filter(cb => cb.checked)
-          .map(cb => parseInt(cb.dataset.index, 10));
+      const it = inv.find(i => i.id === docId);
+      if(!it) return `<div class="slot" style="color: #ff5b66;">(아이템 정보 없음)</div>`;
 
-        if (selectedIndices.length > 2) {
-          checkbox.checked = false; // 선택 해제
-          showToast('스킬은 최대 2개까지만 선택할 수 있습니다.');
-          return;
-        }
+      const style = rarityStyle(it.rarity);
+      // [수정] div를 button으로 변경하고, 클릭 이벤트를 추가합니다.
+      return `
+        <button class="item" data-item-id="${it.id}" style="text-align:left; cursor:pointer; border-left: 3px solid ${style.border}; background:${style.bg};">
+          <div class="name" style="color:${style.text}">${it.name || '아이템'}</div>
+          <div class="desc" style="font-size:12px; opacity:0.8;">${it.desc_soft || it.desc || '-'}</div>
+        </button>`;
+    }).join('');
 
-        if (selectedIndices.length === 2) {
-          try {
-            await updateAbilitiesEquipped(c.id, selectedIndices);
-            c.abilities_equipped = selectedIndices; // 로컬 데이터 업데이트
-            showToast('스킬 장착 정보가 저장되었습니다.');
-          } catch (e) {
-            showToast('스킬 저장에 실패했습니다: ' + e.message);
-            // 실패 시 UI 원상 복구 (페이지 새로고침이 간단)
-            renderLoadout(c, view);
-          }
-        }
+    // [추가] 생성된 아이템 슬롯 버튼에 클릭 이벤트 핸들러를 연결합니다.
+    slotBox.querySelectorAll('.item[data-item-id]').forEach(btn => {
+        btn.onclick = () => {
+            const itemId = btn.dataset.itemId;
+            const item = inv.find(i => i.id === itemId);
+            if(item) {
+                // [수정] 이제 isOwner 체크 없이 누구나 상세 정보를 볼 수 있습니다.
+                showItemDetailModal(item);
+            }
+        };
+    });
+  };
+  renderSlots();
+
+  if(isOwner){
+    view.querySelector('#btnEquip')?.addEventListener('click', ()=>{
+      openItemPicker(c, () => {
+        // 아이템 선택/교체 후 현재 탭을 다시 렌더링하여 변경사항을 즉시 반영합니다.
+        // 이 때 c 객체는 최신 정보가 아닐 수 있으므로, 페이지를 새로고침하는 것이 가장 확실합니다.
+        showCharDetail();
       });
     });
-
-    // 아이템 장착 관리 버튼 이벤트
-    view.querySelector('#btnManageItems')?.addEventListener('click', () => {
-      openItemPicker(c, () => {
-        renderLoadout(c, view); // 저장 후 탭 새로고침
-      });
-    });
-  }
-
-  // 아이템 카드 클릭 이벤트 (상세 보기)
-  view.querySelectorAll('.item-card').forEach(card => {
-    card.addEventListener('click', () => {
-      // (이하 아이템 상세 보기 로직은 기존과 동일)
-      const itemId = card.dataset.itemId;
-      const item = userInventory.find(it => it.id === itemId);
-      if (item) {
-        showItemDetailModal(item, {
-          equippedIds: c.items_equipped,
-          onUpdate: async (newEquipped) => {
-            if (isOwner) {
-              try {
-                await updateItemsEquipped(c.id, newEquipped);
-                c.items_equipped = newEquipped;
-                showToast('아이템 장착 정보가 변경되었습니다.');
-                renderLoadout(c, view);
-              } catch (e) {
-                showToast(`오류: ${e.message}`);
-              }
-            }
-          }
-        });
-      }
-    });
-  });
+  }
 }
 
+
+// 표준 narratives → {id,title,long,short} 배열, 없으면 legacy narrative_items 변환
 function normalizeNarratives(c){
-  if (Array.isArray(c.narratives) && c.narratives.length){
-    return c.narratives.map(n => ({
-      id: n.id || ('n'+Math.random().toString(36).slice(2)),
-      title: n.title || '서사',
-      long: n.long || '',
-      short: n.short || ''
-    }));
-  }
-  if (Array.isArray(c.narrative_items) && c.narrative_items.length){
-    return c.narrative_items.map((it, i) => ({
-      id: 'legacy-'+i,
-      title: it.title || '서사',
-      long: it.body || '',
-      short: ''
-    }));
-  }
-  return [];
+  if (Array.isArray(c.narratives) && c.narratives.length){
+    return c.narratives.map(n => ({
+      id: n.id || ('n'+Math.random().toString(36).slice(2)),
+      title: n.title || '서사',
+      long: n.long || '',
+      short: n.short || ''
+    }));
+  }
+  if (Array.isArray(c.narrative_items) && c.narrative_items.length){
+    return c.narrative_items.map((it, i) => ({
+      id: 'legacy-'+i,
+      title: it.title || '서사',
+      long: it.body || '',
+      short: ''
+    }));
+  }
+  return [];
 }
-
 
 // 서사 전용 페이지: 제목 → long → short (short는 여기에서만 노출)
 function renderNarrativePage(c, narrId){
