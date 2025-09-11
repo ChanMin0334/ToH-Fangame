@@ -32,7 +32,7 @@ export async function ensureUserDoc(){
     const qSnap = await tx.get(quotaRef);
     const q = qSnap.exists() ? (qSnap.data() || {}) : { limit: 5, total: 0 };
 
-    // 이미 내 문서가 있으면 슬롯 소비 없이 기존 로직만 보정
+    // 이미 가입자면: 슬롯 소비 없이 기본 필드만 보정
     const uSnap = await tx.get(userRef);
     if (uSnap.exists()) {
       const cur = uSnap.data() || {};
@@ -46,7 +46,6 @@ export async function ensureUserDoc(){
         patch.nickname_lower = fallbackNick.toLowerCase();
         if (typeof cur.lastNicknameChangeAt !== 'number') patch.lastNicknameChangeAt = 0;
       }
-
       if (Object.keys(patch).length > 0) {
         tx.set(userRef, patch, { merge:true });
       }
@@ -57,11 +56,10 @@ export async function ensureUserDoc(){
     const limit = Number(q.limit ?? 5);
     const total = Number(q.total ?? 0);
     if (total >= limit) {
-      // 규칙에서도 막히지만, 사용자 메시지용으로 명확히 던짐
       throw new Error('지금은 가입 인원 한도(5명)가 꽉 찼어. 나중에 다시 시도해줘 🥺');
     }
 
-    // ① 내 users/{uid} 문서를 만들고
+    // ① 내 users/{uid} 문서 만들기
     const base = {
       uid: u.uid,
       nickname: fallbackNick,
