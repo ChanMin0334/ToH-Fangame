@@ -179,6 +179,7 @@ async function startBattleProcess(myChar, opponentChar) {
         finalLog.exp_char1 = clamp(finalLog.exp_char1, 5, 50);
 
         const logData = {
+            attacker_uid: myChar.owner_uid, // <-- 이 줄을 추가하세요!
             attacker_char: `chars/${myChar.id}`,
             defender_char: `chars/${opponentChar.id}`,
             attacker_snapshot: { name: myChar.name, thumb_url: myChar.thumb_url || null },
@@ -187,7 +188,7 @@ async function startBattleProcess(myChar, opponentChar) {
             ...finalLog, // title, content, winner, exp, items_used 등 포함
             endedAt: fx.serverTimestamp()
         };
-        
+
         const logRef = await fx.addDoc(fx.collection(db, 'battle_logs'), logData);
 
         // TODO: 여기서 finalLog.exp_char0, finalLog.exp_char1을 각 캐릭터에게 부여하고
