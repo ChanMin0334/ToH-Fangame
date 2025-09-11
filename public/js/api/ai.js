@@ -1,8 +1,26 @@
 // /public/js/api/ai.js (v4 - 관계, 아이템, 경험치 반영 및 AI 자동 선택)
 import { db, fx } from './firebase.js';
 
-const DEFAULT_FLASH2 = 'gemini-1.5-flash-latest';
-const FALLBACK_FLASH = 'gemini-1.5-flash-latest';
+// 사용할 모델 목록 (RPM이 높은 순서대로 정렬)
+const MODEL_POOL = [
+  'gemini-2.0-flash-lite', // RPM 30 (가장 높음)
+  'gemini-2.5-flash-lite', // RPM 15
+  'gemini-2.0-flash',      // RPM 15
+  'gemini-2.5-flash',      // RPM 10
+];
+
+// MODEL_POOL에서 랜덤으로 기본 모델과 폴백(대체) 모델을 선택하는 함수
+function pickModels() {
+  // 2개의 모델을 랜덤으로 섞어서 뽑음
+  const shuffled = [...MODEL_POOL].sort(() => 0.5 - Math.random());
+  const primary = shuffled[0];
+  // 만약 모델이 하나뿐이면 폴백도 같은 모델을 사용
+  const fallback = shuffled[1] || shuffled[0]; 
+
+  console.log(`[AI] 모델 선택: Primary=${primary}, Fallback=${fallback}`);
+  return { primary, fallback };
+}
+
 
 const DEBUG = !!localStorage.getItem('toh_debug_ai');
 function dbg(...args){ if(DEBUG) console.log('[AI]', ...args); }
@@ -105,13 +123,15 @@ export async function generateBattleSketches(battleData) {
     </INPUT>
   `;
 
-  let raw = '';
+ let raw = '';
+  const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
   try {
-    raw = await callGemini(DEFAULT_FLASH2, systemPrompt, userPrompt, 1.0);
+    raw = await callGemini(primary, systemPrompt, userPrompt, 1.0); // <-- 모델 이름 변경
   } catch (e1) {
     dbg('1단계 생성 실패, 폴백 시도', e1);
-    raw = await callGemini(FALLBACK_FLASH, systemPrompt, userPrompt, 1.0);
+    raw = await callGemini(fallback, systemPrompt, userPrompt, 1.0); // <-- 모델 이름 변경
   }
+
 
   console.log("--- 1단계: AI 스케치 응답 (Raw) ---");
   console.log(raw);
@@ -135,6 +155,7 @@ export async function chooseBestSketch(sketches) {
         dbg('최고 스케치 선택 실패, 랜덤 선택으로 폴백', e);
         return { best_sketch_index: Math.floor(Math.random() * 3) };
     }
+
     
     console.log("--- 1.5단계: AI 선택 응답 (Raw) ---");
     console.log(raw);
@@ -170,12 +191,14 @@ export async function generateFinalBattleLog(chosenSketch, battleData) {
   `;
     
   let raw = '';
+  const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
   try {
-    raw = await callGemini(DEFAULT_FLASH2, systemPrompt, userPrompt, 0.85);
+    raw = await callGemini(primary, systemPrompt, userPrompt, 0.85); // <-- 모델 이름 변경
   } catch (e1) {
     dbg('2단계 생성 실패, 폴백 시도', e1);
-    raw = await callGemini(FALLBACK_FLASH, systemPrompt, userPrompt, 0.85);
+    raw = await callGemini(fallback, systemPrompt, userPrompt, 0.85); // <-- 모델 이름 변경
   }
+
 
   console.log("--- 2단계: AI 최종 로그 응답 (Raw) ---");
   console.log(raw);
@@ -212,18 +235,20 @@ export async function genCharacterFlash2({ world, userInput, injectionGuard }){
   const userCombined = userInput || '';
 
   let raw='', parsed=null;
+  const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
   try{
-    raw    = await callGemini(DEFAULT_FLASH2, systemFilled, userCombined, 0.85);
+    raw    = await callGemini(primary, systemFilled, userCombined, 0.85); // <-- 모델 이름 변경
     parsed = tryParseJson(raw);
   }catch(e1){
-    dbg('flash2 실패, 1.5로 폴백', e1);
+    dbg('flash2 실패, 폴백 시도', e1);
     try{
-      raw    = await callGemini(FALLBACK_FLASH, systemFilled, userCombined, 0.8);
+      raw    = await callGemini(fallback, systemFilled, userCombined, 0.8); // <-- 모델 이름 변경
       parsed = tryParseJson(raw);
     }catch(e2){
       throw e1; // 최초 에러를 전달
     }
   }
+
 
   if(DEBUG){
     window.__ai_debug = window.__ai_debug || {};
@@ -280,11 +305,13 @@ export async function requestAdventureNarrative({
   ].filter(Boolean).join('\n');
 
   let raw='';
+  const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
   try{
-    raw = await callGemini(DEFAULT_FLASH2, systemText, userText, 0.85);
+    raw = await callGemini(primary, systemText, userText, 0.85); // <-- 모델 이름 변경
   }catch(e){
-    raw = await callGemini(FALLBACK_FLASH, systemText, userText, 0.85);
+    raw = await callGemini(fallback, systemText, userText, 0.85); // <-- 모델 이름 변경
   }
+
   const parsed = tryParseJson(raw) || {};
 
   const narrative_text = String(parsed.narrative_text || '알 수 없는 공간에 도착했다.').slice(0, 2000);
