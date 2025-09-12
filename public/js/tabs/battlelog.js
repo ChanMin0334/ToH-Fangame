@@ -1,6 +1,7 @@
 // /public/js/tabs/battlelog.js
 import { db, auth, fx } from '../api/firebase.js';
-import { createOrUpdateRelation, getRelationBetween } from '../api/store.js';
+import { createOrUpdateRelation, getRelationBetween, getBattleLog } from '../api/store.js';
+import { showToast } from '../ui/toast.js'; // <-- [수정] 이 줄을 추가합니다.
 
 function parseLogId() {
   const h = location.hash || '';
@@ -22,11 +23,7 @@ export async function showBattleLog() {
   root.innerHTML = `<section class="container narrow"><div class="spin-center" style="margin-top: 40px;"></div></section>`;
 
   try {
-    const logSnap = await fx.getDoc(fx.doc(db, 'battle_logs', logId));
-    if (!logSnap.exists()) {
-      throw new Error('해당 배틀 기록을 찾을 수 없습니다.');
-    }
-    const log = { id: logSnap.id, ...logSnap.data() };
+    const log = await getBattleLog(logId); // store.js 함수 사용
 
     const attackerId = log.attacker_char.replace('chars/', '');
     const defenderId = log.defender_char.replace('chars/', '');
@@ -36,11 +33,10 @@ export async function showBattleLog() {
       fx.getDoc(fx.doc(db, 'chars', defenderId))
     ]);
 
-    // 캐릭터 데이터가 없으면 로그에 저장된 스냅샷 사용
     const attacker = attackerSnap.exists() ? { id: attackerId, ...attackerSnap.data() } : {id: attackerId, ...log.attacker_snapshot};
     const defender = defenderSnap.exists() ? { id: defenderId, ...defenderSnap.data() } : {id: defenderId, ...log.defender_snapshot};
 
-    render(root, log, attacker, defender);
+    await render(root, log, attacker, defender); // render를 await으로 호출
 
   } catch (e) {
     console.error("Failed to load battle log:", e);
@@ -52,11 +48,10 @@ async function render(root, log, attacker, defender) {
     const currentUserId = auth.currentUser?.uid;
     const isOwnerOfAttacker = currentUserId && attacker.owner_uid === currentUserId;
     const isOwnerOfDefender = currentUserId && defender.owner_uid === currentUserId;
+    const isParty = isOwnerOfAttacker || isOwnerOfDefender; // <-- [수정] isParty 변수를 올바르게 선언합니다.
 
-    const isParty = isOwnerOfAttacker || isOwnerOfDefender;
-
-    const winnerIsAttacker = log.winner === 0; // 0: 공격자 승리
-    const winnerIsDefender = log.winner === 1; // 1: 방어자 승리
+    const winnerIsAttacker = log.winner === 0;
+    const winnerIsDefender = log.winner === 1;
 
     const characterCard = (char, isWinner, isLoser) => {
         let borderColor = '#273247'; let label = '';
