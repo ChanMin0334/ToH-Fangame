@@ -25,4 +25,4 @@ jobs:
         run: npm run build
         working-directory: functions
       # V 배포 명령어에 --set-env-vars 옵션을 추가합니다.
-      - run: firebase deploy --only functions --project tale-of-heros-staging --set-env-vars "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
+      - run: firebase deploy --only functions --project tale-of-heros---fangame --set-env-vars "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
