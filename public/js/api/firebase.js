@@ -56,7 +56,7 @@ if (location.hostname.includes('--pr-')) {
   self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 }
 
-try {
+/*try {
   if (APP_CHECK_SITE_KEY && APP_CHECK_SITE_KEY !== "PROD_RECAPTCHA_V3_SITE_KEY" && APP_CHECK_SITE_KEY !== "STAGE_RECAPTCHA_V3_SITE_KEY") {
     initializeAppCheck(app, {
       provider: new ReCaptchaV3Provider(APP_CHECK_SITE_KEY),
@@ -68,7 +68,7 @@ try {
   }
 } catch (e) {
   console.warn('[AppCheck] init failed, continue without it:', e);
-}
+}*/
 
 
 
