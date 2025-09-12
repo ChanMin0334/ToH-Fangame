@@ -4,7 +4,7 @@ import { db, auth, fx } from '../api/firebase.js';
 import { startAfter, getDocFromServer, getDocsFromServer } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 import {
   tierOf, uploadAvatarSquare, updateAbilitiesEquipped, updateItemsEquipped,
-  getCharMainImageUrl, fetchWorlds
+  getCharMainImageUrl, fetchWorlds, deleteRelation 
 } from '../api/store.js';
 import { getUserInventory } from '../api/user.js'; // 사용자 인벤토리 함수 import
 import { showToast } from '../ui/toast.js';
@@ -373,7 +373,7 @@ function renderBio(c, view){
   renderBioSub('summary', c, sv);
 }
 
-function renderBioSub(which, c, sv){
+async function renderBioSub(which, c, sv){
   if(which==='summary'){
     sv.innerHTML = `
       <div class="kv-label">기본 소개</div>
@@ -417,36 +417,85 @@ function renderBioSub(which, c, sv){
     <div class="kv-card text-dim">조우/배틀에서 생성된 에피소드가 여기에 쌓일 예정이야.</div>
   `;
   }else if(which==='rel'){
-  sv.innerHTML = `
-    <div class="kv-label">관계</div>
-    <div id="relList" class="col" style="gap:8px"></div>
-    <div id="relSentinel" style="height:1px"></div>
-    <div class="text-dim" id="relHint" style="margin-top:6px;font-size:12px">더미 데이터를 15개씩 불러오고 있어.</div>
-  `;
-  (function(){
+    // ▼▼▼▼▼ [이 부분을 통째로 교체하세요] ▼▼▼▼▼
+    sv.innerHTML = `
+      <div class="kv-label">관계</div>
+      <div id="relList" class="col" style="gap:8px">불러오는 중...</div>
+    `;
+    
     const box = sv.querySelector('#relList');
-    const sent = sv.querySelector('#relSentinel');
-    let loaded = 0, total = 60, page = 15, busy = false, done = false;
-    async function loadMore(){
-      if (busy || done) return; busy = true;
-      const n = Math.min(page, total - loaded);
-      for(let i=0;i<n;i++){
-        const idx = loaded + i + 1;
-        const el = document.createElement('div');
-        el.className = 'kv-card';
-        el.innerHTML = `<div style="font-weight:700">관계 더미 #${idx}</div><div class="text-dim" style="font-size:12px">상세는 다음 패치에서!</div>`;
-        box.appendChild(el);
+    try {
+      // 1. 현재 캐릭터가 포함된 관계 문서를 모두 가져옵니다.
+      const q = fx.query(fx.collection(db, 'relations'), fx.where('pair', 'array-contains', c.id), fx.limit(50));
+      const snapshot = await fx.getDocs(q);
+
+      if (snapshot.empty) {
+        box.innerHTML = `<div class="kv-card text-dim">아직 관계를 맺은 캐릭터가 없습니다.</div>`;
+        return;
       }
-      loaded += n;
-      if (loaded >= total){ done = true; sv.querySelector('#relHint').textContent = '마지막까지 다 봤어.'; obs.disconnect(); }
-      busy = false;
+      
+      const rels = [];
+      snapshot.forEach(doc => rels.push({ id: doc.id, ...doc.data() }));
+
+      // 2. 각 관계의 상세 정보(상대 캐릭터 이름, 관계 노트)를 추가로 가져옵니다.
+      const detailedRels = await Promise.all(rels.map(async (r) => {
+        const otherCharId = r.a_charRef.endsWith(c.id) ? r.b_charRef.replace('chars/','') : r.a_charRef.replace('chars/','');
+        
+        const [otherCharSnap, noteSnap] = await Promise.all([
+          fx.getDoc(fx.doc(db, 'chars', otherCharId)),
+          fx.getDoc(fx.doc(db, 'relations', r.id, 'meta', 'note'))
+        ]);
+        
+        return {
+          ...r,
+          otherChar: otherCharSnap.exists() ? { id: otherCharId, ...otherCharSnap.data() } : { id: otherCharId, name: '(알수없음)' },
+          note: noteSnap.exists() ? noteSnap.data().note : '메모 없음'
+        };
+      }));
+
+      // 3. UI 렌더링
+      box.innerHTML = detailedRels.map(r => {
+        // 현재 사용자가 이 관계의 소유자 중 한 명인지 확인
+        const isParty = auth.currentUser && (c.owner_uid === auth.currentUser.uid || r.otherChar.owner_uid === auth.currentUser.uid);
+        
+        return `
+        <div class="kv-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+            <a href="#/char/${r.otherChar.id}" style="font-weight:700; text-decoration: none; color: inherit;">
+              🤝 ${esc(r.otherChar.name)}
+            </a>
+            ${isParty ? `<button class="btn ghost small" data-del-id1="${c.id}" data-del-id2="${r.otherChar.id}">삭제</button>` : ''}
+          </div>
+          <div class="text-dim" style="font-size:13px; padding-left: 4px; border-left: 2px solid #333;">
+            ${esc(r.note)}
+          </div>
+        </div>
+      `}).join('');
+
+      // 4. 삭제 버튼 이벤트 연결
+      box.querySelectorAll('button[data-del-id1]').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('정말로 이 관계를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+          
+          const id1 = btn.dataset.delId1;
+          const id2 = btn.dataset.delId2;
+          try {
+            await deleteRelation(id1, id2);
+            showToast('관계를 삭제했습니다.');
+            renderBioSub('rel', c, sv); // 탭 내용 새로고침
+          } catch(e) {
+            showToast(`삭제 실패: ${e.message}`);
+          }
+        };
+      });
+
+    } catch (e) {
+      console.error('관계 로딩 실패:', e);
+      box.innerHTML = `<div class="kv-card text-dim">관계를 불러오는 중 오류가 발생했습니다.</div>`;
     }
-    const obs = new IntersectionObserver((es)=>{ es.forEach(e=>{ if(e.isIntersecting) loadMore(); }); });
-    obs.observe(sent);
-    loadMore();
-  })();
+    // ▲▲▲▲▲ [여기까지 교체하세요] ▲▲▲▲▲
   }
-}  
+}
 
 // 아이템 장착 모달
 async function openItemPicker(c, onSave) {
