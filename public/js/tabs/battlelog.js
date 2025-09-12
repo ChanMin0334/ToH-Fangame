@@ -1,5 +1,6 @@
 // /public/js/tabs/battlelog.js
 import { db, auth, fx } from '../api/firebase.js';
+import { createOrUpdateRelation, getRelationBetween } from '../api/store.js';
 
 function parseLogId() {
   const h = location.hash || '';
@@ -102,14 +103,44 @@ function render(root, log, attacker, defender) {
             <div style="white-space: pre-wrap; line-height: 1.7; font-size: 15px; padding: 0 8px;">${esc(log.content)}</div>
         </div>
         <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 24px; align-items: center;">
-            <button class="btn large ghost" id="btnRelate">관계 생성/업데이트</button>
+            <button class="btn large ghost" id="btnRelate">관계 확인 중...</button>
         </div>
       </section>
     `;
+
+    const btnRelate = root.querySelector('#btnRelate');
     
-    root.querySelector('#btnRelate').onclick = () => {
-        showToast('관계 생성 기능은 다음 업데이트에 추가될 예정입니다.');
+    // [수정] 관계자가 아니면 버튼 숨기기
+    if (!isParty) {
+        btnRelate.style.display = 'none';
+        return;
+    }
+
+    const existingRelation = await getRelationBetween(attacker.id, defender.id);
+
+    btnRelate.textContent = existingRelation ? '관계 업데이트하기' : 'AI로 관계 생성하기';
+    btnRelate.disabled = false;
+
+    btnRelate.onclick = async () => {
+        btnRelate.disabled = true;
+        btnRelate.textContent = 'AI가 관계를 분석하는 중...';
+        try {
+            // [수정] createOrUpdateRelation 호출
+            const result = await createOrUpdateRelation({
+                aCharId: attacker.id,
+                bCharId: defender.id,
+                battleLogId: log.id
+            });
+            showToast('관계가 갱신되었습니다!');
+            btnRelate.textContent = '관계가 갱신됨';
+        } catch(e) {
+            console.error('관계 생성/업데이트 실패:', e);
+            showToast(`오류: ${e.message}`);
+            btnRelate.disabled = false;
+            btnRelate.textContent = existingRelation ? '업데이트 재시도' : '생성 재시도';
+        }
     };
 }
+
 
 export default showBattleLog;
