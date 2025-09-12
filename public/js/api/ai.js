@@ -8,8 +8,6 @@ const MODEL_POOL = [
   'gemini-2.0-flash',      // RPM 15
   'gemini-2.5-flash',      // RPM 10
   'gemini-1.5-flash-latest', // (추천) 가장 빠르고 비용 효율적인 최신 모델
-  'gemini-pro',              // 안정적인 성능의 표준 모델
-  'gemma-7b-it',             // Google의 경량 오픈소스 모델
 ];
 
 // MODEL_POOL에서 랜덤으로 기본 모델과 폴백(대체) 모델을 선택하는 함수
