@@ -2,23 +2,13 @@
 import { db, fx } from './firebase.js';
 
 // 사용할 모델 목록 (RPM이 높은 순서대로 정렬)
+// ✅ [최종 수정] Google 모델 대신 Meta의 Llama 모델 전체 경로로 테스트합니다.
 const MODEL_POOL = [
-  'gemini-1.5-flash-latest', // RPM 30 (가장 높음)
-  'gemini-pro', // RPM 15
-
+  '@cf/meta/llama-3-8b-instruct',
 ];
 
 // MODEL_POOL에서 랜덤으로 기본 모델과 폴백(대체) 모델을 선택하는 함수
-function pickModels() {
-  // 2개의 모델을 랜덤으로 섞어서 뽑음
-  const shuffled = [...MODEL_POOL].sort(() => 0.5 - Math.random());
-  const primary = shuffled[0];
-  // 만약 모델이 하나뿐이면 폴백도 같은 모델을 사용
-  const fallback = shuffled[1] || shuffled[0]; 
-
-  console.log(`[AI] 모델 선택: Primary=${primary}, Fallback=${fallback}`);
-  return { primary, fallback };
-}
+function pickModels() { const shuffled = [...MODEL_POOL].sort(() => 0.5 - Math.random()); const primary = shuffled[0]; const fallback = shuffled[1] || shuffled[0]; console.log(`[AI] 모델 선택: Primary=${primary}, Fallback=${fallback}`); return { primary, fallback }; }
 
 
 const DEBUG = !!localStorage.getItem('toh_debug_ai');
