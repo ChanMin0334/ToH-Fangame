@@ -295,7 +295,8 @@ export async function createOrUpdateRelation({ aCharId, bCharId, battleLogId }) 
   const batch = fx.writeBatch(db);
 
   // 기본 관계 문서(없으면 생성, 있으면 병합)
-  batch.set(baseRef, {
+  // --- 5) 쓰기 (배치 X) — 부모 먼저, 그 다음 노트
+  await fx.setDoc(baseRef, {
     a_charRef: aRefStr,
     b_charRef: bRefStr,
     pair: [aCharId, bCharId].sort(), // 쿼리용
@@ -304,10 +305,11 @@ export async function createOrUpdateRelation({ aCharId, bCharId, battleLogId }) 
   }, { merge: true });
 
   // /relations/{id}/meta/note 는 규칙상 body, updatedAt만 허용
-  batch.set(noteRef, {
+  await fx.setDoc(noteRef, {
     body: newNote,
     updatedAt: fx.serverTimestamp()
   }, { merge: true });
+
 
   await batch.commit();
   return { relationId: relId, note: newNote };
