@@ -1,7 +1,7 @@
 // /public/js/api/store.js
 import { db, auth, fx, storage, sx, serverTimestamp } from './firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
-
+import { generateRelationNote } from './ai.js';
 import { showToast } from '../ui/toast.js';
 
 // ===== 전역 앱 상태 =====
@@ -253,28 +253,70 @@ export async function grantExp(charId, base, mode, note=''){
 }
 
 // ===== Relations / Episodes helpers =====
-export async function createRelation({ aCharId, bCharId, note='', viaBattleLogId=null }){
-  const uid = auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
+export async function createOrUpdateRelation({ aCharId, bCharId, battleLogId }){
+  const uid = auth.currentUser?.uid;
+  if(!uid) throw new Error('로그인이 필요해');
+
+  // 1. 필요한 모든 데이터 가져오기
+  const [battleLog, charA, charB, existingRelationNote] = await Promise.all([
+    getBattleLog(battleLogId),
+    getCharForAI(aCharId), // 서사 조회를 위해 getCharForAI 재활용
+    getCharForAI(bCharId),
+    getRelationBetween(aCharId, bCharId) // 기존 관계 노트 조회
+  ]);
+
+  // 2. AI를 호출하여 관계 노트 생성/갱신
+  const newNote = await generateRelationNote({
+    battleLog: battleLog,
+    attacker: { name: charA.name, narrative: charA.latestLong },
+    defender: { name: charB.name, narrative: charB.latestLong },
+    existingNote: existingRelationNote
+  });
+
+  // 3. Firestore에 관계 문서와 메모(note)를 생성 또는 갱신
   const relId = [aCharId, bCharId].sort().join('__');
-  const ref = fx.doc(db, 'relations', relId);
-  const payload = {
+  const baseRef = fx.doc(db, 'relations', relId);
+  const noteRef = fx.doc(db, 'relations', relId, 'meta', 'note');
+
+  const batch = fx.writeBatch(db);
+  
+  // 기본 관계 문서 (없을 때만 생성)
+  batch.set(baseRef, {
     a_charRef: `chars/${aCharId}`,
     b_charRef: `chars/${bCharId}`,
-    createdBy: uid,
-    createdAt: Date.now()
-  };
-  if (viaBattleLogId) payload.via_battle_log = `battle_logs/${viaBattleLogId}`;
-  await fx.setDoc(ref, payload, { merge: false });
-  if(note) await fx.setDoc(fx.doc(db,'relations', relId, 'meta', 'note'), { note, updatedAt: Date.now(), owner_uid: uid }, { merge: true });
-  return relId;
+    pair: [aCharId, bCharId].sort(), // 쿼리를 위한 정렬된 배열
+    updatedAt: fx.serverTimestamp(),
+    lastBattleLogId: battleLogId
+  }, { merge: true });
+
+  // AI가 생성한 메모
+  batch.set(noteRef, { 
+    note: newNote, 
+    updatedAt: fx.serverTimestamp(),
+    updatedBy: uid 
+  });
+  
+  await batch.commit();
+  return { relationId: relId, note: newNote };
 }
 
 
-export async function deleteRelation(relId){
-  const uid = auth.currentUser?.uid; if(!uid) throw new Error('로그인이 필요해');
-  await fx.deleteDoc(fx.doc(db,'relations', relId));
+// deleteRelation 함수를 아래 내용으로 교체합니다.
+export async function deleteRelation(charId1, charId2){
+  const uid = auth.currentUser?.uid;
+  if(!uid) throw new Error('로그인이 필요해');
+
+  const relId = [charId1, charId2].sort().join('__');
+  const noteRef = fx.doc(db, 'relations', relId, 'meta', 'note');
+  const baseRef = fx.doc(db, 'relations', relId);
+
+  // 하위 문서를 먼저 삭제 후, 주 문서를 삭제
+  await fx.deleteDoc(noteRef).catch(()=>{}); // 노트가 없을 수도 있으니 에러는 무시
+  await fx.deleteDoc(baseRef);
+  
   return true;
 }
+
 
 // 하루 1개 미니에피소드 생성 (docId=YYYY-MM-DD)
 export async function createDailyEpisode(relId, payload){
