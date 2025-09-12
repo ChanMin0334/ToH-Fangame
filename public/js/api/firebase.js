@@ -19,7 +19,7 @@ const CONFIG_PROD = {
   apiKey: "AIzaSyA4ilV6tRpqZrkgXRTKdFP_YjAl3CmfYWo",
   authDomain: "tale-of-heros---fangame.firebaseapp.com",
   projectId: "tale-of-heros---fangame",
-  storageBucket: "tale-of-heros---fangame.appspot.com",
+  storageBucket: "tale-of-heros---fangame.firebasestorage.app", 
   messagingSenderId: "648588906865",
   appId: "1:648588906865:web:eb4baf1c0ed9cdbc7ba6d0"
 };
