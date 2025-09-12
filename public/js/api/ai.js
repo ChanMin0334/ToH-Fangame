@@ -81,6 +81,57 @@ export async function callGemini(model, systemText, userText, temperature=0.9){
   return outText;
 }
 
+
+
+
+/* ================= 신규 추가: 관계 생성 ================= */
+export async function generateRelationNote({ battleLog, attacker, defender, existingNote }) {
+  const systemPrompt = await fetchPromptDoc('relation_create_system');
+
+  const userPrompt = `
+    ## 컨텍스트
+    - 캐릭터 1 (공격자): ${attacker.name}
+    - 캐릭터 2 (수비자): ${defender.name}
+    - 기존 관계: ${existingNote || '없음'}
+
+    ## 입력 데이터
+    ### 최근 배틀 로그
+    ${battleLog.title}
+    ${battleLog.content}
+
+    ### 캐릭터 1의 최신 서사
+    ${attacker.narrative}
+
+    ### 캐릭터 2의 최신 서사
+    ${defender.narrative}
+
+    ## 지시
+    위 컨텍스트와 데이터를 바탕으로 두 캐릭터의 관계를 한두 문장으로 요약하거나 갱신하라.
+    기존 관계가 있다면, 이번 배틀을 통해 어떻게 변화했는지 반영하여 갱신해야 한다.
+    결과는 반드시 다음 JSON 형식을 따라야 한다:
+    {
+      "note": "AI가 생성한 새로운 관계 요약"
+    }
+  `;
+
+  const { primary, fallback } = pickModels();
+  let raw = '';
+  try {
+    raw = await callGemini(primary, systemPrompt, userPrompt, 0.8);
+  } catch (e) {
+    console.warn('[AI] 관계 생성 실패, 폴백 시도', e);
+    raw = await callGemini(fallback, systemPrompt, userPrompt, 0.8);
+  }
+  
+  const parsed = tryParseJson(raw);
+  return parsed?.note || "AI가 관계를 생성하는 데 실패했습니다.";
+}
+
+
+
+
+
+
 /* ================= 배틀 로직 ================= */
 
 export async function fetchBattlePrompts() {
