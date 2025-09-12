@@ -1,7 +1,7 @@
 // /public/js/tabs/relations.js
 import { db, auth, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
-import { createRelation, deleteRelation, createDailyEpisode, mergeMiniEpisodeIntoLatestNarrative } from '../api/store.js';
+import { createOrUpdateRelation, deleteRelation, createDailyEpisode, mergeMiniEpisodeIntoLatestNarrative } from '../api/store.js';
 
 function parseId(){
   // #/relations/{charId}
