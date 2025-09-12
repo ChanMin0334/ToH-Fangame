@@ -390,11 +390,53 @@ function renderBio(c, view){
   renderBioSub('summary', c, sv);
 }
 
-async function renderBioSub(which, c, sv){
-  // ... (summary, narr, epis 탭의 로직은 기존과 동일) ...
+// /public/js/tabs/char (2).js
 
-  if(which==='rel'){
-    // ▼▼▼▼▼ [이 부분을 통째로 교체하세요] ▼▼▼▼▼
+// ... (다른 함수들은 그대로 유지) ...
+
+async function renderBioSub(which, c, sv){
+  if(which==='summary'){
+    sv.innerHTML = `
+      <div class="kv-label">기본 소개</div>
+      <div class="kv-card" style="white-space:pre-line">${esc(c.summary)||'-'}</div>
+    `;
+  } else if(which==='narr'){
+    const list = normalizeNarratives(c);
+    if(list.length === 0){
+      sv.innerHTML = `<div class="kv-card text-dim">아직 등록된 서사가 없어.</div>`;
+      return;
+    }
+    sv.innerHTML = `
+      <div class="kv-label">서사 목록</div>
+      <div class="list">
+        ${list.map(n => `
+          <button class="kv-card" data-nid="${esc(n.id)}" style="text-align:left; cursor:pointer">
+            <div style="font-weight:800; margin-bottom:6px">${esc(n.title || '서사')}</div>
+            <div style="
+              color:#9aa5b1;
+              display:-webkit-box;
+              -webkit-line-clamp:2;
+              -webkit-box-orient:vertical;
+              overflow:hidden;
+            ">
+              ${esc((n.long || '').replace(/\s+/g,' ').trim())}
+            </div>
+          </button>
+        `).join('')}
+      </div>
+    `;
+    sv.querySelectorAll('[data-nid]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const nid = btn.getAttribute('data-nid');
+        location.hash = `#/char/${c.id}/narrative/${nid}`;
+      });
+    });
+  } else if(which==='epis'){
+    sv.innerHTML = `
+      <div class="kv-label">미니 에피소드</div>
+      <div class="kv-card text-dim">조우/배틀에서 생성된 에피소드가 여기에 쌓일 예정이야.</div>
+    `;
+  } else if(which==='rel'){
     sv.innerHTML = `
       <div class="kv-label">관계</div>
       <div id="relList" class="col" style="gap:8px">불러오는 중...</div>
@@ -446,11 +488,10 @@ async function renderBioSub(which, c, sv){
         </button>
       `}).join('');
 
-      // 이벤트 위임 방식으로 리스너 설정
       box.addEventListener('click', (e) => {
         const deleteButton = e.target.closest('.btn-delete-relation');
         if (deleteButton) {
-          e.stopPropagation(); // 모달이 뜨지 않도록 이벤트 전파 중단
+          e.stopPropagation();
           if (!confirm('정말로 이 관계를 삭제하시겠습니까?')) return;
           
           const id1 = deleteButton.dataset.delId1;
@@ -458,7 +499,7 @@ async function renderBioSub(which, c, sv){
           deleteRelation(id1, id2)
             .then(() => {
               showToast('관계를 삭제했습니다.');
-              renderBioSub('rel', c, sv); // 탭 내용 새로고침
+              renderBioSub('rel', c, sv);
             })
             .catch(err => showToast(`삭제 실패: ${err.message}`));
           return;
@@ -473,14 +514,13 @@ async function renderBioSub(which, c, sv){
           }
         }
       });
-
     } catch (e) {
       console.error('관계 로딩 실패:', e);
       box.innerHTML = `<div class="kv-card text-dim">관계를 불러오는 중 오류가 발생했습니다.</div>`;
     }
-     // ▲▲▲▲▲ [여기까지 교체하세요] ▲▲▲▲▲
   }
 }
+
 
 // 아이템 장착 모달
 async function openItemPicker(c, onSave) {
