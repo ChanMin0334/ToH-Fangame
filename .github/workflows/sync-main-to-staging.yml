@@ -1,0 +1,21 @@
+name: Sync main → staging (auto PR)
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: repo-sync/pull-request@v2
+        with:
+          source_branch: "main"
+          destination_branch: "staging"
+          pr_title: "Sync main → staging"
+          pr_body: "자동 PR: main 변경분을 staging으로 맞춥니다."
+          github_token: ${{ secrets.GITHUB_TOKEN }}
