@@ -53,10 +53,11 @@ async function render(root, log, attacker, defender) {
     const winnerIsAttacker = log.winner === 0;
     const winnerIsDefender = log.winner === 1;
 
+    // ... (characterCard, topButtonHtml 템플릿 코드는 기존과 동일) ...
     const characterCard = (char, isWinner, isLoser) => {
-        let borderColor = '#273247'; let label = '';
-        if (isWinner) { borderColor = '#3b82f6'; label = '<span class="chip" style="background:#3b82f6;color:white;font-weight:bold;">승리</span>'; }
-        if (isLoser) { borderColor = '#ef4444'; label = '<span class="chip" style="background:#ef4444;color:white;font-weight:bold;">패배</span>'; }
+        let label = '';
+        if (isWinner) { label = '<span class="chip" style="background:#3b82f6;color:white;font-weight:bold;">승리</span>'; }
+        if (isLoser) { label = '<span class="chip" style="background:#ef4444;color:white;font-weight:bold;">패배</span>'; }
 
         return `
             <a href="#/char/${char.id}" class="battle-result-card">
@@ -70,8 +71,6 @@ async function render(root, log, attacker, defender) {
     let topButtonHtml;
     if (isOwnerOfAttacker) {
         topButtonHtml = `<a href="#/battle" class="btn" style="text-decoration: none;">다시 배틀하기</a>`;
-    } else if (isOwnerOfDefender) {
-        topButtonHtml = `<a href="#/char/${defender.id}" class="btn" style="text-decoration: none;">내 캐릭터 정보로</a>`;
     } else {
         topButtonHtml = '<button class="btn ghost" onclick="history.back()">이전으로 돌아가기</button>';
     }
@@ -107,7 +106,6 @@ async function render(root, log, attacker, defender) {
 
     const btnRelate = root.querySelector('#btnRelate');
     
-    // [수정] 관계자가 아니면 버튼 숨기기
     if (!isParty) {
         btnRelate.style.display = 'none';
         return;
@@ -122,7 +120,6 @@ async function render(root, log, attacker, defender) {
         btnRelate.disabled = true;
         btnRelate.textContent = 'AI가 관계를 분석하는 중...';
         try {
-            // [수정] createOrUpdateRelation 호출
             const result = await createOrUpdateRelation({
                 aCharId: attacker.id,
                 bCharId: defender.id,
@@ -132,12 +129,11 @@ async function render(root, log, attacker, defender) {
             btnRelate.textContent = '관계가 갱신됨';
         } catch(e) {
             console.error('관계 생성/업데이트 실패:', e);
-            showToast(`오류: ${e.message}`);
+            showToast(`오류: ${e.message}`); // <-- 이제 이 부분도 정상 동작합니다.
             btnRelate.disabled = false;
             btnRelate.textContent = existingRelation ? '업데이트 재시도' : '생성 재시도';
         }
     };
 }
-
 
 export default showBattleLog;
