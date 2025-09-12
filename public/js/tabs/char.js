@@ -66,6 +66,23 @@ export function useBadgeHtml(it){
   return `<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">${esc(label)}</span>`;
 }
 
+
+function ensureModalCss(){
+  if (document.getElementById('toh-modal-css')) return;
+  const st = document.createElement('style');
+  st.id = 'toh-modal-css';
+  st.textContent = `
+    .modal-back{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+                background:rgba(0,0,0,.45)}
+    .modal-card{background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:720px;width:92vw;
+                max-height:80vh;overflow:auto}
+  `;
+  document.head.appendChild(st);
+}
+
+
+
+
 export function ensureItemCss() {
   if (document.getElementById('toh-item-css')) return;
   const st = document.createElement('style');
