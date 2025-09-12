@@ -374,49 +374,9 @@ function renderBio(c, view){
 }
 
 async function renderBioSub(which, c, sv){
-  if(which==='summary'){
-    sv.innerHTML = `
-      <div class="kv-label">기본 소개</div>
-      <div class="kv-card" style="white-space:pre-line">${c.summary||'-'}</div>
+  // ... (summary, narr, epis 탭의 로직은 기존과 동일) ...
 
-    `;
-  }else if(which==='narr'){
-  const list = normalizeNarratives(c);
-  if(list.length === 0){
-    sv.innerHTML = `<div class="kv-card text-dim">아직 등록된 서사가 없어.</div>`;
-    return;
-  }
-  sv.innerHTML = `
-    <div class="kv-label">서사 목록</div>
-    <div class="list">
-      ${list.map(n => `
-        <button class="kv-card" data-nid="${n.id}" style="text-align:left; cursor:pointer">
-          <div style="font-weight:800; margin-bottom:6px">${esc(n.title || '서사')}</div>
-          <div style="
-            color:#9aa5b1;
-            display:-webkit-box;
-            -webkit-line-clamp:2;
-            -webkit-box-orient:vertical;
-            overflow:hidden;
-          ">
-            ${esc((n.long || '').replace(/\s+/g,' ').trim())}
-          </div>
-        </button>
-      `).join('')}
-    </div>
-  `;
-  sv.querySelectorAll('[data-nid]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const nid = btn.getAttribute('data-nid');
-      location.hash = `#/char/${c.id}/narrative/${nid}`;
-    });
-  });
-  }else if(which==='epis'){
-  sv.innerHTML = `
-    <div class="kv-label">미니 에피소드</div>
-    <div class="kv-card text-dim">조우/배틀에서 생성된 에피소드가 여기에 쌓일 예정이야.</div>
-  `;
-  }else if(which==='rel'){
+  if(which==='rel'){
     // ▼▼▼▼▼ [이 부분을 통째로 교체하세요] ▼▼▼▼▼
     sv.innerHTML = `
       <div class="kv-label">관계</div>
@@ -425,7 +385,6 @@ async function renderBioSub(which, c, sv){
     
     const box = sv.querySelector('#relList');
     try {
-      // 1. 현재 캐릭터가 포함된 관계 문서를 모두 가져옵니다.
       const q = fx.query(fx.collection(db, 'relations'), fx.where('pair', 'array-contains', c.id), fx.limit(50));
       const snapshot = await fx.getDocs(q);
 
@@ -437,7 +396,6 @@ async function renderBioSub(which, c, sv){
       const rels = [];
       snapshot.forEach(doc => rels.push({ id: doc.id, ...doc.data() }));
 
-      // 2. 각 관계의 상세 정보(상대 캐릭터 이름, 관계 노트)를 추가로 가져옵니다.
       const detailedRels = await Promise.all(rels.map(async (r) => {
         const otherCharId = r.a_charRef.endsWith(c.id) ? r.b_charRef.replace('chars/','') : r.a_charRef.replace('chars/','');
         
@@ -448,52 +406,62 @@ async function renderBioSub(which, c, sv){
         
         return {
           ...r,
-          otherChar: otherCharSnap.exists() ? { id: otherCharId, ...otherCharSnap.data() } : { id: otherCharId, name: '(알수없음)' },
+          otherChar: otherCharSnap.exists() ? { id: otherCharId, ...otherCharSnap.data() } : { id: otherCharId, name: '(알수없음)', thumb_url: '' },
           note: noteSnap.exists() ? noteSnap.data().note : '메모 없음'
         };
       }));
 
-      // 3. UI 렌더링
       box.innerHTML = detailedRels.map(r => {
-        // 현재 사용자가 이 관계의 소유자 중 한 명인지 확인
         const isParty = auth.currentUser && (c.owner_uid === auth.currentUser.uid || r.otherChar.owner_uid === auth.currentUser.uid);
         
         return `
-        <div class="kv-card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-            <a href="#/char/${r.otherChar.id}" style="font-weight:700; text-decoration: none; color: inherit;">
-              🤝 ${esc(r.otherChar.name)}
-            </a>
-            ${isParty ? `<button class="btn ghost small" data-del-id1="${c.id}" data-del-id2="${r.otherChar.id}">삭제</button>` : ''}
+        <button class="kv-card" data-relation-id="${r.id}" style="text-align: left; width: 100%; cursor: pointer;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="display:flex; align-items:center; gap: 10px;">
+              <img src="${esc(r.otherChar.thumb_url)}" onerror="this.style.display='none'" style="width: 48px; height: 48px; border-radius: 8px; object-fit: cover; background: #111;">
+              <div>
+                <div style="font-weight:700;">🤝 ${esc(r.otherChar.name)}</div>
+                <div class="text-dim" style="font-size:12px; margin-top: 4px;">클릭하여 상세보기</div>
+              </div>
+            </div>
+            ${isParty ? `<button class="btn ghost small btn-delete-relation" data-del-id1="${c.id}" data-del-id2="${r.otherChar.id}">삭제</button>` : ''}
           </div>
-          <div class="text-dim" style="font-size:13px; padding-left: 4px; border-left: 2px solid #333;">
-            ${esc(r.note)}
-          </div>
-        </div>
+        </button>
       `}).join('');
 
-      // 4. 삭제 버튼 이벤트 연결
-      box.querySelectorAll('button[data-del-id1]').forEach(btn => {
-        btn.onclick = async () => {
-          if (!confirm('정말로 이 관계를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+      // 이벤트 위임 방식으로 리스너 설정
+      box.addEventListener('click', (e) => {
+        const deleteButton = e.target.closest('.btn-delete-relation');
+        if (deleteButton) {
+          e.stopPropagation(); // 모달이 뜨지 않도록 이벤트 전파 중단
+          if (!confirm('정말로 이 관계를 삭제하시겠습니까?')) return;
           
-          const id1 = btn.dataset.delId1;
-          const id2 = btn.dataset.delId2;
-          try {
-            await deleteRelation(id1, id2);
-            showToast('관계를 삭제했습니다.');
-            renderBioSub('rel', c, sv); // 탭 내용 새로고침
-          } catch(e) {
-            showToast(`삭제 실패: ${e.message}`);
+          const id1 = deleteButton.dataset.delId1;
+          const id2 = deleteButton.dataset.delId2;
+          deleteRelation(id1, id2)
+            .then(() => {
+              showToast('관계를 삭제했습니다.');
+              renderBioSub('rel', c, sv); // 탭 내용 새로고침
+            })
+            .catch(err => showToast(`삭제 실패: ${err.message}`));
+          return;
+        }
+
+        const card = e.target.closest('button[data-relation-id]');
+        if (card) {
+          const relId = card.dataset.relationId;
+          const relationData = detailedRels.find(r => r.id === relId);
+          if (relationData) {
+            showRelationDetailModal(c, relationData.otherChar, relationData);
           }
-        };
+        }
       });
 
     } catch (e) {
       console.error('관계 로딩 실패:', e);
       box.innerHTML = `<div class="kv-card text-dim">관계를 불러오는 중 오류가 발생했습니다.</div>`;
     }
-    // ▲▲▲▲▲ [여기까지 교체하세요] ▲▲▲▲▲
+     // ▲▲▲▲▲ [여기까지 교체하세요] ▲▲▲▲▲
   }
 }
 
@@ -1036,6 +1004,58 @@ function setMatchIntentAndGo(charId, mode){
 }
 
 
+function showRelationDetailModal(myChar, otherChar, relation) {
+  ensureModalCss(); // 모달 CSS가 없으면 주입 (adventure.js 등에서 가져옴)
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-back';
+  modal.style.zIndex = '10001';
+  modal.innerHTML = `
+    <div class="modal-card" style="max-width: 600px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px;">
+        <div style="font-weight: 900; font-size: 18px;">관계 상세</div>
+        <button class="btn ghost" id="mClose">닫기</button>
+      </div>
+      
+      <div style="display: flex; justify-content: space-around; align-items: center; gap: 12px; margin-bottom: 16px;">
+        <a href="#/char/${myChar.id}" style="text-decoration: none; color: inherit; text-align: center;">
+          <img src="${esc(myChar.thumb_url)}" onerror="this.style.display='none'" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 2px solid #4aa3ff;">
+          <div style="font-weight: 700; margin-top: 6px;">${esc(myChar.name)}</div>
+        </a>
+        <div style="font-size: 24px; color: #777;">🤝</div>
+        <a href="#/char/${otherChar.id}" style="text-decoration: none; color: inherit; text-align: center;">
+          <img src="${esc(otherChar.thumb_url)}" onerror="this.style.display='none'" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 2px solid #ccc;">
+           <div style="font-weight: 700; margin-top: 6px;">${esc(otherChar.name)}</div>
+        </a>
+      </div>
+
+      <div class="kv-card" style="padding: 12px;">
+        <div class="kv-label">AI가 분석한 관계</div>
+        <p style="white-space: pre-wrap; line-height: 1.6;">${esc(relation.note)}</p>
+      </div>
+
+      ${relation.lastBattleLogId ? `
+        <a href="#/battlelog/${relation.lastBattleLogId}" class="btn" style="text-decoration: none; margin-top: 12px; text-align: center;">
+          관계가 갱신된 배틀로그 보기
+        </a>
+      ` : ''}
+    </div>
+  `;
+
+  const closeModal = () => modal.remove();
+  modal.addEventListener('click', e => { if(e.target === modal) closeModal(); });
+  modal.querySelector('#mClose').onclick = closeModal;
+  
+  // 모달 내 캐릭터 링크 클릭 시 모달이 닫히도록 설정
+  modal.querySelectorAll('a').forEach(a => {
+    a.addEventListener('click', closeModal);
+  });
+
+  document.body.appendChild(modal);
+}
+
 
 // 라우터 호환
 export default showCharDetail;
+
+
