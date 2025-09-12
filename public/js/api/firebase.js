@@ -9,8 +9,13 @@ import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com
 
 
 
+// === 환경 분기: 호스트명으로 스테이징/운영 판단 ===
+const IS_STAGE = location.hostname.includes('tale-of-heros-staging.web.app')
+  || location.hostname.includes('tale-of-heros-staging.firebaseapp.com')
+  || location.hostname.includes('--pr-'); // PR 미리보기도 스테이징 백엔드 사용
 
-const firebaseConfig = {
+// === 운영(Prod) 설정 ===
+const CONFIG_PROD = {
   apiKey: "AIzaSyA4ilV6tRpqZrkgXRTKdFP_YjAl3CmfYWo",
   authDomain: "tale-of-heros---fangame.firebaseapp.com",
   projectId: "tale-of-heros---fangame",
@@ -19,6 +24,19 @@ const firebaseConfig = {
   appId: "1:648588906865:web:eb4baf1c0ed9cdbc7ba6d0"
 };
 
+// === 스테이징(Stage) 설정 — 콘솔에서 복붙한 값으로 교체 ===
+const CONFIG_STAGE = {
+  apiKey: "AIzaSyAtXftthns2GdrbncB7L5VEowSwGT0ozQM",
+  authDomain: "tale-of-heros-staging.firebaseapp.com",
+  projectId: "tale-of-heros-staging",
+  storageBucket: "tale-of-heros-staging.firebasestorage.app",
+  messagingSenderId: "72932012253",
+  appId: "1:72932012253:web:2cbe7684eee6183a46ab34"
+};
+
+// 최종 선택
+const firebaseConfig = IS_STAGE ? CONFIG_STAGE : CONFIG_PROD;
+
 // 표준 초기화 방식
 export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
@@ -26,10 +44,32 @@ export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const func = getFunctions(app, 'us-central1');
 // App Check (디버그/운영 공통) — 반드시 app 생성 "후"에!
-initializeAppCheck(app, {
-  provider: new ReCaptchaV3Provider('6LdeSsYrAAAAAOe1CiosO37ln1-CFEi3O-tIDgUm'),
-  isTokenAutoRefreshEnabled: true
-});
+// === App Check (선택) ===
+// 1) 급하면 콘솔에서 '강제 적용' 해제 후 아래 블록은 잠시 주석 처리해도 됨.
+// 2) 사용하려면: 콘솔 ▸ App Check ▸ 웹앱에 reCAPTCHA v3 등록 후 각 사이트 키를 여기에 넣어줘.
+const APP_CHECK_SITE_KEY_PROD  = "PROD_RECAPTCHA_V3_SITE_KEY";   // 운영 키
+const APP_CHECK_SITE_KEY_STAGE = "STAGE_RECAPTCHA_V3_SITE_KEY";  // 스테이징 키
+const APP_CHECK_SITE_KEY = IS_STAGE ? APP_CHECK_SITE_KEY_STAGE : APP_CHECK_SITE_KEY_PROD;
+
+// 미리보기(PR)에서는 디버그 토큰 허용(콘솔에서 한 번 등록 필요)
+if (location.hostname.includes('--pr-')) {
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+}
+
+try {
+  if (APP_CHECK_SITE_KEY && APP_CHECK_SITE_KEY !== "PROD_RECAPTCHA_V3_SITE_KEY" && APP_CHECK_SITE_KEY !== "STAGE_RECAPTCHA_V3_SITE_KEY") {
+    initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(APP_CHECK_SITE_KEY),
+      isTokenAutoRefreshEnabled: true
+    });
+  } else {
+    // 키 미설정 시 건너뛰기(로그인/파이어스토어는 동작하도록)
+    console.warn('[AppCheck] site key not set for current env; skipping init.');
+  }
+} catch (e) {
+  console.warn('[AppCheck] init failed, continue without it:', e);
+}
+
 
 
 
