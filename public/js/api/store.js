@@ -253,52 +253,66 @@ export async function grantExp(charId, base, mode, note=''){
 }
 
 // ===== Relations / Episodes helpers =====
-export async function createOrUpdateRelation({ aCharId, bCharId, battleLogId }){
+export async function createOrUpdateRelation({ aCharId, bCharId, battleLogId }) {
   const uid = auth.currentUser?.uid;
-  if(!uid) throw new Error('로그인이 필요해');
+  if (!uid) throw new Error('로그인이 필요해');
 
-  // 1. 필요한 모든 데이터 가져오기
+  // --- 0) ID 정규화: 'chars/{id}' 문자열로 강제 (규칙과 동일하게)
+  const aRefStr = (typeof aCharId === 'string' && aCharId.startsWith('chars/')) ? aCharId : `chars/${aCharId}`;
+  const bRefStr = (typeof bCharId === 'string' && bCharId.startsWith('chars/')) ? bCharId : `chars/${bCharId}`;
+
+  // --- 1) 필요한 데이터 모두 읽기
   const [battleLog, charA, charB, existingRelationNote] = await Promise.all([
     getBattleLog(battleLogId),
-    getCharForAI(aCharId), // 서사 조회를 위해 getCharForAI 재활용
+    getCharForAI(aCharId),
     getCharForAI(bCharId),
-    getRelationBetween(aCharId, bCharId) // 기존 관계 노트 조회
+    getRelationBetween(aCharId, bCharId)
   ]);
 
-  // 2. AI를 호출하여 관계 노트 생성/갱신
+  // --- 2) AI로 관계 노트 생성/갱신
   const newNote = await generateRelationNote({
-    battleLog: battleLog,
+    battleLog,
     attacker: { name: charA.name, narrative: charA.latestLong },
     defender: { name: charB.name, narrative: charB.latestLong },
     existingNote: existingRelationNote
   });
 
-  // 3. Firestore에 관계 문서와 메모(note)를 생성 또는 갱신
+  // --- 3) 관계 문서 ID (정렬 고정)
   const relId = [aCharId, bCharId].sort().join('__');
   const baseRef = fx.doc(db, 'relations', relId);
   const noteRef = fx.doc(db, 'relations', relId, 'meta', 'note');
 
+  // --- 4) 디버그(한 번만 확인용)
+  console.log('[REL-PATH]', `relations/${relId}`);
+  console.log('[REL-FIELDS]', aRefStr, bRefStr);
+  console.log('[REL-PAYLOAD:base]', {
+    a_charRef: aRefStr, b_charRef: bRefStr, pair: [aCharId, bCharId].sort(),
+    updatedAt: '<serverTimestamp>', lastBattleLogId: battleLogId
+  });
+  console.log('[REL-PAYLOAD:note]', { body: newNote, updatedAt: '<serverTimestamp>' });
+
+  // --- 5) 쓰기 (규칙 호환: note → body, updatedBy 제거)
   const batch = fx.writeBatch(db);
-  
-  // 기본 관계 문서 (없을 때만 생성)
+
+  // 기본 관계 문서(없으면 생성, 있으면 병합)
   batch.set(baseRef, {
-    a_charRef: `chars/${aCharId}`,
-    b_charRef: `chars/${bCharId}`,
-    pair: [aCharId, bCharId].sort(), // 쿼리를 위한 정렬된 배열
+    a_charRef: aRefStr,
+    b_charRef: bRefStr,
+    pair: [aCharId, bCharId].sort(), // 쿼리용
     updatedAt: fx.serverTimestamp(),
     lastBattleLogId: battleLogId
   }, { merge: true });
 
-  // AI가 생성한 메모
-  batch.set(noteRef, { 
-    note: newNote, 
-    updatedAt: fx.serverTimestamp(),
-    updatedBy: uid 
-  });
-  
+  // /relations/{id}/meta/note 는 규칙상 body, updatedAt만 허용
+  batch.set(noteRef, {
+    body: newNote,
+    updatedAt: fx.serverTimestamp()
+  }, { merge: true });
+
   await batch.commit();
   return { relationId: relId, note: newNote };
 }
+
 
 
 // deleteRelation 함수를 아래 내용으로 교체합니다.
