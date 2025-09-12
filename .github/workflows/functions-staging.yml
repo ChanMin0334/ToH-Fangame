@@ -8,9 +8,6 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # V 이 부분을 추가하여 GitHub 시크릿을 환경 변수로 설정합니다.
-    env:
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
@@ -24,5 +21,4 @@ jobs:
       - if: hashFiles('functions/tsconfig.json') != ''
         run: npm run build
         working-directory: functions
-      # V 배포 명령어에 --set-env-vars 옵션을 추가합니다.
-      - run: firebase deploy --only functions --project tale-of-heros---fangame --set-env-vars "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
+      - run: firebase deploy --only functions --project tale-of-heros-staging
