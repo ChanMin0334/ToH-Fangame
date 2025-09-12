@@ -89,6 +89,7 @@ export async function showRelations(){
       if(!otherId) return showToast('상대 캐릭터 ID를 입력해줘');
       // 공격자만 생성: 실제 공격자 검증은 규칙이 수행 (createdBy == a_char 소유자)
       const relId = await createRelation({ aCharId: charId, bCharId: otherId, note });
+      const relId = await createOrUpdateRelation({ aCharId: charId, bCharId: otherId, note });
       showToast(`관계 생성: ${relId}`); location.reload();
     }catch(e){ showToast(e.message||String(e)); }
   };
