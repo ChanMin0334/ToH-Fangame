@@ -1,0 +1,40 @@
+name: Deploy Functions (Staging)
+
+on:
+  push:
+    branches: [ "staging" ]
+    paths:
+      - "functions/**"
+      - ".github/workflows/functions-staging.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth to Google
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TALE_OF_HEROS_STAGING }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Firebase CLI
+        run: npm i -g firebase-tools
+
+      - name: Install deps (functions/)
+        run: npm ci
+        working-directory: functions
+
+      # TypeScript면 빌드 스텝 추가 (없으면 삭제해도 됨)
+      - name: Build (TS only)
+        if: hashFiles('functions/tsconfig.json') != ''
+        run: npm run build
+        working-directory: functions
+
+      - name: Deploy Functions to STAGE
+        run: firebase deploy --only functions --project tale-of-heros-staging
