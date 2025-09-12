@@ -4,7 +4,7 @@ import { getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDo
 import { getAuth } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-storage.js';
 import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
-import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app-check.js';
+// import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app-check.js';
 
 
 
