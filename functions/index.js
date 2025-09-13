@@ -1,8 +1,11 @@
  // functions/index.js
-const { onCall } = require('firebase-functions/v2/https');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const logger = require('firebase-functions/logger');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const crypto = require('crypto');
+const { Timestamp, FieldValue } = require('firebase-admin/firestore');
+
 
 initializeApp();
 const db = getFirestore();
@@ -29,6 +32,47 @@ function pickByProb(prob){
 function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
 function nowTs(){ const { Timestamp } = require('firebase-admin/firestore'); return Timestamp.now(); }
 function coolMillis(ts){ try{ return ts?.toMillis?.()||0; }catch{ return 0; } }
+
+
+
+// 캐릭 EXP에 addExp 더하고, 100단위로 코인을 민팅하여 "소유 유저" 지갑에 적립한다.
+// 결과적으로 캐릭 문서에는 exp(0~99), exp_total(누적), updatedAt 이 반영된다.
+async function mintByAddExp(tx, charRef, addExp, note) {
+  addExp = Math.max(0, Math.floor(Number(addExp) || 0));
+  if (addExp <= 0) return { minted: 0, expAfter: null, ownerUid: null };
+
+  const cSnap = await tx.get(charRef);
+  if (!cSnap.exists) throw new Error('char not found');
+  const c = cSnap.data() || {};
+  const ownerUid = c.owner_uid;
+  if (!ownerUid) throw new Error('owner_uid missing');
+
+  const exp0  = Math.floor(Number(c.exp || 0));
+  const exp1  = exp0 + addExp;
+  const mint  = Math.floor(exp1 / 100);
+  const exp2  = exp1 - (mint * 100); // 0~99
+  const userRef = db.doc(`users/${ownerUid}`);
+
+  tx.update(charRef, {
+    exp: exp2,
+    exp_total: FieldValue.increment(addExp),
+    updatedAt: Timestamp.now(),
+  });
+  tx.set(userRef, { coins: FieldValue.increment(mint) }, { merge: true });
+
+  // (선택) 로그 남기고 싶으면 주석 해제
+   tx.set(db.collection('exp_logs').doc(), {
+     char_id: charRef.path,
+     owner_uid: ownerUid,
+     add: addExp, minted: mint,
+     note: note || null,
+     at: Timestamp.now(),
+   });
+
+  return { minted: mint, expAfter: exp2, ownerUid };
+}
+
+
 
 
 function pickWeighted(cands, myElo){
@@ -101,28 +145,29 @@ exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
 exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
   try{
     const uid = req.auth?.uid;
-    if(!uid) throw new functions.https.HttpsError('unauthenticated','로그인이 필요해');
+    if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
 
     const seconds = Math.max(1, Math.min(600, Number(req.data?.seconds || 60)));
-    const dbx = admin.firestore();
-    const userRef = dbx.doc(`users/${uid}`);
+    const userRef = db.doc(`users/${uid}`);
 
-    await dbx.runTransaction(async (tx)=>{
-      const now = admin.firestore.Timestamp.now();
+    await db.runTransaction(async (tx)=>{
+      const now = Timestamp.now();
       const snap = await tx.get(userRef);
       const exist = snap.exists ? snap.get('cooldown_all_until') : null;
       const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis()); // 절대 단축 불가
-      const until = admin.firestore.Timestamp.fromMillis(baseMs + seconds*1000);
+      const until = Timestamp.fromMillis(baseMs + seconds*1000);
       tx.set(userRef, { cooldown_all_until: until }, { merge:true });
     });
 
     return { ok:true };
   }catch(err){
-    functions.logger.error('[setGlobalCooldown] fail', err);
-    if (err instanceof functions.https.HttpsError) throw err;
-    throw new functions.https.HttpsError('internal','cooldown-internal-error',{message:err?.message||String(err)});
+    logger.error('[setGlobalCooldown] fail', err);
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal','cooldown-internal-error',{message:err?.message||String(err)});
   }
 });
+
+
 
 // === [탐험 시작] onCall ===
 exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
@@ -266,9 +311,32 @@ exports.endExplore = onCall({ region:'us-central1' }, async (req)=>{
       rewards: { exp, items:[{ id:itemRef.id, rarity:itemPayload.rarity, name:itemPayload.item_name }] },
       updatedAt: Timestamp.now()
     });
-    tx.update(charRef, { explore_active_run: FieldValue.delete(), updatedAt: Date.now(), exp: FieldValue.increment(exp) });
+
+    // EXP→코인 민팅 (캐릭 exp는 0~99로, 유저 지갑 coins는 +minted)
+    const result = await mintByAddExp(tx, charRef, exp, `explore:${runRef.id}`);
+
+    // 진행중 플래그 해제
+    tx.update(charRef, { explore_active_run: FieldValue.delete() });
+
   });
 
   return { ok:true, exp, itemId: itemRef.id };
 });
 
+// === [일반 EXP 지급 + 코인 민팅] onCall ===
+// 호출: httpsCallable('grantExpAndMint')({ charId, exp, note })
+exports.grantExpAndMint = onCall({ region:'us-central1' }, async (req)=>{
+  const uid = req.auth?.uid;
+  if(!uid) throw new Error('unauthenticated');
+
+  const { charId, exp, note } = req.data || {};
+  if(!charId || !Number.isFinite(Number(exp))) throw new Error('bad-args');
+
+  const charRef = db.doc(`chars/${String(charId).replace(/^chars\//,'')}`);
+
+  const res = await db.runTransaction(async (tx)=>{
+    return await mintByAddExp(tx, charRef, Number(exp)||0, note||'misc');
+  });
+
+  return { ok:true, ...res };
+});
