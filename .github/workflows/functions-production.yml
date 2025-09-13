@@ -1,0 +1,26 @@
+name: Deploy Functions (Production)
+on:
+  push:
+    branches: [ "main" ] # ◀ main 브랜치에서 실행되도록 변경
+    paths:
+      - "functions/**"
+      - ".github/workflows/functions-production.yml" # ◀ 이 파일 자체의 변경도 감지
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          # ◀ 본 서버용 시크릿 키로 변경
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TALE_OF_HEROS___FANGAME }}
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" } # functions/package.json의 node 버전에 맞춰주세요
+      - run: npm i -g firebase-tools
+      - run: npm ci
+        working-directory: functions
+      - if: hashFiles('functions/tsconfig.json') != ''
+        run: npm run build
+        working-directory: functions
+      # ◀ 본 서버 프로젝트 ID로 변경
+      - run: firebase deploy --only functions --project tale-of-heros---fangame
