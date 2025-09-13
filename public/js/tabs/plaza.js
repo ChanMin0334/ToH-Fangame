@@ -54,61 +54,9 @@ function renderShop_Buy(root, c) {
   `;
 }
 
-// [신규] 판매 탭 화면
-function renderShop_Sell(root, c) {
-  root.innerHTML = `
-    <div class="kv-card text-dim">
-      보유한 아이템을 판매하는 화면입니다.
-    </div>
-  `;
-}
+// ANCHOR: function renderShop_Sell(root, c) {
 
-// [신규] 일일상점 탭 화면 (데이터베이스 연동을 고려한 구조)
-async function renderShop_Daily(root, c) {
-  // 나중에 이 부분에서 Firestore 데이터를 가져오게 됩니다. 지금은 임시 데이터를 사용합니다.
-  const dailyItems = [
-    { id: 'item001', name: '신비한 물약', price: 10, description: '체력을 약간 회복시켜주는 물약.', rarity: 'rare' },
-    { id: 'item002', name: '강철 검', price: 50, description: '견고하게 만들어진 기본 검.', rarity: 'normal' },
-    { id: 'item003', name: '시간의 모래시계', price: 100, description: '하루에 한 번, 탐험 쿨타임을 초기화합니다.', rarity: 'epic' },
-  ];
-
-  const rarityStyle = (r) => {
-      const map = {
-          normal: { bg: 'rgba(255,255,255,0.03)', border: '#5f6673' },
-          rare:   { bg: 'rgba(91,124,255,.12)', border: '#3b78cf' },
-          epic:   { bg: 'rgba(157,91,255,.12)', border: '#7e5cff' },
-      };
-      return map[r] || map.normal;
-  };
-
-  root.innerHTML = `
-    <div class="kv-card text-dim" style="margin-bottom: 8px;">
-      매일 자정에 초기화되는 특별 상점입니다.
-    </div>
-    <div class="col" style="gap: 10px;">
-      ${dailyItems.map(item => {
-        const style = rarityStyle(item.rarity);
-        return `
-          <div class="kv-card" style="border-left: 3px solid ${style.border}; background: ${style.bg};">
-            <div class="row" style="justify-content: space-between; align-items: flex-start;">
-              <div>
-                <div style="font-weight: 700;">${esc(item.name)}</div>
-                <div class="text-dim" style="font-size: 12px; margin-top: 4px;">${esc(item.description)}</div>
-              </div>
-              <button class="btn" style="white-space: nowrap;">🪙 ${item.price}</button>
-            </div>
-          </div>
-        `
-      }).join('')}
-    </div>
-  `;
-  
-  root.querySelectorAll('.btn').forEach(btn => {
-      btn.onclick = () => showToast('구매 기능은 아직 준비 중입니다.');
-  });
-}
-
-// [수정] 상점 화면을 서브 탭 라우터로 변경
+// [교체] 판매 탭 화면 (모든 기능 포함)
 async function renderShop_Sell(root, c) {
   // --- 판매 관련 헬퍼 함수 ---
   const { httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js');
@@ -347,6 +295,86 @@ async function renderShop_Sell(root, c) {
 
   // --- 초기 실행 ---
   loadInventory();
+}
+
+// [신규] 일일상점 탭 화면 (데이터베이스 연동을 고려한 구조)
+async function renderShop_Daily(root, c) {
+  // 나중에 이 부분에서 Firestore 데이터를 가져오게 됩니다. 지금은 임시 데이터를 사용합니다.
+  const dailyItems = [
+    { id: 'item001', name: '신비한 물약', price: 10, description: '체력을 약간 회복시켜주는 물약.', rarity: 'rare' },
+    { id: 'item002', name: '강철 검', price: 50, description: '견고하게 만들어진 기본 검.', rarity: 'normal' },
+    { id: 'item003', name: '시간의 모래시계', price: 250, description: '하루에 한 번, 탐험 쿨타임을 초기화합니다.', rarity: 'epic' },
+  ];
+
+  const rarityStyle = (r) => {
+      const map = {
+          normal: { bg: 'rgba(255,255,255,0.03)', border: '#5f6673' },
+          rare:   { bg: 'rgba(91,124,255,.12)', border: '#3b78cf' },
+          epic:   { bg: 'rgba(157,91,255,.12)', border: '#7e5cff' },
+      };
+      return map[r] || map.normal;
+  };
+
+  root.innerHTML = `
+    <div class="kv-card text-dim" style="margin-bottom: 8px;">
+      매일 자정에 초기화되는 특별 상점입니다.
+    </div>
+    <div class="col" style="gap: 10px;">
+      ${dailyItems.map(item => {
+        const style = rarityStyle(item.rarity);
+        return `
+          <div class="kv-card" style="border-left: 3px solid ${style.border}; background: ${style.bg};">
+            <div class="row" style="justify-content: space-between; align-items: flex-start;">
+              <div>
+                <div style="font-weight: 700;">${esc(item.name)}</div>
+                <div class="text-dim" style="font-size: 12px; margin-top: 4px;">${esc(item.description)}</div>
+              </div>
+              <button class="btn" style="white-space: nowrap;">🪙 ${item.price}</button>
+            </div>
+          </div>
+        `
+      }).join('')}
+    </div>
+  `;
+  
+  root.querySelectorAll('.btn').forEach(btn => {
+      btn.onclick = () => showToast('구매 기능은 아직 준비 중입니다.');
+  });
+}
+
+// [수정] 상점 화면을 서브 탭 라우터로 변경
+async function renderShop(root, c, paths){
+  const coin = await loadMyCoins();
+  const shopTab = paths.sub || 'buy'; // 서브 탭이 없으면 '구매'를 기본으로
+
+  root.innerHTML = `
+    ${navHTML(paths)}
+    <div class="bookview">
+      <div class="kv-card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <div style="font-weight:900">상점</div>
+          <div class="chip">🪙 <b>${coin}</b> <span class="text-dim">(지갑)</span></div>
+        </div>
+      </div>
+      
+      <div class="subtabs" style="margin-top: 12px; padding: 0 8px;">
+        <a href="#/plaza/shop/buy" class="sub ${shopTab === 'buy' ? 'active' : ''}" style="text-decoration:none;">구매</a>
+        <a href="#/plaza/shop/sell" class="sub ${shopTab === 'sell' ? 'active' : ''}" style="text-decoration:none;">판매</a>
+        <a href="#/plaza/shop/daily" class="sub ${shopTab === 'daily' ? 'active' : ''}" style="text-decoration:none;">일일상점</a>
+      </div>
+
+      <div id="shop-content" style="margin-top: 8px;"></div>
+    </div>
+  `;
+
+  const contentRoot = root.querySelector('#shop-content');
+  if (shopTab === 'sell') {
+    renderShop_Sell(contentRoot, c);
+  } else if (shopTab === 'daily') {
+    await renderShop_Daily(contentRoot, c);
+  } else {
+    renderShop_Buy(contentRoot, c);
+  }
 }
 
 // --- 거래소 및 길드 기능 (기존과 동일) ---
