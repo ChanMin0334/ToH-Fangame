@@ -5,6 +5,9 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const crypto = require('crypto');
 const { Timestamp, FieldValue } = require('firebase-admin/firestore');
+const functions = require('firebase-functions');
+const admin = require('firebase-admin');
+const { HttpsError } = require('firebase-functions/v1/https'); // v1에서 HttpsError 가져오기
 
 
 initializeApp();
@@ -346,6 +349,14 @@ exports.grantExpAndMint = onCall({ region:'us-central1' }, async (req)=>{
 
 
 
+
+
+
+
+// (파일 상단의 다른 코드는 그대로 둡니다)
+// admin.initializeApp() 이 이미 있다면 중복해서 추가할 필요 없습니다.
+
+// ANCHOR: sellItems 함수 시작
 // 기존 sellItems 함수를 모두 삭제하고 아래 코드로 교체하세요.
 exports.sellItems = functions.region('us-central1').https.onCall(async (data, context) => {
   const uid = context.auth?.uid;
@@ -414,5 +425,8 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
   }
 });
 // ANCHOR_END: sellItems 함수 끝
+
+// ( ... 나머지 함수들도 v1 방식과 호환되도록 확인이 필요하지만, 우선 sellItems만 수정합니다 ... )
+
 
 
