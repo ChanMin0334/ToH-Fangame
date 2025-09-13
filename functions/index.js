@@ -5,9 +5,6 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const crypto = require('crypto');
 const { Timestamp, FieldValue } = require('firebase-admin/firestore');
-const functions = require('firebase-functions');
-const admin = require('firebase-admin');
-const { HttpsError } = require('firebase-functions/v1/https'); // v1에서 HttpsError 가져오기
 
 
 initializeApp();
@@ -349,10 +346,7 @@ exports.grantExpAndMint = onCall({ region:'us-central1' }, async (req)=>{
 
 
 
-
-
-
-
+// 기존 sellItems 함수를 모두 삭제하고 아래 코드로 교체하세요.
 exports.sellItems = functions.region('us-central1').https.onCall(async (data, context) => {
   const uid = context.auth?.uid;
   if (!uid) {
@@ -364,6 +358,7 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
     throw new HttpsError('invalid-argument', '판매할 아이템 ID 목록이 올바르지 않습니다.');
   }
 
+  const db = admin.firestore();
   const userRef = db.doc(`users/${uid}`);
 
   try {
@@ -399,7 +394,7 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
       if (totalGold > 0) {
         tx.update(userRef, {
           items_all: itemsToKeep,
-          coins: FieldValue.increment(totalGold)
+          coins: admin.firestore.FieldValue.increment(totalGold)
         });
       }
 
@@ -407,16 +402,17 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
       return { goldEarned: totalGold, itemsSoldCount: soldCount };
     });
 
-    logger.info(`User ${uid} sold ${itemsSoldCount} items for ${goldEarned} gold.`);
+    functions.logger.info(`User ${uid} sold ${itemsSoldCount} items for ${goldEarned} gold.`);
     return { ok: true, goldEarned, itemsSoldCount };
 
   } catch (error) {
-    logger.error(`Error selling items for user ${uid}:`, error);
+    functions.logger.error(`Error selling items for user ${uid}:`, error);
     if (error instanceof HttpsError) {
       throw error;
     }
     throw new HttpsError('internal', '아이템 판매 중 오류가 발생했습니다.');
   }
 });
+// ANCHOR_END: sellItems 함수 끝
 
 
