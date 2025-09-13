@@ -42,7 +42,73 @@
 
   <div id="toast" class="toast" style="z-index:9999"></div>
 
-  <script type="module" src="/js/app.js?v=2025-09-14-b"></script>
+<!-- 🔧 /sellItems 로 가는 직접 요청을 전부 onCall로 우회 (fetch + XHR), 엔트리보다 먼저 실행 -->
+<script type="module">
+  console.log('[hotfix] sellItems intercept ready');
+
+  // fetch 인터셉트
+  const _fetch = (globalThis.fetch || window.fetch).bind(globalThis);
+  globalThis.fetch = async (...args) => {
+    try {
+      const [url, opt] = args;
+      const u = String(url || '');
+      const hit = u.includes('cloudfunctions.net') && u.endsWith('/sellItems');
+      if (hit) {
+        let body = {};
+        try { body = opt?.body ? JSON.parse(opt.body) : {}; } catch {}
+        if (typeof globalThis.__callFn === 'function') {
+          const data = await globalThis.__callFn('sellItems', body);
+          return new Response(JSON.stringify(data), {
+            headers: { 'content-type': 'application/json' },
+            status: 200
+          });
+        } else {
+          console.warn('[hotfix] __callFn 없음(아직 로드 전). 원요청 수행');
+        }
+      }
+    } catch (e) {
+      console.warn('[hotfix/fetch] fallback:', e);
+    }
+    return _fetch(...args);
+  };
+
+  // XHR 인터셉트(혹시 다른 모듈이 XMLHttpRequest를 쓸 수 있으므로)
+  (function(){
+    const _open = XMLHttpRequest.prototype.open;
+    const _send = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function(method, url, ...rest){
+      this.__sellItemsHit__ = String(url||'').includes('cloudfunctions.net') && String(url||'').endsWith('/sellItems');
+      return _open.call(this, method, url, ...rest);
+    };
+    XMLHttpRequest.prototype.send = function(body){
+      if (this.__sellItemsHit__) {
+        try {
+          let payload = {};
+          try { payload = body ? JSON.parse(body) : {}; } catch {}
+          if (typeof globalThis.__callFn === 'function') {
+            globalThis.__callFn('sellItems', payload).then(data=>{
+              const res = JSON.stringify(data||{});
+              this.status = 200; this.response = res; this.responseText = res; this.readyState = 4;
+              this.onreadystatechange && this.onreadystatechange(); this.onload && this.onload();
+            }).catch(err=>{
+              const res = JSON.stringify({ error: String(err?.message||err) });
+              this.status = 500; this.responseText = res; this.readyState = 4;
+              this.onreadystatechange && this.onreadystatechange(); this.onerror && this.onerror(err);
+            });
+            return; // 네트워크 전송 막기
+          } else {
+            console.warn('[hotfix/xhr] __callFn 없음(아직 로드 전). 원요청 수행');
+          }
+        } catch(e){ console.warn('[hotfix/xhr] fallback:', e); }
+      }
+      return _send.call(this, body);
+    };
+  })();
+</script>
+
+<!-- ✅ 엔트리(항상 최신 강제) -->
+<script type="module" src="/js/app.js?v=2025-09-14-d"></script>
+
 
 
 </body>
