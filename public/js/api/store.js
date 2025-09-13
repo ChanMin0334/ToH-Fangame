@@ -221,15 +221,25 @@ async function fetchLimits(){
 }
 
 // 캐릭 EXP 지급을 서버로 위임 → 서버가 100단위 코인 민팅 + 캐릭 exp(0~99) 정규화
+// /public/js/api/store.js
+
+// 캐릭 EXP 지급을 서버로 위임 → 서버가 100단위 코인 민팅 + 캐릭 exp(0~99) 정규화
 export async function grantExp(charId, exp, source='misc', note='') {
-  // ✅ 반드시 callable(SDK)로만 호출 → CORS X
-  const data = await callFn('grantExpAndMint', {
-    charId,
-    exp: Math.round(exp || 0),
-    note: `${source}:${note || ''}`
-  });
-  console.log('[grantExp] result', data); // { ok, minted, expAfter, ownerUid }
-  return data;
+  // ✅ httpsCallable을 사용하여 CORS 문제를 자동 해결
+  try {
+    const grantExpAndMint = httpsCallable(func, 'grantExpAndMint');
+    const result = await grantExpAndMint({
+      charId,
+      exp: Math.round(exp || 0),
+      note: `${source}:${note || ''}`
+    });
+    console.log('[grantExp] result', result.data);
+    return result.data; // Callable 함수의 결과는 .data 안에 있습니다.
+  } catch (error) {
+    console.error("Error calling grantExpAndMint function:", error);
+    // 오류 발생 시 사용자에게 알리거나 기본값을 반환할 수 있습니다.
+    return { ok: false, minted: 0, error: error.message };
+  }
 }
 
 
