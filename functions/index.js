@@ -172,10 +172,10 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
 // === [탐험 시작] onCall ===
 exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
-  if(!uid) throw new functions.https.HttpsError('unauthenticated','로그인이 필요해');
+  if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
 
   const { charId, worldId, siteId, difficulty } = req.data || {};
-  if(!charId || !worldId || !siteId) throw new functions.https.HttpsError('invalid-argument','필수값 누락');
+  if(!charId || !worldId || !siteId) throw new HttpsError('invalid-argument','필수값 누락');
 
   const charRef = db.doc(`chars/${charId}`);
   const userRef = db.doc(`users/${uid}`);
@@ -190,9 +190,9 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
 
   // 캐릭/소유권 검사 + 동시진행 금지
   const charSnap = await charRef.get();
-  if(!charSnap.exists) throw new functions.https.HttpsError('failed-precondition','캐릭터 없음');
+  if(!charSnap.exists) throw new HttpsError('failed-precondition','캐릭터 없음');
   const ch = charSnap.data()||{};
-  if (ch.owner_uid !== uid) throw new functions.https.HttpsError('permission-denied','내 캐릭만 시작 가능');
+  if (ch.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 시작 가능');
   if (ch.explore_active_run) {
     const old = await db.doc(ch.explore_active_run).get();
     if (old.exists) return { ok:true, reused:true, runId: old.id, data: old.data() };
@@ -212,7 +212,7 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
   await db.runTransaction(async (tx)=>{
     const cdoc = await tx.get(charRef);
     const c = cdoc.data()||{};
-    if (c.explore_active_run) throw new functions.https.HttpsError('aborted','이미 진행중');
+    if (c.explore_active_run) throw new HttpsError('aborted','이미 진행중');
 
     tx.set(runRef, payload);
     tx.update(charRef, { explore_active_run: runRef.path, updatedAt: Date.now() });
@@ -229,15 +229,15 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
 // === [탐험 한 턴 진행] onCall ===
 exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
-  if(!uid) throw new functions.https.HttpsError('unauthenticated','로그인이 필요해');
+  if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
   const { runId } = req.data||{};
-  if(!runId) throw new functions.https.HttpsError('invalid-argument','runId 필요');
+  if(!runId) throw new HttpsError('invalid-argument','runId 필요');
 
   const runRef = db.doc(`explore_runs/${runId}`);
   const snap = await runRef.get();
-  if(!snap.exists) throw new functions.https.HttpsError('not-found','run 없음');
+  if(!snap.exists) throw new HttpsError('not-found','run 없음');
   const r = snap.data()||{};
-  if (r.owner_uid !== uid) throw new functions.https.HttpsError('permission-denied','내 진행만 가능');
+  if (r.owner_uid !== uid) throw new fHttpsError('permission-denied','내 진행만 가능');
   if (r.status !== 'running') return { ok:false, reason:'not-running' };
 
   const DC = EXPLORE_CONFIG.diff[r.difficulty] || EXPLORE_CONFIG.diff.normal;
@@ -272,15 +272,15 @@ exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
 // === [탐험 종료 & 보상 확정] onCall ===
 exports.endExplore = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
-  if(!uid) throw new functions.https.HttpsError('unauthenticated','로그인이 필요해');
+  if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
   const { runId } = req.data||{};
-  if(!runId) throw new functions.https.HttpsError('invalid-argument','runId 필요');
+  if(!runId) throw new HttpsError('invalid-argument','runId 필요');
 
   const runRef = db.doc(`explore_runs/${runId}`);
   const snap = await runRef.get();
-  if(!snap.exists) throw new functions.https.HttpsError('not-found','run 없음');
+  if(!snap.exists) throw new HttpsError('not-found','run 없음');
   const r = snap.data()||{};
-  if (r.owner_uid !== uid) throw new functions.https.HttpsError('permission-denied','내 진행만 가능');
+  if (r.owner_uid !== uid) throw new HttpsError('permission-denied','내 진행만 가능');
 
   const charId = (r.charRef||'').replace('chars/','');
   const charRef = db.doc(`chars/${charId}`);
