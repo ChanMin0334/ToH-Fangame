@@ -1,4 +1,3 @@
-<!-- /public/index.html -->
 <!DOCTYPE html>
 <html lang="ko">
   <head>
@@ -32,7 +31,6 @@
     <main id="view" class="view"></main>
   </div>
 
-  <!-- 하단 탭바(원래 쓰던 거 유지) -->
   <nav class="bottombar">
     <a href="#/home" data-tab="home">🏠<span>홈</span></a>
     <a href="#/adventure" data-tab="adventure">🗺️<span>모험</span></a>
@@ -42,86 +40,9 @@
     <a href="#/me" data-tab="me">🙋‍♀️<span>내정보</span></a>
   </nav>
 
-  <!-- 토스트 호스트 -->
   <div id="toast" class="toast" style="z-index:9999"></div>
 
-  <!-- ✅ 엔트리 하나만 로드 -->
-  <!-- ✅ 엔트리 하나만 로드 (캐시 무효화를 위해 쿼리 추가) -->
-<script type="module" src="/js/app.js?v=2025-09-14-a"></script>
-
-<!-- 🔧 sellItems 직접-URL 호출을 onCall로 우회하는 안전핀(임시) -->
-<!-- 🔧 sellItems 직접-URL 호출을 onCall로 강제 우회 (fetch + XHR), 엔트리보다 먼저 로드 -->
-<script type="module">
-  // fetch 인터셉트
-  const _fetch = (globalThis.fetch || window.fetch).bind(globalThis);
-  globalThis.fetch = async (...args) => {
-    try {
-      const [url, opt] = args;
-      const u = String(url || '');
-      const hit = u.includes('cloudfunctions.net') && u.includes('/sellItems');
-      if (hit) {
-        // 원래 바디 복원
-        let body = {};
-        try { body = opt?.body ? JSON.parse(opt.body) : {}; } catch {}
-        // firebase.js에서 노출한 onCall 헬퍼로 우회 (로드 시점 상관 없이 호출 시점에 평가)
-        if (typeof globalThis.__callFn === 'function') {
-          const data = await globalThis.__callFn('sellItems', body);
-          return new Response(JSON.stringify(data), {
-            headers: { 'content-type': 'application/json' },
-            status: 200
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('[hotfix/fetch] fallback to network:', e);
-    }
-    return _fetch(...args);
-  };
-
-  // XHR 인터셉트 (혹시 모듈이 XMLHttpRequest를 쓸 경우 대비)
-  (function(){
-    const _open = XMLHttpRequest.prototype.open;
-    const _send = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.open = function(method, url, ...rest){
-      this.__sellItemsHit__ = String(url || '').includes('cloudfunctions.net') && String(url || '').includes('/sellItems');
-      this.__sellItemsURL__ = url;
-      return _open.call(this, method, url, ...rest);
-    };
-    XMLHttpRequest.prototype.send = function(body){
-      if (this.__sellItemsHit__) {
-        try {
-          let payload = {};
-          try { payload = body ? JSON.parse(body) : {}; } catch {}
-          if (typeof globalThis.__callFn === 'function') {
-            globalThis.__callFn('sellItems', payload).then(data=>{
-              const resText = JSON.stringify(data||{});
-              // XHR 성공 콜백 흉내
-              this.status = 200;
-              this.response = resText;
-              this.responseText = resText;
-              this.readyState = 4;
-              this.onreadystatechange && this.onreadystatechange();
-              this.onload && this.onload();
-            }).catch(err=>{
-              this.status = 500;
-              this.responseText = JSON.stringify({ error: String(err?.message||err) });
-              this.readyState = 4;
-              this.onreadystatechange && this.onreadystatechange();
-              this.onerror && this.onerror(err);
-            });
-            return; // 실제 네트워크 전송 막음
-          }
-        } catch(e){
-          console.warn('[hotfix/xhr] fallback to network:', e);
-        }
-      }
-      return _send.call(this, body);
-    };
-  })();
-</script>
-
-<!-- ✅ 엔트리 하나만 로드 (캐시 무효화를 위해 쿼리 추가) -->
-<script type="module" src="/js/app.js?v=2025-09-14-b"></script>
+  <script type="module" src="/js/app.js?v=2025-09-14-b"></script>
 
 
 </body>
