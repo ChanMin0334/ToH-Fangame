@@ -218,13 +218,14 @@ async function fetchLimits(){
   };
 }
 
-// 캐릭 EXP 지급 + (100단위 코인 민팅 → 유저 지갑 적립) = 서버 트랜잭션 호출
-export async function grantExp(charId, base, mode, note=''){
+// 캐릭 EXP 지급을 서버로 위임 → 서버가 100단위 코인 민팅 + 캐릭 exp(0~99) 정규화
+export async function grantExp(charId, exp, source = 'misc', note = '') {
+  if (!auth.currentUser) throw new Error('login required');
   const call = httpsCallable(func, 'grantExpAndMint');
-  const { data } = await call({ charId, exp: Math.round(base||0), note: `${mode||'misc'}:${note||''}` });
-  // 디버깅용: 콘솔에서 민팅 확인 (minted가 0이면 100 미만)
-  console.log('[grantExp] result', data);
-  return data; // { ok, minted, expAfter, ownerUid }
+  const res = await call({ charId, exp, note: `${source}:${note||''}` }).then(r => r.data);
+  // (선택) 디버깅 로그
+  console.log('[grantExp] server result:', res);
+  return res; // { ok:true, minted, expAfter, ownerUid }
 }
 
 
