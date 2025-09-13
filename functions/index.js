@@ -5,6 +5,9 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const crypto = require('crypto');
 const { Timestamp, FieldValue } = require('firebase-admin/firestore');
+const functions = require('firebase-functions');
+const admin = require('firebase-admin');
+const { HttpsError } = require('firebase-functions/v1/https'); // v1에서 HttpsError 가져오기
 
 
 initializeApp();
@@ -348,25 +351,22 @@ exports.grantExpAndMint = onCall({ region:'us-central1' }, async (req)=>{
 
 
 
-const functions = require("firebase-functions"); // firebase-functions v1을 가져옵니다.
-const admin = require("firebase-admin");
-const cors = require("cors")({ origin: true }); // cors 라이브러리 설정
 
-// admin.initializeApp(); // 이미 파일 상단에 있다면 이 줄은 생략
 
-// ( ... 다른 함수들은 그대로 둡니다 ... )
+// (파일 상단의 다른 코드는 그대로 둡니다)
+// admin.initializeApp() 이 이미 있다면 중복해서 추가할 필요 없습니다.
 
 // ANCHOR: sellItems 함수 시작
 // 기존 sellItems 함수를 모두 삭제하고 아래 코드로 교체하세요.
 exports.sellItems = functions.region('us-central1').https.onCall(async (data, context) => {
   const uid = context.auth?.uid;
   if (!uid) {
-    throw new functions.https.HttpsError('unauthenticated', '로그인이 필요합니다.');
+    throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
   }
 
   const { itemIds } = data;
   if (!Array.isArray(itemIds) || itemIds.length === 0) {
-    throw new functions.https.HttpsError('invalid-argument', '판매할 아이템 ID 목록이 올바르지 않습니다.');
+    throw new HttpsError('invalid-argument', '판매할 아이템 ID 목록이 올바르지 않습니다.');
   }
 
   const db = admin.firestore();
@@ -376,7 +376,7 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
     const { goldEarned, itemsSoldCount } = await db.runTransaction(async (tx) => {
       const userSnap = await tx.get(userRef);
       if (!userSnap.exists) {
-        throw new functions.https.HttpsError('not-found', '사용자 정보를 찾을 수 없습니다.');
+        throw new HttpsError('not-found', '사용자 정보를 찾을 수 없습니다.');
       }
 
       const userData = userSnap.data() || {};
@@ -418,15 +418,15 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
 
   } catch (error) {
     functions.logger.error(`Error selling items for user ${uid}:`, error);
-    if (error instanceof functions.https.HttpsError) {
+    if (error instanceof HttpsError) {
       throw error;
     }
-    throw new functions.https.HttpsError('internal', '아이템 판매 중 오류가 발생했습니다.');
+    throw new HttpsError('internal', '아이템 판매 중 오류가 발생했습니다.');
   }
 });
 // ANCHOR_END: sellItems 함수 끝
 
-
+// ( ... 나머지 함수들도 v1 방식과 호환되도록 확인이 필요하지만, 우선 sellItems만 수정합니다 ... )
 
 
 
