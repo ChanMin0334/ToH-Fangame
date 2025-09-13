@@ -15,10 +15,9 @@ async function loadActiveChar(){
 }
 // 코인은 "캐릭터 경험치" 기준
 function coinOfChar(c){
-  const exp = Number(c?.exp || 0);
-  const spent = Number(c?.coins_spent || 0); // 나중에 구매/거래 붙이면 사용
-  return Math.max(0, Math.floor(exp / 100) - spent);
+  return Math.max(0, Math.floor(Number(c?.coins || 0)));
 }
+
 
 function navHTML(tab){
   function btn(id, label, emoji){
