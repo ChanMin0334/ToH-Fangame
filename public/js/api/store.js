@@ -3,6 +3,8 @@ import { db, auth, fx, storage, sx, serverTimestamp, func } from './firebase.js'
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { generateRelationNote } from './ai.js';
 import { showToast } from '../ui/toast.js';
+import { callFn } from './firebase.js';
+
 
 // ===== 전역 앱 상태 =====
 export const App = {
@@ -219,14 +221,17 @@ async function fetchLimits(){
 }
 
 // 캐릭 EXP 지급을 서버로 위임 → 서버가 100단위 코인 민팅 + 캐릭 exp(0~99) 정규화
-export async function grantExp(charId, exp, source = 'misc', note = '') {
-  if (!auth.currentUser) throw new Error('login required');
-  const call = httpsCallable(func, 'grantExpAndMint');
-  const res = await call({ charId, exp, note: `${source}:${note||''}` }).then(r => r.data);
-  // (선택) 디버깅 로그
-  console.log('[grantExp] server result:', res);
-  return res; // { ok:true, minted, expAfter, ownerUid }
+export async function grantExp(charId, exp, source='misc', note='') {
+  // ✅ 반드시 callable(SDK)로만 호출 → CORS X
+  const data = await callFn('grantExpAndMint', {
+    charId,
+    exp: Math.round(exp || 0),
+    note: `${source}:${note || ''}`
+  });
+  console.log('[grantExp] result', data); // { ok, minted, expAfter, ownerUid }
+  return data;
 }
+
 
 
 // ===== Relations / Episodes helpers =====
