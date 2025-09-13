@@ -67,9 +67,9 @@ function renderShop_Sell(root, c) {
 async function renderShop_Daily(root, c) {
   // 나중에 이 부분에서 Firestore 데이터를 가져오게 됩니다. 지금은 임시 데이터를 사용합니다.
   const dailyItems = [
-    { id: 'item001', name: '신비한 물약', price: 150, description: '체력을 약간 회복시켜주는 물약.', rarity: 'rare' },
-    { id: 'item002', name: '강철 검', price: 500, description: '견고하게 만들어진 기본 검.', rarity: 'normal' },
-    { id: 'item003', name: '시간의 모래시계', price: 2500, description: '하루에 한 번, 탐험 쿨타임을 초기화합니다.', rarity: 'epic' },
+    { id: 'item001', name: '신비한 물약', price: 10, description: '체력을 약간 회복시켜주는 물약.', rarity: 'rare' },
+    { id: 'item002', name: '강철 검', price: 50, description: '견고하게 만들어진 기본 검.', rarity: 'normal' },
+    { id: 'item003', name: '시간의 모래시계', price: 100, description: '하루에 한 번, 탐험 쿨타임을 초기화합니다.', rarity: 'epic' },
   ];
 
   const rarityStyle = (r) => {
