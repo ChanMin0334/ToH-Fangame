@@ -162,6 +162,9 @@ function calcExploreExp(run) {
 }
 
 // [교체] 탐험 종료: EXP 계산 → 서버에 지급(코인 민팅) → 런 문서에 보상 기록
+// /public/js/api/explore.js
+
+// [교체] 탐험 종료: EXP 계산 → 서버에 지급(코인 민팅) → 런 문서에 보상 기록
 export async function endRun({ runId, reason = 'ended' }) {
   const u = auth.currentUser;
   if (!u) throw new Error('로그인이 필요해');
@@ -176,7 +179,7 @@ export async function endRun({ runId, reason = 'ended' }) {
 
   // 2) 이미 끝난 런이면 중복 지급 방지
   //   ※ 네 데이터가 'running'이 아닌 다른 값(예: 'ongoing'/'done')을 쓰면 아래 문자열만 맞춰 바꿔.
-  if (run.status !== 'running') return true;
+  if (run.status !== 'ongoing') return true;
 
   // 3) EXP 계산 (서버와 동일 규칙)
   const diffMult = ({ easy:1.0, normal:1.2, hard:1.4, vhard:1.6, legend:1.8 }[run.difficulty]) || 1.2;
