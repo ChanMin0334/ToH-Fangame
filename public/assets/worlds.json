@@ -199,7 +199,7 @@
               "역행",
               "자연"
             ],
-            "difficulty": "vhard"
+            "difficulty": "very_hard"
           },
           {
             "id": "inverted-academy",
@@ -211,7 +211,7 @@
               "지식",
               "폐허"
             ],
-            "difficulty": "vhard"
+            "difficulty": "very_hard"
           },
           {
             "id": "steel-forest",
@@ -247,7 +247,7 @@
               "왜곡",
               "시간"
             ],
-            "difficulty": "vhard"
+            "difficulty": "very_hard"
           },
           {
             "id": "eye-of-the-giant",
