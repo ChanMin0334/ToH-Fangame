@@ -419,13 +419,15 @@ async function sellItemsCore(uid, data) {
 }
 
 // 1) 최신 프론트에서 httpsCallable로 부르는 엔드포인트(이름 변경)
-exports.sellItemsCallable = onCall({ region: 'us-central1' }, async (req) => {
+exports.sellItems = onCall({ region: 'us-central1' }, async (req) => {
+
   const uid = req.auth?.uid || req.auth?.token?.uid;
   return await sellItemsCore(uid, req.data);
 });
 
 // 2) 옛 코드가 "직접 URL"로 치는 경우를 위한 HTTP 엔드포인트 (CORS 포함)
-exports.sellItems = onRequest({ region: 'us-central1' }, async (req, res) => {
+exports.sellItemsHttp = onRequest({ region: 'us-central1' }, async (req, res) => {
+
   // CORS 허용 (필요한 출처만 추가)
   const origin = req.get('origin');
   const allow = new Set([
