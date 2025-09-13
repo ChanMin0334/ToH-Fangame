@@ -3,7 +3,6 @@ import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
 import { getUserInventory } from '../api/user.js';
-import { showToast } from '../ui/toast.js';
 
 /* (기존 esc 함수와 동일) */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
