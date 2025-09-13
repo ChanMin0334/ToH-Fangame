@@ -295,7 +295,8 @@ async function renderShop_Sell(root, c) {
     render(); // 로딩 상태 표시
 
     try {
-      const sellItemsFn = httpsCallable(func, 'sellItemsCallable');
+      const sellItemsFn = httpsCallable(func, 'sellItems');
+
       const result = await sellItemsFn({ itemIds: Array.from(selectedIds) });
 
       if (result.data.ok) {
