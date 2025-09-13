@@ -242,6 +242,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui, -a
 /* 책갈피 탭 */
 .book-card{ border-radius:var(--radius-lg); border:1px solid var(--bd); background:#0f1012; overflow:hidden; }
 .bookmarks{ display:flex; gap:12px; padding:10px 14px; border-bottom:1px dashed var(--bd); }
+.bookmarks a { text-decoration: none; }
 .bookmark{ color:#fff; background:#141518; border:1px solid var(--bd); border-bottom:none; top:1px; position:relative; padding:8px 14px 9px; border-top-left-radius:12px; border-top-right-radius:12px; cursor:pointer; }
 .bookmark.active{ background:#1b1f2d; color:#fff; outline:2px solid var(--accent); }
 .bookview{ padding:14px; }
