@@ -32,6 +32,8 @@ export const routes = {
   // 수정됨: 키(key)에 '#'를 추가하여 다른 라우트와 형식을 통일
   '#/explore-run': showExploreRun,
   '#/battlelog': showBattleLog, // 신규 추가
+  '#/explorelog': () => import('./tabs/explorelog.js').then(m => (m.default ?? m.showExploreLog)?.()),
+
   
 };
 
@@ -55,6 +57,7 @@ export function router(){
   if(hash.startsWith('#/explore-run/')) return routes['#/explore-run']();
   if(hash.startsWith('#/explore-battle/')) return routes['#/explore-battle']();
   if(hash.startsWith('#/battlelog/')) return routes['#/battlelog']();
+  if(hash.startsWith('#/explorelog/')) return routes['#/explorelog']();
 
 
   (routes[hash] || routes['#/home'])();
