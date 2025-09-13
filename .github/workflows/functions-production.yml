@@ -43,4 +43,7 @@ jobs:
         working-directory: functions
 
       - name: Deploy to Firebase Functions
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: firebase deploy --only functions --project tale-of-heros---fangame
+
