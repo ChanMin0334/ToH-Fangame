@@ -915,7 +915,8 @@ function renderHistory(c, view){
             <div class="text-dim" style="font-size:12px">id: ${it.id}</div>
           </div>`;
       }else{
-        const when = t(it.at || it.endedAt).toLocaleString();
+        const when = t(it.endedAt || it.startedAt).toLocaleString();
+
         go = `#/explorelog/${it.id}`;
         html = `
           <div class="kv-card tl-go" data-go="${go}" 
@@ -1004,7 +1005,7 @@ async function fetchNext(){
       }
       else if(mode==='explore'){
         if(!doneE){
-          const parts = [ fx.orderBy('at','desc') ];
+          const parts = [ fx.orderBy('endedAt','desc') ];
           if(lastE) parts.push(startAfter(lastE));
           parts.push(fx.limit(15));
           const q = fx.query(
