@@ -46,6 +46,38 @@
   <div id="toast" class="toast" style="z-index:9999"></div>
 
   <!-- ✅ 엔트리 하나만 로드 -->
-  <script type="module" src="/js/app.js"></script>
+  <!-- ✅ 엔트리 하나만 로드 (캐시 무효화를 위해 쿼리 추가) -->
+<script type="module" src="/js/app.js?v=2025-09-14-a"></script>
+
+<!-- 🔧 sellItems 직접-URL 호출을 onCall로 우회하는 안전핀(임시) -->
+<script type="module">
+  const _fetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const [url, opt] = args;
+    try {
+      const isSellItems = typeof url === 'string'
+        && url.includes('cloudfunctions.net')
+        && url.endsWith('/sellItems');
+
+      if (isSellItems) {
+        // 예전 코드가 POST로 보내는 JSON 바디를 그대로 받는다
+        let body = {};
+        try { body = opt?.body ? JSON.parse(opt.body) : {}; } catch {}
+        // firebase.js에서 내보낸 __callFn(= onCall 헬퍼)로 우회 호출
+        if (typeof window.__callFn === 'function') {
+          const data = await window.__callFn('sellItems', body);
+          return new Response(JSON.stringify(data), {
+            headers: { 'content-type': 'application/json' },
+            status: 200
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[sellItems hotfix] fallback to original fetch:', e);
+    }
+    return _fetch(...args);
+  };
+</script>
+
 </body>
 </html>
