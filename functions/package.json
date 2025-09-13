@@ -3,5 +3,5 @@
     "firebase-admin": "^12.5.0",
     "firebase-functions": "^5.0.0"
   },
-  "engines": { "node": "18" }
+  "engines": { "node": "20" }
 }
