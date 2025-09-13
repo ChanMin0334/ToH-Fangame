@@ -28,6 +28,11 @@ jobs:
           else
             npm i
           fi
+          
+      - name: Configure GCP credentials
+        run: |
+          echo '${{ secrets.GCP_SA_KEY }}' > ${HOME}/gcloud-key.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=${HOME}/gcloud-key.json" >> $GITHUB_ENV
 
       - name: Deploy to Firebase Functions
         run: |
