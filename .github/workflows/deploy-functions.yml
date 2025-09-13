@@ -30,9 +30,6 @@ jobs:
           fi
 
       - name: Deploy to Firebase Functions
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
           firebase --version
-          firebase projects:list
-          firebase deploy --only functions --project tale-of-heros---fangame
+          firebase deploy --only functions --project tale-of-heros---fangame --non-interactive
