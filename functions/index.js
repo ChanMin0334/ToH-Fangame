@@ -5,14 +5,10 @@ const admin = require('firebase-admin');
 try { admin.app(); } catch { admin.initializeApp(); }
 const db = admin.firestore();
 const { initializeApp } = require('firebase-admin/app');
-const { getAuth } = require('firebase-admin/auth');
 
 const crypto = require('crypto');
 const { Timestamp, FieldValue } = require('firebase-admin/firestore');
 
-
-initializeApp();
-const db = admin.firestore();
 
 
 // === [탐험 난이도/룰 테이블 & 헬퍼] ===
@@ -242,7 +238,7 @@ exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
   const snap = await runRef.get();
   if(!snap.exists) throw new HttpsError('not-found','run 없음');
   const r = snap.data()||{};
-  if (r.owner_uid !== uid) throw new fHttpsError('permission-denied','내 진행만 가능');
+  if (r.owner_uid !== uid) throw new HttpsError('permission-denied', '내 진행만 가능');
   if (r.status !== 'running') return { ok:false, reason:'not-running' };
 
   const DC = EXPLORE_CONFIG.diff[r.difficulty] || EXPLORE_CONFIG.diff.normal;
