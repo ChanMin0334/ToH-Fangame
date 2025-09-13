@@ -1,5 +1,6 @@
 // /public/js/tabs/plaza.js
-import { db, fx } from '../api/firebase.js';
+import { db, fx, auth } from '../api/firebase.js';
+
 
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function subpath(){
@@ -13,10 +14,14 @@ async function loadActiveChar(){
   const snap = await fx.getDoc(fx.doc(db, 'chars', cid));
   return snap.exists() ? { id: cid, ...snap.data() } : null;
 }
-// 코인은 "캐릭터 경험치" 기준
-function coinOfChar(c){
-  return Math.max(0, Math.floor(Number(c?.coins || 0)));
+// 유저 지갑 코인 읽기 (users/{uid}.coins)
+async function loadMyCoins(){
+  const uid = auth.currentUser?.uid;
+  if(!uid) return 0;
+  const snap = await fx.getDoc(fx.doc(db, 'users', uid));
+  return snap.exists() ? Math.max(0, Math.floor(Number(snap.data()?.coins || 0))) : 0;
 }
+
 
 
 function navHTML(tab){
@@ -32,37 +37,43 @@ function navHTML(tab){
     </div>`;
 }
 
-function renderShop(root, c){
-  const coin = coinOfChar(c);
+async function renderShop(root, c){
+  const coin = await loadMyCoins();
   root.innerHTML = `
     ${navHTML('shop')}
     <div class="bookview">
       <div class="kv-card">
         <div class="row" style="justify-content:space-between;align-items:center">
           <div style="font-weight:900">상점</div>
-          <div class="chip">🪙 <b>${coin}</b>${c ? ` <span class="text-dim">(캐릭터: ${esc(c.name||c.id)})</span>` : ''}</div>
+          <div class="chip">🪙 <b>${coin}</b> <span class="text-dim">(지갑)</span></div>
         </div>
       </div>
-      <div class="kv-card text-dim" style="margin-top:8px">아이템 판매 목록은 다음 스텝에서 붙일게. 지금은 탭/코인 표시 확인!</div>
+      <div class="kv-card text-dim" style="margin-top:8px">
+        아이템 판매 목록은 다음 스텝에서 붙일게. 지금은 탭/코인 표시 확인!
+      </div>
     </div>
   `;
 }
 
-function renderMarket(root, c){
-  const coin = coinOfChar(c);
+
+async function renderMarket(root, c){
+  const coin = await loadMyCoins();
   root.innerHTML = `
     ${navHTML('market')}
     <div class="bookview">
       <div class="kv-card">
         <div class="row" style="justify-content:space-between;align-items:center">
           <div style="font-weight:900">거래소</div>
-          <div class="chip">🪙 <b>${coin}</b>${c ? ` <span class="text-dim">(캐릭터: ${esc(c.name||c.id)})</span>` : ''}</div>
+          <div class="chip">🪙 <b>${coin}</b> <span class="text-dim">(지갑)</span></div>
         </div>
       </div>
-      <div class="kv-card text-dim" style="margin-top:8px">유저 간 거래(등록/구매) 화면은 곧 이어서.</div>
+      <div class="kv-card text-dim" style="margin-top:8px">
+        유저 간 거래(등록/구매) 화면은 곧 이어서.
+      </div>
     </div>
   `;
 }
+
 
 function renderGuilds(root, c){
   root.innerHTML = `
@@ -91,9 +102,10 @@ export default async function showPlaza(){
   root.innerHTML = '';
   root.appendChild(wrap);
 
-  if(tab==='market') renderMarket(wrap, c);
+  if(tab==='market') await renderMarket(wrap, c);
   else if(tab==='guilds') renderGuilds(wrap, c);
-  else renderShop(wrap, c);
+  else await renderShop(wrap, c);
+
 
   // 해시 변경 시 같은 화면에서 탭만 전환
   const onHash = ()=>{
