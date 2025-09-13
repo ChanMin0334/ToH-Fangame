@@ -353,11 +353,6 @@ exports.grantExpAndMint = onCall({ region:'us-central1' }, async (req)=>{
 
 
 
-// (파일 상단의 다른 코드는 그대로 둡니다)
-// admin.initializeApp() 이 이미 있다면 중복해서 추가할 필요 없습니다.
-
-// ANCHOR: sellItems 함수 시작
-// 기존 sellItems 함수를 모두 삭제하고 아래 코드로 교체하세요.
 exports.sellItems = functions.region('us-central1').https.onCall(async (data, context) => {
   const uid = context.auth?.uid;
   if (!uid) {
@@ -369,7 +364,6 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
     throw new HttpsError('invalid-argument', '판매할 아이템 ID 목록이 올바르지 않습니다.');
   }
 
-  const db = admin.firestore();
   const userRef = db.doc(`users/${uid}`);
 
   try {
@@ -405,7 +399,7 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
       if (totalGold > 0) {
         tx.update(userRef, {
           items_all: itemsToKeep,
-          coins: admin.firestore.FieldValue.increment(totalGold)
+          coins: FieldValue.increment(totalGold)
         });
       }
 
@@ -413,20 +407,16 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
       return { goldEarned: totalGold, itemsSoldCount: soldCount };
     });
 
-    functions.logger.info(`User ${uid} sold ${itemsSoldCount} items for ${goldEarned} gold.`);
+    logger.info(`User ${uid} sold ${itemsSoldCount} items for ${goldEarned} gold.`);
     return { ok: true, goldEarned, itemsSoldCount };
 
   } catch (error) {
-    functions.logger.error(`Error selling items for user ${uid}:`, error);
+    logger.error(`Error selling items for user ${uid}:`, error);
     if (error instanceof HttpsError) {
       throw error;
     }
     throw new HttpsError('internal', '아이템 판매 중 오류가 발생했습니다.');
   }
 });
-// ANCHOR_END: sellItems 함수 끝
-
-// ( ... 나머지 함수들도 v1 방식과 호환되도록 확인이 필요하지만, 우선 sellItems만 수정합니다 ... )
-
 
 
