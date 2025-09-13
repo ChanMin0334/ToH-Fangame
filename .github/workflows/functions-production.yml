@@ -1,42 +1,46 @@
 # .github/workflows/functions-production.yml
 
-name: Deploy Functions (Production) # 워크플로우 이름
+name: Deploy Functions (Production)
 
 on:
   push:
-    branches: [ "main" ] # ◀ main 브랜치에 push 될 때 실행됩니다.
+    branches: [ "main" ]
     paths:
-      - "functions/**" # ◀ functions 폴더에 변경이 있을 때만 실행됩니다.
+      - "functions/**"
       - ".github/workflows/functions-production.yml"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository code
+        uses: actions/checkout@v4
       
+      # --- ▼▼▼ 디버깅을 위해 추가된 부분 ▼▼▼ ---
+      - name: List all files to check paths
+        run: ls -R
+      # --- ▲▲▲ 디버깅을 위해 추가된 부분 ▲▲▲ ---
+
       - name: Authenticate with Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          # 본 서버(운영용) Firebase 비밀 키를 사용합니다.
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TALE_OF_HEROS___FANGAME }}
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20" # functions/package.json의 node 버전에 맞춰주세요.
+          node-version: "20"
       
       - name: Install Firebase CLI and Dependencies
         run: |
           npm install -g firebase-tools
           npm ci
-        working-directory: functions # functions 폴더에서 명령어 실행
+        working-directory: functions
       
       - name: Build TypeScript (if needed)
-        # tsconfig.json 파일이 있을 경우에만 build 스크립트를 실행합니다.
         if: hashFiles('functions/tsconfig.json') != ''
         run: npm run build
         working-directory: functions
 
       - name: Deploy to Firebase Functions
-        run: firebase deploy --only functions --project tale-of-heros---fangame # ◀ 본 서버 프로젝트 ID
+        run: firebase deploy --only functions --project tale-of-heros---fangame
