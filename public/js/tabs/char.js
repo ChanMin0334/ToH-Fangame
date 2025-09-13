@@ -916,13 +916,19 @@ function renderHistory(c, view){
           </div>`;
       }else{
         const when = t(it.at || it.endedAt).toLocaleString();
-        go = `#/explore-run/${it.id}`;
+        go = `#/explorelog/${it.id}`;
         html = `
-          <div class="kv-card tl-go" data-go="${go}">
-            <div style="font-weight:700">탐험 기록</div>
-            <div class="text-dim" style="font-size:12px">${when}</div>
-            <div class="text-dim" style="font-size:12px">id: ${it.id}</div>
+          <div class="kv-card tl-go" data-go="${go}" 
+               style="display:flex;align-items:center;gap:12px;padding:10px;border-left:3px solid #4aa3ff">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:800">
+                ${esc(it.world_name || it.world_id || '월드')} / ${esc(it.site_name || it.site_id || '지역')}
+              </div>
+              <div class="text-dim" style="font-size:12px">${when}</div>
+            </div>
+            <div class="text-dim" style="font-size:12px">턴 ${esc(it.turn || 0)}</div>
           </div>`;
+
       }
       const wrap = document.createElement('div');
       wrap.innerHTML = html;
