@@ -1,5 +1,8 @@
 // /public/js/tabs/plaza.js
-import { db, fx, auth } from '../api/firebase.js';
+import { db, fx, auth, func } from '../api/firebase.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+import { showToast } from '../ui/toast.js';
+import { getUserInventory } from '../api/user.js';
 import { showToast } from '../ui/toast.js';
 
 /* (기존 esc 함수와 동일) */
@@ -75,10 +78,6 @@ function renderShop_Buy(root, c) {
 // [교체] 판매 탭 화면 (모든 기능 포함)
 async function renderShop_Sell(root, c) {
   // --- 판매 관련 헬퍼 함수 ---
-  const { httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js');
-  const { func } = await import('../api/firebase.js');
-  const { getUserInventory } = await import('../api/user.js');
-
   const rarityOrder = ['myth', 'legend', 'epic', 'rare', 'normal'];
   const rarityNames = { myth: '신화', legend: '레전드', epic: '유니크', rare: '레어', normal: '일반' };
   
@@ -472,6 +471,8 @@ export default async function showPlaza(){
     }
   };
   // 기존 리스너를 제거하고 새로 등록하여 중복 호출 방지
-  window.removeEventListener('hashchange', onHash);
-  window.addEventListener('hashchange', onHash, { once:true });
+  window.addEventListener('hashchange', () => {
+    if(!location.hash.startsWith('#/plaza')) return;
+    showPlaza();
+  }, { once:true });
 }
