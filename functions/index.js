@@ -1,7 +1,9 @@
  // functions/index.js
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
-
 const logger = require('firebase-functions/logger');
+const admin = require('firebase-admin');
+try { admin.app(); } catch { admin.initializeApp(); }
+const db = admin.firestore();
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 
@@ -10,7 +12,8 @@ const { Timestamp, FieldValue } = require('firebase-admin/firestore');
 
 
 initializeApp();
-const db = getFirestore();
+const db = admin.firestore();
+
 
 // === [탐험 난이도/룰 테이블 & 헬퍼] ===
 const EXPLORE_CONFIG = {
@@ -57,10 +60,10 @@ async function mintByAddExp(tx, charRef, addExp, note) {
 
   tx.update(charRef, {
     exp: exp2,
-    exp_total: FieldValue.increment(addExp),
+    exp_total: admin.firestore.FieldValue.increment(addExp),
     updatedAt: Timestamp.now(),
   });
-  tx.set(userRef, { coins: FieldValue.increment(mint) }, { merge: true });
+  tx.set(userRef, { coins: admin.firestore.FieldValue.increment(mint) }, { merge: true });
 
   // (선택) 로그 남기고 싶으면 주석 해제
    tx.set(db.collection('exp_logs').doc(), {
@@ -399,7 +402,7 @@ async function sellItemsCore(uid, data) {
       if (totalGold > 0) {
         tx.update(userRef, {
           items_all: itemsToKeep,
-          coins: FieldValue.increment(totalGold)
+          coins: admin.firestore.FieldValue.increment(totalGold)
         });
       }
 
@@ -452,7 +455,7 @@ exports.sellItems = onRequest({ region: 'us-central1' }, async (req, res) => {
     const authHeader = req.get('Authorization') || '';
     if (authHeader.startsWith('Bearer ')) {
       const idToken = authHeader.slice(7);
-      const decoded = await getAuth().verifyIdToken(idToken);
+      const decoded = await admin.auth().verifyIdToken(idToken);
       uid = decoded.uid;
     }
     const result = await sellItemsCore(uid, req.body || {});
