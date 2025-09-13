@@ -225,6 +225,7 @@ async function renderShop_Sell(root, c) {
   };
 
   // --- 판매 로직 ---
+// ANCHOR: const showSellConfirmation = () => {
   const showSellConfirmation = () => {
     if (selectedIds.size === 0) return;
 
@@ -234,17 +235,30 @@ async function renderShop_Sell(root, c) {
     const back = document.createElement('div');
     back.className = 'modal-back';
     back.style.zIndex = '10001';
+    
+    // 모달 내부 HTML 구조를 더 명확하고 보기 좋게 개선합니다.
     back.innerHTML = `
-      <div class="modal-card" style="max-width: 480px;">
-        <div style="font-weight: 900; font-size: 18px; text-align:center;">아이템 판매 확인</div>
-        <div class="kv-card text-dim" style="margin: 12px 0; max-height: 150px; overflow-y: auto;">
-          ${itemsToSell.map(item => `<div>- ${esc(item.name)}</div>`).join('')}
+      <div class="modal-card" style="max-width: 480px; display: flex; flex-direction: column; gap: 12px;">
+        
+        <div style="font-weight: 900; font-size: 18px; text-align: center; padding-bottom: 8px; border-bottom: 1px solid #2a2f36;">
+          아이템 판매 확인
         </div>
-        <p style="text-align: center;">위 ${itemsToSell.length}개의 아이템을 총 <b style="color:#f3c34f;">🪙 ${totalPrice}</b> 골드에 판매하시겠습니까?</p>
-        <p class="text-dim" style="font-size:12px; text-align:center;">이 작업은 되돌릴 수 없습니다.</p>
-        <div class="row" style="margin-top: 16px; justify-content: flex-end;">
+
+        <div class="col" style="gap: 4px;">
+          <div class="text-dim" style="font-size: 13px; margin-bottom: 4px;">판매할 아이템:</div>
+          <div class="item-list-box" style="max-height: 200px; overflow-y: auto; background: #0e1116; border: 1px solid #273247; border-radius: 8px; padding: 10px;">
+            ${itemsToSell.map(item => `<div style="padding: 2px 0;">- ${esc(item.name)}</div>`).join('')}
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 8px;">
+          <p>위 ${itemsToSell.length}개의 아이템을 총 <b style="color:#f3c34f; font-size: 1.1em;">🪙 ${totalPrice}</b> 골드에 판매하시겠습니까?</p>
+          <p class="text-dim" style="font-size:12px;">이 작업은 되돌릴 수 없습니다.</p>
+        </div>
+        
+        <div class="row" style="margin-top: 8px; justify-content: flex-end; gap: 8px;">
           <button class="btn ghost" id="btn-cancel-sell">취소</button>
-          <button class="btn primary" id="btn-confirm-sell">판매</button>
+          <button class="btn primary" id="btn-confirm-sell">판매 확인</button>
         </div>
       </div>
     `;
@@ -259,6 +273,7 @@ async function renderShop_Sell(root, c) {
       await executeSell();
     };
   };
+// ANCHOR_END: }
 
   const executeSell = async () => {
     isLoading = true;
