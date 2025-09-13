@@ -33,6 +33,8 @@ export const routes = {
   '#/explore-run': showExploreRun,
   '#/battlelog': showBattleLog, // 신규 추가
   '#/explorelog': () => import('./tabs/explorelog.js').then(m => (m.default ?? m.showExploreLog)?.()),
+  '#/plaza': () => import('./tabs/plaza.js').then(m => (m.default ?? m.showPlaza)?.()),
+
 
   
 };
@@ -58,6 +60,7 @@ export function router(){
   if(hash.startsWith('#/explore-battle/')) return routes['#/explore-battle']();
   if(hash.startsWith('#/battlelog/')) return routes['#/battlelog']();
   if(hash.startsWith('#/explorelog/')) return routes['#/explorelog']();
+  if(hash.startsWith('#/plaza')) return routes['#/plaza']();
 
 
   (routes[hash] || routes['#/home'])();
