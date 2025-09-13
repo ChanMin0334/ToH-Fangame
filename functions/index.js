@@ -1,8 +1,10 @@
  // functions/index.js
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
+
 const logger = require('firebase-functions/logger');
 const { initializeApp } = require('firebase-admin/app');
-const { getFirestore } = require('firebase-admin/firestore');
+const { getAuth } = require('firebase-admin/auth');
+
 const crypto = require('crypto');
 const { Timestamp, FieldValue } = require('firebase-admin/firestore');
 
@@ -348,13 +350,15 @@ exports.grantExpAndMint = onCall({ region:'us-central1' }, async (req)=>{
 
 
 
-exports.sellItems = onCall({ region: 'us-central1', cors: true }, async (req) => {
-  const uid = req.auth?.uid;
+// --- 공통 로직으로 분리 ---
+// 기존 onCall 핸들러 내부 내용을 이 함수에 그대로 둡니다.
+// (차이점: req.auth?.uid → uid, req.data → data 로 바뀝니다)
+async function sellItemsCore(uid, data) {
   if (!uid) {
     throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
   }
 
-  const { itemIds } = req.data || {};
+  const { itemIds } = data || {};
   if (!Array.isArray(itemIds) || itemIds.length === 0) {
     throw new HttpsError('invalid-argument', '판매할 아이템 ID 목록이 올바르지 않습니다.');
   }
@@ -372,24 +376,22 @@ exports.sellItems = onCall({ region: 'us-central1', cors: true }, async (req) =>
       const currentItems = userData.items_all || [];
       let totalGold = 0;
 
-      // 판매 가격 정책
+      // 판매 가격 정책 (네 기존 코드 그대로 유지)
       const prices = {
         consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100 },
         non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200 }
       };
-      
+
       const itemsToKeep = [];
       const soldItemIds = new Set(itemIds);
-      
+
       for (const item of currentItems) {
         if (soldItemIds.has(item.id)) {
-          // 이 아이템은 판매 대상
           const isConsumable = item.isConsumable || item.consumable;
           const priceTier = isConsumable ? prices.consumable : prices.non_consumable;
-          const price = priceTier[item.rarity] || 0; // 등급에 맞는 가격 가져오기
+          const price = priceTier[item.rarity] || 0;
           totalGold += price;
         } else {
-          // 이 아이템은 판매하지 않음
           itemsToKeep.push(item);
         }
       }
@@ -400,10 +402,8 @@ exports.sellItems = onCall({ region: 'us-central1', cors: true }, async (req) =>
           coins: FieldValue.increment(totalGold)
         });
       }
-      
-      // 실제로 판매된 아이템 수 계산
-      const soldCount = currentItems.length - itemsToKeep.length;
 
+      const soldCount = currentItems.length - itemsToKeep.length;
       return { goldEarned: totalGold, itemsSoldCount: soldCount };
     });
 
@@ -416,6 +416,50 @@ exports.sellItems = onCall({ region: 'us-central1', cors: true }, async (req) =>
       throw error;
     }
     throw new HttpsError('internal', '아이템 판매 중 오류가 발생했습니다.');
+  }
+}
+
+// 1) 최신 프론트에서 httpsCallable로 부르는 엔드포인트(이름 변경)
+exports.sellItemsCallable = onCall({ region: 'us-central1' }, async (req) => {
+  const uid = req.auth?.uid || req.auth?.token?.uid;
+  return await sellItemsCore(uid, req.data);
+});
+
+// 2) 옛 코드가 "직접 URL"로 치는 경우를 위한 HTTP 엔드포인트 (CORS 포함)
+exports.sellItems = onRequest({ region: 'us-central1' }, async (req, res) => {
+  // CORS 허용 (필요한 출처만 추가)
+  const origin = req.get('origin');
+  const allow = new Set([
+    'https://tale-of-heros---fangame.firebaseapp.com',
+    'https://tale-of-heros---fangame.web.app',
+    'http://localhost:5000',
+    'http://localhost:5173'
+  ]);
+  if (origin && allow.has(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Vary', 'Origin');
+    res.set('Access-Control-Allow-Credentials', 'true');
+  }
+  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+
+  // 프리플라이트 응답
+  if (req.method === 'OPTIONS') return res.status(204).send('');
+
+  try {
+    // (선택) Authorization: Bearer <idToken> 헤더가 오면 검증
+    let uid = null;
+    const authHeader = req.get('Authorization') || '';
+    if (authHeader.startsWith('Bearer ')) {
+      const idToken = authHeader.slice(7);
+      const decoded = await getAuth().verifyIdToken(idToken);
+      uid = decoded.uid;
+    }
+    const result = await sellItemsCore(uid, req.body || {});
+    res.json(result);
+  } catch (e) {
+    console.error('sellItems HTTP error', e);
+    res.status(500).json({ ok: false, error: e?.message || 'internal' });
   }
 });
 
