@@ -167,6 +167,9 @@ async function viewWorldPick(root){
 }
 
 // ===== 2단계: 명소(사이트) 선택 =====
+// /public/js/tabs/adventure.js
+
+// ===== 2단계: 명소(사이트) 선택 =====
 function viewSitePick(root, world){
   const sites = Array.isArray(world?.detail?.sites) ? world.detail.sites : [];
 
@@ -187,11 +190,12 @@ function viewSitePick(root, world){
                   <div style="font-weight:900">${esc(s.name)}</div>
                   <span class="chip" style="background:${diffColor(diff)};color:#121316;font-weight:800">${esc(String(diff).toUpperCase())}</span>
                 </div>
-                <div class="text-dim" style="font-size:12px;margin-top:4px">${esc(s.description||'')}</div>
-                ${s.img? `<div style="margin-top:8px"><img src="${esc('/assets/'+s.img)}"
-                     onerror="this.parentNode.remove()"
-                     style="width:100%;max-height:180px;object-fit:cover;border-radius:10px;border:1px solid #273247;background:#0b0f15"></div>`:''}
-
+                ${s.img? `<div style="margin-top:8px">
+                    <img src="${esc('/assets/'+s.img)}"
+                         onerror="this.parentNode.remove()"
+                         style="width:100%; aspect-ratio: 1 / 1; object-fit:cover; border-radius:10px; border:1px solid #273247; background:#0b0f15">
+                </div>`:''}
+                <div class="text-dim" style="font-size:12px;margin-top:8px">${esc(s.description||'')}</div>
               </button>`;
           }).join('')}
         </div>
