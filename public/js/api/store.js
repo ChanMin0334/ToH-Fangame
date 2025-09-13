@@ -1,5 +1,5 @@
 // /public/js/api/store.js
-import { db, auth, fx, storage, sx, serverTimestamp } from './firebase.js';
+import { db, auth, fx, storage, sx, serverTimestamp, func } from './firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { generateRelationNote } from './ai.js';
 import { showToast } from '../ui/toast.js';
@@ -218,39 +218,13 @@ async function fetchLimits(){
   };
 }
 
+// 캐릭 EXP 지급 + (100단위 코인 민팅 → 유저 지갑 적립) = 서버 트랜잭션 호출
 export async function grantExp(charId, base, mode, note=''){
-  const lim = await fetchLimits();
-  const clamp = (x,min,max)=>Math.max(min, Math.min(max, x));
-  const per = ({battle:[lim.battle_min, lim.battle_max], encounter:[lim.encounter_min, lim.encounter_max], explore:[lim.explore_min, lim.explore_max]})[mode] || [1,10];
-  const delta = clamp(Math.round(base), per[0], per[1]);
-
-  const ref = fx.doc(db,'chars',charId);
-  const snap = await fx.getDoc(ref); if(!snap.exists()) throw new Error('캐릭터 없음');
-  const c = snap.data();
-
-  // 일일 캡: 간단히 today bucket field 사용
-  const today = new Date(); const dKey = today.toISOString().slice(0,10); // YYYY-MM-DD
-  const bucket = (c.exp_daily && c.exp_daily[dKey]) || 0;
-  const space = Math.max(0, (lim.daily_cap||0) - bucket);
-  const add = Math.min(space, delta);
-  if(add <= 0) return { ok:true, added:0, capped:true };
-
-  const inc = {};
-  inc[`exp_daily.${dKey}`] = (bucket + add);
-  await fx.updateDoc(ref, {
-    exp: (c.exp||0) + add,
-    exp_progress: ((c.exp_progress||0) + add) % 100,
-    updatedAt: Date.now(),
-    ...inc
-  });
-
-  // 간단 로그 (선택)
-  await fx.addDoc(fx.collection(db,'exp_logs'), {
-    char_id: `chars/${charId}`, mode, add, base, note, at: Date.now(), owner_uid: c.owner_uid
-  });
-
-  return { ok:true, added: add };
+  const call = httpsCallable(func, 'grantExpAndMint');
+  const { data } = await call({ charId, exp: Math.round(base||0), note: `${mode||'misc'}:${note||''}` });
+  return data; // { ok, minted, expAfter, ownerUid }
 }
+
 
 // ===== Relations / Episodes helpers =====
 export async function createOrUpdateRelation({ aCharId, bCharId, battleLogId }){
