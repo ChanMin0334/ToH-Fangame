@@ -348,6 +348,11 @@ exports.grantExpAndMint = onCall({ region:'us-central1' }, async (req)=>{
 
 
 
+// functions/index.js
+
+// (파일 상단 ... 생략)
+
+// 기존 sellItems 함수를 모두 삭제하고 아래 코드로 교체하세요.
 exports.sellItems = onCall({ region: 'us-central1' }, async (req) => {
   const uid = req.auth?.uid;
   if (!uid) {
@@ -419,6 +424,8 @@ exports.sellItems = onCall({ region: 'us-central1' }, async (req) => {
   }
 });
 
+
+// (파일 하단 ... 생략)
 
 
 
