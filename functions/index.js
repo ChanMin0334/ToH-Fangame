@@ -5,9 +5,6 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const crypto = require('crypto');
 const { Timestamp, FieldValue } = require('firebase-admin/firestore');
-const functions = require('firebase-functions');
-const admin = require('firebase-admin');
-const { HttpsError } = require('firebase-functions/v1/https'); // v1에서 HttpsError 가져오기
 
 
 initializeApp();
@@ -351,25 +348,17 @@ exports.grantExpAndMint = onCall({ region:'us-central1' }, async (req)=>{
 
 
 
-
-
-// (파일 상단의 다른 코드는 그대로 둡니다)
-// admin.initializeApp() 이 이미 있다면 중복해서 추가할 필요 없습니다.
-
-// ANCHOR: sellItems 함수 시작
-// 기존 sellItems 함수를 모두 삭제하고 아래 코드로 교체하세요.
-exports.sellItems = functions.region('us-central1').https.onCall(async (data, context) => {
-  const uid = context.auth?.uid;
+exports.sellItems = onCall({ region: 'us-central1' }, async (req) => {
+  const uid = req.auth?.uid;
   if (!uid) {
     throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
   }
 
-  const { itemIds } = data;
+  const { itemIds } = req.data || {};
   if (!Array.isArray(itemIds) || itemIds.length === 0) {
     throw new HttpsError('invalid-argument', '판매할 아이템 ID 목록이 올바르지 않습니다.');
   }
 
-  const db = admin.firestore();
   const userRef = db.doc(`users/${uid}`);
 
   try {
@@ -383,21 +372,24 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
       const currentItems = userData.items_all || [];
       let totalGold = 0;
 
+      // 판매 가격 정책
       const prices = {
         consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100 },
         non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200 }
       };
-
+      
       const itemsToKeep = [];
       const soldItemIds = new Set(itemIds);
-
+      
       for (const item of currentItems) {
         if (soldItemIds.has(item.id)) {
+          // 이 아이템은 판매 대상
           const isConsumable = item.isConsumable || item.consumable;
           const priceTier = isConsumable ? prices.consumable : prices.non_consumable;
-          const price = priceTier[item.rarity] || 0;
+          const price = priceTier[item.rarity] || 0; // 등급에 맞는 가격 가져오기
           totalGold += price;
         } else {
+          // 이 아이템은 판매하지 않음
           itemsToKeep.push(item);
         }
       }
@@ -405,28 +397,30 @@ exports.sellItems = functions.region('us-central1').https.onCall(async (data, co
       if (totalGold > 0) {
         tx.update(userRef, {
           items_all: itemsToKeep,
-          coins: admin.firestore.FieldValue.increment(totalGold)
+          coins: FieldValue.increment(totalGold)
         });
       }
-
+      
+      // 실제로 판매된 아이템 수 계산
       const soldCount = currentItems.length - itemsToKeep.length;
+
       return { goldEarned: totalGold, itemsSoldCount: soldCount };
     });
 
-    functions.logger.info(`User ${uid} sold ${itemsSoldCount} items for ${goldEarned} gold.`);
+    logger.info(`User ${uid} sold ${itemsSoldCount} items for ${goldEarned} gold.`);
     return { ok: true, goldEarned, itemsSoldCount };
 
   } catch (error) {
-    functions.logger.error(`Error selling items for user ${uid}:`, error);
+    logger.error(`Error selling items for user ${uid}:`, error);
     if (error instanceof HttpsError) {
       throw error;
     }
     throw new HttpsError('internal', '아이템 판매 중 오류가 발생했습니다.');
   }
 });
-// ANCHOR_END: sellItems 함수 끝
 
-// ( ... 나머지 함수들도 v1 방식과 호환되도록 확인이 필요하지만, 우선 sellItems만 수정합니다 ... )
+
+
 
 
 
