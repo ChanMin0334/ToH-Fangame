@@ -348,84 +348,88 @@ exports.grantExpAndMint = onCall({ region:'us-central1' }, async (req)=>{
 
 
 
-// functions/index.js
-
-// (파일 상단 ... 생략)
-
+// ANCHOR: sellItems 함수 시작
 // 기존 sellItems 함수를 모두 삭제하고 아래 코드로 교체하세요.
-exports.sellItems = onCall({ region: 'us-central1' }, async (req) => {
-  const uid = req.auth?.uid;
-  if (!uid) {
-    throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
-  }
-
-  const { itemIds } = req.data || {};
-  if (!Array.isArray(itemIds) || itemIds.length === 0) {
-    throw new HttpsError('invalid-argument', '판매할 아이템 ID 목록이 올바르지 않습니다.');
-  }
-
-  const userRef = db.doc(`users/${uid}`);
-
-  try {
-    const { goldEarned, itemsSoldCount } = await db.runTransaction(async (tx) => {
-      const userSnap = await tx.get(userRef);
-      if (!userSnap.exists) {
-        throw new HttpsError('not-found', '사용자 정보를 찾을 수 없습니다.');
-      }
-
-      const userData = userSnap.data() || {};
-      const currentItems = userData.items_all || [];
-      let totalGold = 0;
-
-      // 판매 가격 정책
-      const prices = {
-        consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100 },
-        non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200 }
-      };
-      
-      const itemsToKeep = [];
-      const soldItemIds = new Set(itemIds);
-      
-      for (const item of currentItems) {
-        if (soldItemIds.has(item.id)) {
-          // 이 아이템은 판매 대상
-          const isConsumable = item.isConsumable || item.consumable;
-          const priceTier = isConsumable ? prices.consumable : prices.non_consumable;
-          const price = priceTier[item.rarity] || 0; // 등급에 맞는 가격 가져오기
-          totalGold += price;
-        } else {
-          // 이 아이템은 판매하지 않음
-          itemsToKeep.push(item);
-        }
-      }
-
-      if (totalGold > 0) {
-        tx.update(userRef, {
-          items_all: itemsToKeep,
-          coins: FieldValue.increment(totalGold)
-        });
-      }
-      
-      // 실제로 판매된 아이템 수 계산
-      const soldCount = currentItems.length - itemsToKeep.length;
-
-      return { goldEarned: totalGold, itemsSoldCount: soldCount };
-    });
-
-    logger.info(`User ${uid} sold ${itemsSoldCount} items for ${goldEarned} gold.`);
-    return { ok: true, goldEarned, itemsSoldCount };
-
-  } catch (error) {
-    logger.error(`Error selling items for user ${uid}:`, error);
-    if (error instanceof HttpsError) {
-      throw error;
+exports.sellItems = onRequest({ region: 'us-central1' }, (req, res) => {
+  // cors 핸들러를 실행하여 모든 웹 요청을 허용하도록 합니다.
+  cors(req, res, async () => {
+    if (req.method !== 'POST') {
+      return res.status(405).send('Method Not Allowed');
     }
-    throw new HttpsError('internal', '아이템 판매 중 오류가 발생했습니다.');
-  }
+
+    // 클라이언트에서 httpsCallable로 보낸 데이터는 req.body.data에 있습니다.
+    const data = req.body.data || req.body;
+    const uid = req.auth?.uid;
+
+    if (!uid) {
+      logger.error("Authentication error: No UID provided.");
+      return res.status(401).send({ data: { ok: false, error: 'unauthenticated' } });
+    }
+
+    const { itemIds } = data;
+    if (!Array.isArray(itemIds) || itemIds.length === 0) {
+      logger.error("Invalid argument: itemIds is not a valid array.", { itemIds });
+      return res.status(400).send({ data: { ok: false, error: 'invalid-argument' } });
+    }
+
+    const userRef = db.doc(`users/${uid}`);
+
+    try {
+      const { goldEarned, itemsSoldCount } = await db.runTransaction(async (tx) => {
+        const userSnap = await tx.get(userRef);
+        if (!userSnap.exists) {
+          throw new HttpsError('not-found', '사용자 정보를 찾을 수 없습니다.');
+        }
+
+        const userData = userSnap.data() || {};
+        const currentItems = userData.items_all || [];
+        let totalGold = 0;
+
+        const prices = {
+          consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100 },
+          non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200 }
+        };
+        
+        const itemsToKeep = [];
+        const soldItemIds = new Set(itemIds);
+        
+        for (const item of currentItems) {
+          if (soldItemIds.has(item.id)) {
+            const isConsumable = item.isConsumable || item.consumable;
+            const priceTier = isConsumable ? prices.consumable : prices.non_consumable;
+            const price = priceTier[item.rarity] || 0;
+            totalGold += price;
+          } else {
+            itemsToKeep.push(item);
+          }
+        }
+
+        if (totalGold > 0) {
+          tx.update(userRef, {
+            items_all: itemsToKeep,
+            coins: FieldValue.increment(totalGold)
+          });
+        }
+        
+        const soldCount = currentItems.length - itemsToKeep.length;
+        return { goldEarned: totalGold, itemsSoldCount: soldCount };
+      });
+
+      logger.info(`User ${uid} sold ${itemsSoldCount} items for ${goldEarned} gold.`);
+      // 성공 시 클라이언트가 기대하는 { data: { ... } } 형태로 응답
+      return res.status(200).send({ data: { ok: true, goldEarned, itemsSoldCount } });
+
+    } catch (error) {
+      logger.error(`Error selling items for user ${uid}:`, error);
+      const HttpsError = require('firebase-functions/v2/https').HttpsError;
+      if (error instanceof HttpsError) {
+        return res.status(error.httpErrorCode.status).send({ data: { ok: false, error: error.code } });
+      }
+      return res.status(500).send({ data: { ok: false, error: 'internal' } });
+    }
+  });
 });
-
-
-// (파일 하단 ... 생략)
+// ANCHOR_END: sellItems 함수 끝
 
 
 
