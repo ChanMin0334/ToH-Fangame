@@ -5,7 +5,6 @@ import { showToast } from '../ui/toast.js';
 import { requestAdventureNarrative } from '../api/ai.js';
 import { getCharForAI } from '../api/store.js';
 import { appendEvent, getActiveRun, rollThreeChoices } from '../api/explore.js';
-import { endExploreServer } from '../api/store.js';
 
 const STAMINA_MIN = 0;
 
@@ -356,26 +355,35 @@ export async function showExploreRun() {
 
   const endRun = async (reason) => {
     if (state.status !== 'ongoing') return;
-    showLoading(true, '탐험 결과 정산 중...');
+    showLoading(true, '탐험 종료 중...');
+    const baseExp = calcRunExp(state);
+    const cid = String(state.charRef || '').replace(/^chars\//, '');
     try {
-      // 서버의 공식적인 탐험 종료 함수를 호출합니다.
-      const result = await endExploreServer({ runId: state.id });
-      console.log('endExploreServer result:', result); // ex: { ok:true, exp: 75, itemId: '...' }
-
-      // 서버로부터 받은 결과로 상태를 업데이트하고 UI를 다시 그립니다.
-      state.status = 'ended';
-      showToast(`탐험 종료! 경험치 ${result.exp}를 획득했습니다.`);
-      
-      const finalState = await getActiveRun(state.id);
-      render(finalState);
-
+      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
+        status: 'ended',
+        endedAt: fx.serverTimestamp(),
+        reason: reason,
+        exp_base: baseExp,
+        updatedAt: fx.serverTimestamp(),
+        pending_choices: null,
+        pending_battle: null,
+      });
+      state.status = 'ended'; 
+      if (baseExp > 0 && cid) {
+        await grantExp(cid, baseExp, 'explore', `site:${state.site_id}`);
+      }
+      showToast('탐험이 종료되었습니다.');
+      render(state);
     } catch (e) {
       console.error('[explore] endRun failed', e);
-      showToast(`탐험 종료 중 오류: ${e.message || '서버와 통신할 수 없습니다.'}`);
+      showToast('탐험 종료 중 오류가 발생했습니다.');
     } finally {
       showLoading(false);
     }
   };
+  
+  render(state);
+  showLoading(false);
 }
 
 export default showExploreRun;
