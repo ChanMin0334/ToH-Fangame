@@ -2,7 +2,23 @@
 import { db, fx, auth } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
 
+/* (기존 esc 함수와 동일) */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// --- [신규] 모달 창을 위한 기본 CSS를 주입하는 함수 ---
+function ensureModalCss(){
+  if (document.getElementById('toh-modal-css')) return;
+  const st = document.createElement('style');
+  st.id = 'toh-modal-css';
+  st.textContent = `
+    .modal-back{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+                background:rgba(0,0,0,.6); backdrop-filter:blur(4px);}
+    .modal-card{background:#0e1116;border:1px solid #273247;border-radius:14px;padding:16px;width:92vw;
+                max-width:720px;max-height:90vh;overflow-y:auto;}
+  `;
+  document.head.appendChild(st);
+}
+/* (기존 코드 이어짐) */
 
 // URL 경로를 파싱하는 방식을 개선하여 메인 탭과 서브 탭을 모두 인식합니다.
 function subpath(){
@@ -227,6 +243,8 @@ async function renderShop_Sell(root, c) {
   // --- 판매 로직 ---
 // ANCHOR: const showSellConfirmation = () => {
   const showSellConfirmation = () => {
+    ensureModalCss(); // 모달 CSS가 없으면 주입
+
     if (selectedIds.size === 0) return;
 
     const itemsToSell = Array.from(selectedIds).map(id => inventory.find(i => i.id === id)).filter(Boolean);
@@ -236,7 +254,6 @@ async function renderShop_Sell(root, c) {
     back.className = 'modal-back';
     back.style.zIndex = '10001';
     
-    // 모달 내부 HTML 구조를 더 명확하고 보기 좋게 개선합니다.
     back.innerHTML = `
       <div class="modal-card" style="max-width: 480px; display: flex; flex-direction: column; gap: 12px;">
         
