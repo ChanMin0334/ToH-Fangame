@@ -161,54 +161,51 @@ function calcExploreExp(run) {
   return exp;
 }
 
-export async function endRun({ runId, reason='ended' }){
+// [교체] 탐험 종료: EXP 계산 → 서버에 지급(코인 민팅) → 런 문서에 보상 기록
+export async function endRun({ runId, reason = 'ended' }) {
   const u = auth.currentUser;
-  if(!u) throw new Error('로그인이 필요해');
+  if (!u) throw new Error('로그인이 필요해');
 
-  // 런 문서 읽기
-  const ref = fx.doc(db,'explore_runs', runId);
+  // 1) 런 문서 읽기
+  const ref = fx.doc(db, 'explore_runs', runId);
   const snap = await fx.getDoc(ref);
-  if(!snap.exists()) throw new Error('런이 없어');
+  if (!snap.exists()) throw new Error('런이 없어');
 
   const run = snap.data();
-  if(run.owner_uid !== u.uid) throw new Error('소유자가 아니야');
+  if (run.owner_uid !== u.uid) throw new Error('소유자가 아니야');
 
-  // 이미 종료된 런이면 중복 지급 방지
-  if(run.status !== 'ongoing'){
-    // 이미 보상을 기록해둔 경우 그대로 종료 처리만 돌려주기
-    return true;
-  }
+  // 2) 이미 끝난 런이면 중복 지급 방지
+  //   ※ 네 데이터가 'running'이 아닌 다른 값(예: 'ongoing'/'done')을 쓰면 아래 문자열만 맞춰 바꿔.
+  if (run.status !== 'running') return true;
 
-  // EXP 계산
-  const exp = calcExploreExp(run);
-  const charId = String(run.charRef||'').replace(/^chars\//,'');
+  // 3) EXP 계산 (서버와 동일 규칙)
+  const diffMult = ({ easy:1.0, normal:1.2, hard:1.4, vhard:1.6, legend:1.8 }[run.difficulty]) || 1.2;
+  const turns    = Math.max(0, Number(run.turn || 0));
+  const runMult  = 1 + Math.min(0.6, Math.max(0, turns - 1) * 0.05);
+  let exp        = Math.round(6 * turns * diffMult * runMult);
+  exp            = Math.max(10, Math.min(120, exp)); // 10~120로 고정
 
-  // ✅ 서버로 EXP 지급 → 코인 민팅(⌊/100⌋), 캐릭 exp(0~99) 정규화까지 한 번에
-  //    { ok:true, minted, expAfter, ownerUid } 형태가 돌아와
-  let minted = 0;
-  try{
-    const out = await grantExp(charId, exp, 'explore', `run:${runId}`);
-    minted = Math.max(0, Number(out?.minted||0));
-    console.log('[explore:endRun] grantExp result:', out);
-  }catch(e){
-    console.error('[explore:endRun] grantExp failed:', e);
-    throw new Error('보상 지급에 실패했어. 잠시 후 다시 시도해줘.');
-  }
+  // 4) 캐릭터 ID 뽑기
+  const charId = String(run.charRef || '').replace(/^chars\//, '');
 
-  // 런 문서에 종료 + 보상 기록
+  // 5) 서버로 EXP 지급 → 서버에서 코인 ⌊/100⌋ 민팅 + 캐릭 exp(0~99) 정리
+  const { minted = 0 } = await grantExp(charId, exp, 'explore', `run:${runId}`);
+
+  // 6) 런 문서에 보상 기록 + 종료 처리
   const prevRewards = Array.isArray(run.rewards) ? run.rewards : [];
-  const newRewards  = prevRewards.concat([{ kind:'exp', exp, minted }]);
+  const rewards = prevRewards.concat([{ kind: 'exp', exp, minted }]);
 
   await fx.updateDoc(ref, {
     status: 'ended',
     endedAt: fx.serverTimestamp(),
     reason,
-    rewards: newRewards,
+    rewards,
     updatedAt: fx.serverTimestamp()
   });
 
   return true;
 }
+
 
 
 export async function getActiveRun(runId){
