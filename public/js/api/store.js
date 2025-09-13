@@ -1,6 +1,7 @@
 // /public/js/api/store.js
 import { db, auth, fx, storage, sx, serverTimestamp, func } from './firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { generateRelationNote } from './ai.js';
 import { showToast } from '../ui/toast.js';
 
