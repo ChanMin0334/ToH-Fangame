@@ -223,6 +223,8 @@ async function fetchLimits(){
 export async function grantExp(charId, base, mode, note=''){
   const call = httpsCallable(func, 'grantExpAndMint');
   const { data } = await call({ charId, exp: Math.round(base||0), note: `${mode||'misc'}:${note||''}` });
+  // 디버깅용: 콘솔에서 민팅 확인 (minted가 0이면 100 미만)
+  console.log('[grantExp] result', data);
   return data; // { ok, minted, expAfter, ownerUid }
 }
 
