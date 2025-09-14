@@ -3,6 +3,8 @@ import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
 import { getUserInventory } from '../api/user.js';
+import { uploadGuildBadgeSquare, createGuild } from '../api/store.js';
+
 
 /* (기존 esc 함수와 동일) */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -429,19 +431,149 @@ async function renderMarket(root, c, paths){
 }
 
 function renderGuilds(root, c, paths){
-  root.innerHTML = `
-    ${navHTML(paths)}
-    <div class="bookview">
-      <div class="kv-card">
-        <div class="row" style="justify-content:space-between;align-items:center">
-          <div style="font-weight:900">길드</div>
-          <div class="chip">${c ? `캐릭터: <b>${esc(c.name||c.id)}</b>` : '캐릭터 선택 필요'}</div>
+  const render = async ()=>{
+    const coin = await loadMyCoins();
+
+    // 내 캐릭 길드 상태 확인
+    let myGuildId = null, myGuild = null;
+    if (c?.id) {
+      const cs = await fx.getDoc(fx.doc(db, 'chars', c.id));
+      const cd = cs.exists() ? cs.data() : {};
+      myGuildId = cd?.guildId || null;
+      if (myGuildId) {
+        const gs = await fx.getDoc(fx.doc(db, 'guilds', myGuildId));
+        myGuild = gs.exists() ? ({ id: gs.id, ...gs.data() }) : null;
+      }
+    }
+
+    root.innerHTML = `
+      ${navHTML(paths)}
+      <div class="bookview">
+        <div class="kv-card">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <div style="font-weight:900">길드</div>
+            <div class="chip">🪙 <b id="guild-coin">${coin}</b> <span class="text-dim">(지갑)</span></div>
+          </div>
         </div>
+
+        <div class="kv-card">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <div class="text-dim">${c ? `캐릭터: <b>${esc(c.name||c.id)}</b>` : '캐릭터 선택 필요'}</div>
+            ${c ? '' : '<div></div>'}
+          </div>
+        </div>
+
+        ${
+          !c ? `
+            <div class="kv-card text-dim" style="margin-top:8px">캐릭터를 먼저 선택해줘.</div>
+          ` : myGuild ? `
+            <div class="kv-card" style="margin-top:8px">
+              <div class="row" style="gap:12px;align-items:center">
+                <img src="${esc(myGuild.badge_url||'')}" onerror="this.style.display='none'" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;border:1px solid #273247;">
+                <div>
+                  <div style="font-weight:900">${esc(myGuild.name||'(이름없음)')}</div>
+                  <div class="text-dim" style="font-size:12px">멤버 ${myGuild.member_count||1}명 · 레벨 ${myGuild.level||1}</div>
+                </div>
+                <div style="flex:1"></div>
+                <label class="btn ghost small" style="cursor:pointer">
+                  로고 변경
+                  <input id="guild-logo-file" type="file" accept="image/*" style="display:none">
+                </label>
+              </div>
+            </div>
+          ` : `
+            <div class="kv-card" style="margin-top:8px">
+              <div class="col" style="gap:8px">
+                <div style="font-weight:900">아직 길드가 없어</div>
+                <div class="text-dim" style="font-size:12px">길드를 만들면 캐릭터가 리더가 되고, <b>1000골드</b>가 차감돼.</div>
+                <button id="btn-make-guild" class="btn">🏰 길드 만들기 (🪙 1000)</button>
+              </div>
+            </div>
+          `
+        }
       </div>
-      <div class="kv-card text-dim" style="margin-top:8px">길드 목록/가입/게시판은 다음 스텝에서.</div>
-    </div>
-  `;
+    `;
+
+    // 이벤트: 로고 변경
+    const fileInp = root.querySelector('#guild-logo-file');
+    if (fileInp && myGuild) {
+      fileInp.onchange = async (e)=>{
+        const f = e.target.files?.[0]; if(!f) return;
+        try{
+          const { thumbUrl } = await uploadGuildBadgeSquare(myGuild.id, f);
+          showToast('길드 로고가 바뀌었어!');
+          // 즉시 미리보기 업데이트
+          const img = root.querySelector('img');
+          if (img) img.src = thumbUrl;
+        }catch(err){
+          console.error(err);
+          showToast('업로드가 실패했어');
+        }finally{
+          e.target.value = '';
+        }
+      };
+    }
+
+    // 이벤트: 길드 만들기(1000골드 차감)
+    const btn = root.querySelector('#btn-make-guild');
+    if (btn) {
+      btn.onclick = async ()=>{
+        ensureModalCss();
+        const back = document.createElement('div');
+        back.className='modal-back';
+        back.innerHTML = `
+          <div class="modal-card" style="max-width:520px;display:flex;flex-direction:column;gap:12px">
+            <div style="font-weight:900;font-size:18px">길드 만들기</div>
+            <input id="gname" class="input" placeholder="길드 이름(2~20자)" maxlength="20">
+            <label class="btn ghost" style="cursor:pointer;align-self:flex-start">
+              1:1 로고 이미지 선택
+              <input id="gimg" type="file" accept="image/*" style="display:none">
+            </label>
+            <div class="text-dim" style="font-size:12px">생성 시 <b>🪙 1000</b>이 차감돼. 되돌릴 수 없어.</div>
+            <div class="row" style="justify-content:flex-end;gap:8px">
+              <button class="btn ghost" id="gcancel">취소</button>
+              <button class="btn" id="gok">만들기</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(back);
+        back.querySelector('#gcancel').onclick = ()=> back.remove();
+
+        back.querySelector('#gok').onclick = async ()=>{
+          const name = back.querySelector('#gname').value.trim();
+          const file = back.querySelector('#gimg').files?.[0] || null;
+          if (name.length < 2) { showToast('이름은 2자 이상'); return; }
+
+          try{
+            // 서버에서 원자적으로 생성 + 1000골드 차감
+            const data = await createGuild({ charId: c.id, name });
+            if (!data?.ok) throw new Error('생성 실패');
+
+            // 로고 파일이 있으면 업로드(1:1 자동 자르기)
+            if (file) await uploadGuildBadgeSquare(data.guildId, file);
+
+            showToast('길드를 만들었어! (1000골드 차감)');
+            back.remove();
+
+            // 지갑 표시 갱신
+            const chip = root.querySelector('#guild-coin');
+            if (chip && typeof data.coinsAfter === 'number') chip.textContent = String(data.coinsAfter);
+
+            // 화면 다시 그림
+            await render();
+          }catch(e){
+            console.error(e);
+            showToast(e?.message || '실패했어');
+          }
+        };
+      };
+    }
+  };
+
+  // 최초 1회 렌더
+  render();
 }
+
 
 // --- 메인 진입 함수 ---
 
