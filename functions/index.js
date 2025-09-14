@@ -180,20 +180,20 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
 });
 
 
-// 🚨 기존 startExplore 함수를 교체합니다.
+// ANCHOR: exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
 // === [탐험 시작] onCall ===
 exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
   if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
 
-  const { charId, worldId, siteId, difficulty } = req.data || {};
+  // 🔽 worldName과 siteName을 클라이언트로부터 추가로 받습니다.
+  const { charId, worldId, siteId, difficulty, worldName, siteName } = req.data || {};
   if(!charId || !worldId || !siteId) throw new HttpsError('invalid-argument','필수값 누락');
 
   const charRef = db.doc(`chars/${charId}`);
   const userRef = db.doc(`users/${uid}`);
   const runRef  = db.collection('explore_runs').doc();
 
-  // 트랜잭션 안에서 쿨타임 검사와 캐릭터 상태 변경을 함께 처리합니다.
   const result = await db.runTransaction(async (tx)=>{
     const userSnap = await tx.get(userRef);
     const charSnap = await tx.get(charRef);
@@ -202,7 +202,6 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
     const ch = charSnap.data()||{};
     if (ch.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 시작 가능');
     
-    // [보안 강화] 탐험 전용 쿨타임을 서버에서 직접 확인합니다.
     const userData = userSnap.exists ? userSnap.data() : {};
     const exploreCooldown = userData.cooldown_explore_until;
     if (exploreCooldown && exploreCooldown.toMillis() > Date.now()){
@@ -210,7 +209,6 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
       throw new HttpsError('failed-precondition', `탐험 쿨타임이 ${remaining}초 남았어.`);
     }
     
-    // 동시 진행 금지 로직은 유지
     if (ch.explore_active_run) {
       const oldRunSnap = await tx.get(db.doc(ch.explore_active_run));
       if (oldRunSnap.exists) {
@@ -219,20 +217,28 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
     }
 
     const diffKey = (EXPLORE_CONFIG.diff[difficulty] ? difficulty : 'normal');
+    
+    // 🔽🔽🔽 [핵심 수정] payload에 이름과 올바른 필드명을 사용합니다.
     const payload = {
-      charRef: charRef.path, owner_uid: uid,
-      worldId, siteId, difficulty: diffKey,
-      status:'running',
-      staminaStart: EXPLORE_CONFIG.staminaStart,
-      staminaNow:  EXPLORE_CONFIG.staminaStart,
-      turn:0, events: [],
-      createdAt: nowTs(), updatedAt: nowTs()
+      charRef: charRef.path,
+      owner_uid: uid,
+      world_id: worldId,
+      site_id: siteId,
+      world_name: worldName || worldId, // 이름 저장
+      site_name: siteName || siteId,   // 이름 저장
+      difficulty: diffKey,
+      status: 'ongoing', // 'running' -> 'ongoing'으로 수정
+      stamina_start: EXPLORE_CONFIG.staminaStart, // staminaStart -> stamina_start
+      stamina: EXPLORE_CONFIG.staminaStart,     // staminaNow -> stamina
+      turn:0,
+      events: [],
+      createdAt: nowTs(),
+      updatedAt: nowTs()
     };
     
     tx.set(runRef, payload);
     tx.update(charRef, { explore_active_run: runRef.path, updatedAt: Date.now() });
 
-    // [보안 강화] 탐험 시작 시 서버에서 쿨타임을 기록합니다. (1시간)
     const newCooldown = Timestamp.fromMillis(Date.now() + 60 * 60 * 1000);
     tx.set(userRef, { cooldown_explore_until: newCooldown }, { merge:true });
     
@@ -241,7 +247,7 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
 
   return result;
 });
-
+// ANCHOR_END: }
 // === [탐험 한 턴 진행] onCall ===
 exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
