@@ -353,6 +353,13 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       }
 
 
+      // 요청이 없거나, 대기 상태가 아니면 거절
+      if (!rqSnap.exists || (rqSnap.data()?.status !== 'pending')) {
+        throw new HttpsError('failed-precondition', '요청 상태가 대기중이 아니야.');
+      }
+
+
+
       const g = gSnap.data(), c = cSnap.data();
       if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '권한 없음');
 
