@@ -482,7 +482,6 @@ exports.sellItemsHttp = onRequest({ region: 'us-central1' }, async (req, res) =>
 // === Guild: createGuild (onCall) ===
 // - 요구: 로그인, 내 캐릭터(charId)여야 함, 지갑(유저 coins)에서 1000골드 차감
 // - 결과: guilds 문서 생성, guild_members 1줄(리더) 생성, chars/{charId}에 guildId, guild_role=leader
-const { HttpsError } = require('firebase-functions/v2/https');
 
 exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
   const uid = req.auth?.uid || req.auth?.token?.uid;
