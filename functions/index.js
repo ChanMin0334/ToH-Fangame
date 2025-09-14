@@ -536,6 +536,9 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
       owner_char_id: charId,
       createdAt: now,
       updatedAt: now,
+      name_lower: nameKey,      // ★ 추가
+      staff_uids: [uid],        // ★ 추가: 길드장 기본 스태프
+
       member_count: 1,
       level: 1,
       exp: 0,
