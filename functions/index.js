@@ -9,6 +9,10 @@ const { initializeApp } = require('firebase-admin/app');
 const crypto = require('crypto');
 const { Timestamp, FieldValue, FieldPath } = require('firebase-admin/firestore');
 
+// 길드 이름 키(중복 검사용) 만들기
+function normalizeGuildName(name){
+  return String(name||'').trim().toLowerCase();
+}
 
 
 
@@ -496,6 +500,14 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
   if (!charId) throw new HttpsError('invalid-argument', 'charId 필요');
 
   const res = await db.runTransaction(async (tx) => {
+    const nameKey = normalizeGuildName(name);
+    if (nameKey.length < 2) throw new HttpsError('invalid-argument', '길드 이름은 2자 이상');
+
+    // 이름 예약 문서(유일키): guild_names/{nameKey}
+    const nameRef = db.doc(`guild_names/${nameKey}`);
+    const nameSnap = await tx.get(nameRef);
+    if (nameSnap.exists) throw new HttpsError('already-exists', '이미 존재하는 이름이야');
+
     const userRef = db.doc(`users/${uid}`);
     const charRef = db.doc(`chars/${charId}`);
 
@@ -517,6 +529,8 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
     const now = Date.now();
     tx.set(guildRef, {
       name,
+      name_lower: nameKey,          // ★ 추가: 소문자 키
+      staff_uids: [uid],            // ★ 추가: 스태프 기본값(길드장 포함)
       badge_url: '',
       owner_uid: uid,
       owner_char_id: charId,
@@ -527,6 +541,7 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
       exp: 0,
       settings: { join: 'request', maxMembers: 30, isPublic: true }
     });
+
 
     // 멤버십(리더 1명 등록)
     const memRef = db.collection('guild_members').doc(`${guildRef.id}__${charId}`);
@@ -547,6 +562,8 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
 
     // 1000골드 차감
     tx.update(userRef, { coins: Math.max(0, coins0 - COST), updatedAt: now });
+    // 이름 예약 문서에 현재 길드 연결 (같은 트랜잭션)
+    tx.set(nameRef, { guildId: guildRef.id, name, createdAt: now });
 
     return { ok: true, guildId: guildRef.id, coinsAfter: coins0 - COST };
   });
@@ -724,6 +741,14 @@ exports.deleteGuild = onCall(async (req) => {
     const [files] = await bucket.getFiles({ prefix });
     if (files.length) await bucket.deleteFiles({ prefix, force: true });
   } catch (_) {}
+  // 이름 예약 해제
+  try {
+    const nameKey = normalizeGuildName(g.name);
+    if (nameKey) {
+      await db.doc(`guild_names/${nameKey}`).delete();
+    }
+  } catch (_) {}
+
 
   // 🔧🔧🔧 [신규] 이 길드의 대기 신청 정리
   try {
@@ -808,4 +833,24 @@ exports.rejectGuildJoin = onCall(async (req)=>{
   return { ok:true, mode:'rejected' };
 });
 
+// 길드 스태프 추가/해제 (로그 보기 권한 부여용)
+// 호출: httpsCallable('setGuildStaff')({ guildId, targetUid, add:true|false })
+exports.setGuildStaff = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, targetUid, add } = req.data || {};
+  if(!uid || !guildId || !targetUid) throw new HttpsError('invalid-argument','필요값');
+
+  const gRef = db.doc(`guilds/${guildId}`);
+  const gSnap = await gRef.get();
+  if(!gSnap.exists) throw new HttpsError('not-found','길드 없음');
+
+  const g = gSnap.data();
+  if (g.owner_uid !== uid) throw new HttpsError('permission-denied','길드장만 변경 가능');
+
+  const set = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
+  if (add) set.add(targetUid); else set.delete(targetUid);
+
+  await gRef.update({ staff_uids: Array.from(set), updatedAt: Date.now() });
+  return { ok:true, staff_uids: Array.from(set) };
+});
 
