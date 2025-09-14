@@ -1,10 +1,11 @@
 // /public/js/tabs/battle.js
-import { auth, db, fx, func } from '../api/firebase.js'; // func 추가
-import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js'; // httpsCallable 추가
+import { auth, db, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
 import { autoMatch } from '../api/match_client.js';
-import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateFinalBattleLog } from '../api/ai.js';
-import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js';
+// ai.js에서 새로운 함수들을 가져오도록 수정
+import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateFinalBattleLog } from '../api/ai.js'; 
+// getRelationBetween을 추가
+import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js'; 
 import { getUserInventory } from '../api/user.js';
 import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js';
 
@@ -37,10 +38,25 @@ function saveMatchLock(mode, charId, payload){
   sessionStorage.setItem(_lockKey(mode,charId), JSON.stringify(j));
 }
 
-// 쿨타임 버튼 UI만 업데이트 (실제 검증은 서버에서)
+function getCooldownRemainMs(){ const v = +localStorage.getItem('toh.cooldown.allUntilMs') || 0; return Math.max(0, v - Date.now()); }
+function applyGlobalCooldown(seconds){ const until = Date.now() + (seconds*1000); localStorage.setItem('toh.cooldown.allUntilMs', String(until)); }
+
 function mountCooldownOnButton(btn, labelReady){
-    btn.disabled = false;
-    btn.textContent = labelReady;
+  let intervalId = null;
+  const tick = ()=>{
+    const r = getCooldownRemainMs();
+    if(r>0){
+      const s = Math.ceil(r/1000);
+      btn.disabled = true;
+      btn.textContent = `${labelReady} (${s}s)`;
+    }else{
+      btn.disabled = false;
+      btn.textContent = labelReady;
+      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+    }
+  };
+  tick();
+  intervalId = setInterval(tick, 500);
 }
 
 function intentGuard(mode){
@@ -49,8 +65,8 @@ function intentGuard(mode){
   return j;
 }
 
-// ... (showBattleProgressUI, startBattleProcess 함수 등은 기존과 동일하게 유지) ...
-// (복사하기 편하도록 전체 코드를 제공합니다)
+// ---------- Battle Progress & Logic ----------
+
 function showBattleProgressUI(myChar, opponentChar) {
   const overlay = document.createElement('div');
   overlay.id = 'battle-progress-overlay';
@@ -102,6 +118,7 @@ function showBattleProgressUI(myChar, opponentChar) {
   };
 }
 
+// /public/js/tabs/battle.js 의 startBattleProcess 함수
 async function startBattleProcess(myChar, opponentChar) {
     const progress = showBattleProgressUI(myChar, opponentChar);
     try {
@@ -137,13 +154,14 @@ async function startBattleProcess(myChar, opponentChar) {
         const attackerData = simplifyForAI(myChar, myInv);
         const defenderData = simplifyForAI(opponentChar, oppInv);
         
+        // 두 캐릭터의 관계 조회
         const relation = await getRelationBetween(myChar.id, opponentChar.id);
 
         const battleData = { 
             prompts: chosenPrompts, 
             attacker: attackerData, 
             defender: defenderData,
-            relation: relation
+            relation: relation // 조회된 관계 정보 추가
         };
         
         progress.update('AI가 3가지 전투 시나리오 구상 중...', 40);
@@ -158,35 +176,42 @@ async function startBattleProcess(myChar, opponentChar) {
 
         progress.update('배틀 결과 저장...', 95);
 
+        // 경험치 밸런스 조정 (서버리스 환경이므로 클라이언트에서 수행)
         const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
         finalLog.exp_char0 = clamp(finalLog.exp_char0, 5, 50);
         finalLog.exp_char1 = clamp(finalLog.exp_char1, 5, 50);
 
         const logData = {
-            attacker_uid: myChar.owner_uid,
+            attacker_uid: myChar.owner_uid, // <-- 이 줄을 추가하세요!
             attacker_char: `chars/${myChar.id}`,
             defender_char: `chars/${opponentChar.id}`,
             attacker_snapshot: { name: myChar.name, thumb_url: myChar.thumb_url || null },
             defender_snapshot: { name: opponentChar.name, thumb_url: opponentChar.thumb_url || null },
             relation_at_battle: relation || null,
-            ...finalLog,
+            ...finalLog, // title, content, winner, exp, items_used 등 포함
             endedAt: fx.serverTimestamp()
         };
 
         const logRef = await fx.addDoc(fx.collection(db, 'battle_logs'), logData);
 
+        // [수정] Cloudflare Worker를 호출하여 후처리 실행
         try {
             progress.update('서버에 결과 반영 중...', 98);
+            
+            // 5단계에서 복사한 본인의 Worker URL을 여기에 붙여넣으세요.
             const workerUrl = 'https://toh-battle-processor.pokemonrgby.workers.dev'; 
+
             const res = await fetch(workerUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ logId: logRef.id })
             });
+
             if (!res.ok) {
                 const errorData = await res.json();
                 throw new Error(errorData.error || 'Worker에서 오류가 발생했습니다.');
             }
+
         } catch (e) {
             console.error('배틀 결과 반영 실패:', e);
             showToast(`결과를 반영하는 중 서버 오류가 발생했습니다: ${e.message}`);
@@ -206,8 +231,7 @@ async function startBattleProcess(myChar, opponentChar) {
         if (btnStart) mountCooldownOnButton(btnStart, '배틀 시작');
     }
 }
-
-// ANCHOR: export async function showBattle(){
+// ---------- entry ----------
 export async function showBattle(){
   ensureSpinCss();
   const intent = intentGuard('battle');
@@ -250,7 +274,6 @@ export async function showBattle(){
 
   let myCharData = null;
   let opponentCharData = null;
-  const matchArea = document.getElementById('matchArea');
 
   try {
     const meSnap = await fx.getDoc(fx.doc(db, 'chars', intent.charId));
@@ -258,58 +281,50 @@ export async function showBattle(){
     myCharData = { id: meSnap.id, ...meSnap.data() };
     await renderLoadoutForMatch(document.getElementById('loadoutArea'), myCharData);
 
-    // ✅ [수정] 페이지 로드 시에는 서버를 호출하지 않고, UI만 준비시킵니다.
-    matchArea.innerHTML = `<div class="text-dim">스킬과 아이템을 확인하고 '배틀 시작'을 눌러주세요.</div>`;
-    const btnStart = document.getElementById('btnStart');
-    btnStart.disabled = false; // 버튼 활성화
+    let matchData = null;
+    const persisted = loadMatchLock('battle', intent.charId);
+    if (persisted) {
+      matchData = { ok:true, token: persisted.token||null, opponent: persisted.opponent };
+    } else {
+      matchData = await autoMatch({ db, fx, charId: intent.charId, mode: 'battle' });
+      if(!matchData?.ok || !matchData?.opponent) throw new Error('매칭 상대를 찾지 못했습니다.');
+      saveMatchLock('battle', intent.charId, { token: matchData.token, opponent: matchData.opponent });
+    }
+
+    const oppId = String(matchData.opponent.id||matchData.opponent.charId||'').replace(/^chars\//,'');
+    const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
     
-    // 🚨 btnStart.onclick 로직을 서버 호출 중심으로 변경
+    if (!oppDoc.exists()) {
+      // 상대 캐릭터가 삭제되었거나 없는 경우, 매칭 정보를 초기화하고 재매칭
+      showToast('상대 정보가 없어 다시 매칭할게.');
+      sessionStorage.removeItem(_lockKey('battle', intent.charId));
+      setTimeout(() => showBattle(), 1000); // 1초 후 재시도
+      return; // 현재 로직 중단
+    }
+    
+    opponentCharData = { id: oppDoc.id, ...oppDoc.data() };
+    
+    renderOpponentCard(document.getElementById('matchArea'), opponentCharData);
+
+    const btnStart = document.getElementById('btnStart');
+    mountCooldownOnButton(btnStart, '배틀 시작');
     btnStart.onclick = async () => {
         const hasSkills = myCharData.abilities_all && myCharData.abilities_all.length > 0;
         if (hasSkills && myCharData.abilities_equipped?.length !== 2) {
             return showToast('배틀을 시작하려면 스킬을 2개 선택해야 합니다.');
         }
-
+        if (getCooldownRemainMs() > 0) return;
         btnStart.disabled = true;
-        matchArea.innerHTML = `<div class="spin"></div><div>상대를 찾고 쿨타임을 확인하는 중…</div>`;
-
-        try {
-            // [핵심] '배틀 시작' 클릭 시 서버에 매칭과 쿨타임 처리를 요청합니다.
-            const requestMatchFn = httpsCallable(func, 'requestMatch');
-            const result = await requestMatchFn({ charId: intent.charId, mode: 'battle' });
-            
-            if (!result.data.ok) {
-                throw new Error(result.data.reason || '매칭에 실패했습니다.');
-            }
-            
-            const matchData = result.data;
-            const oppId = String(matchData.opponent.id || '').replace(/^chars\//, '');
-            const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
-
-            if (!oppDoc.exists()) throw new Error('매칭된 상대 정보를 불러올 수 없습니다.');
-            
-            opponentCharData = { id: oppDoc.id, ...oppDoc.data() };
-            renderOpponentCard(matchArea, opponentCharData);
-
-            // 매칭 성공 후 바로 배틀 프로세스 시작
-            await startBattleProcess(myCharData, opponentCharData);
-
-        } catch (e) {
-            // 서버에서 보낸 쿨타임 에러 메시지 등이 여기에 표시됩니다.
-            showToast(e.message || '배틀을 시작할 수 없어.');
-            matchArea.innerHTML = `<div class="text-dim">오류: ${e.message}</div>`;
-            btnStart.disabled = false; // 에러 발생 시 버튼을 다시 활성화합니다.
-        }
+        applyGlobalCooldown(300);
+        await startBattleProcess(myCharData, opponentCharData);
     };
 
   } catch(e) {
     console.error('[battle] setup error', e);
-    matchArea.innerHTML = `<div class="text-dim">페이지 로딩 중 오류 발생: ${e.message}</div>`;
+    document.getElementById('matchArea').innerHTML = `<div class="text-dim">매칭 중 오류 발생: ${e.message}</div>`;
   }
 }
-// ANCHOR_END: }
 
-// ... (renderOpponentCard, renderLoadoutForMatch, openItemPicker 함수는 기존과 동일하게 유지) ...
 function renderOpponentCard(matchArea, opp) {
     const intro = truncate(opp.summary || opp.intro || '', 160);
     const abilities = Array.isArray(opp.abilities_all)
@@ -452,11 +467,13 @@ async function openItemPicker(c, onSave) {
             const item = inv.find(it => it.id === itemId);
             if (!item) return;
 
+            // ◀◀◀ 이 부분을 통째로 교체하세요.
+            // 상세 모달을 호출하고, 선택 결과를 콜백으로 받아 picker를 새로고침합니다.
             showItemDetailModal(item, {
                 equippedIds: selectedIds,
                 onUpdate: (newSelectedIds) => {
                     selectedIds = newSelectedIds;
-                    renderModalContent();
+                    renderModalContent(); // 부모 모달(picker) UI 새로고침
                 }
             });
         });
