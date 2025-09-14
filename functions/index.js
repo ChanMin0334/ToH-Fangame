@@ -384,6 +384,20 @@ async function sellItemsCore(uid, data) {
       const itemsToKeep = [];
       const soldItemIds = new Set(itemIds);
 
+      // 1. 판매될 아이템을 장착한 내 모든 캐릭터를 찾습니다.
+      const charsRef = db.collection('chars');
+      const query = charsRef.where('owner_uid', '==', uid).where('items_equipped', 'array-contains-any', itemIds);
+      const equippedCharsSnap = await tx.get(query);
+
+      // 2. 각 캐릭터의 장착 목록에서 판매될 아이템 ID를 제거합니다.
+      equippedCharsSnap.forEach(doc => {
+        const charData = doc.data();
+        const newEquipped = (charData.items_equipped || []).filter(id => !soldItemIds.has(id));
+        tx.update(doc.ref, { items_equipped: newEquipped });
+      });
+
+   
+
       for (const item of currentItems) {
         if (soldItemIds.has(item.id)) {
           const isConsumable = item.isConsumable || item.consumable;
