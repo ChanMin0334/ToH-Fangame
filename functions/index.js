@@ -725,6 +725,15 @@ exports.deleteGuild = onCall(async (req) => {
     if (files.length) await bucket.deleteFiles({ prefix, force: true });
   } catch (_) {}
 
+  // 🔧🔧🔧 [신규] 이 길드의 대기 신청 정리
+  try {
+    const qs = await db.collection('guild_requests').where('guildId','==', guildId).get();
+    const b = db.batch();
+    qs.docs.forEach(d => b.update(d.ref, { status:'cancelled_by_guild_delete', decidedAt: Date.now() }));
+    await b.commit();
+  } catch (_) {}
+  // 🔧🔧🔧
+
   // 4) 길드 문서 삭제
   await gRef.delete();
 
