@@ -7,7 +7,8 @@ const db = admin.firestore();
 const { initializeApp } = require('firebase-admin/app');
 
 const crypto = require('crypto');
-const { Timestamp, FieldValue } = require('firebase-admin/firestore');
+const { Timestamp, FieldValue, FieldPath } = require('firebase-admin/firestore');
+
 
 
 
@@ -553,7 +554,6 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
   return res;
 });
 
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 
@@ -617,7 +617,7 @@ exports.deleteGuild = onCall(async (req) => {
   const { guildId } = req.data || {};
   if (!uid || !guildId) throw new HttpsError('invalid-argument', 'uid/guildId 필요');
 
-  const db = getFirestore();
+
   const gRef = db.collection('guilds').doc(guildId);
   const gSnap = await gRef.get();
   if (!gSnap.exists) throw new HttpsError('not-found', '길드를 찾을 수 없음');
