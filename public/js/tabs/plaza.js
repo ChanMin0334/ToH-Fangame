@@ -16,10 +16,20 @@ function ensureModalCss(){
   const st = document.createElement('style');
   st.id = 'toh-modal-css';
   st.textContent = `
-    .modal-back{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
-                background:rgba(0,0,0,.6); backdrop-filter:blur(4px);}
-    .modal-card{background:#0e1116;border:1px solid #273247;border-radius:14px;padding:16px;width:92vw;
-                max-width:720px;max-height:90vh;overflow-y:auto;}
+    /* 모달 오버레이: 토스트보다 낮게 */
+    .modal-back{
+      position:fixed; inset:0; z-index:9990;
+      display:flex; align-items:center; justify-content:center;
+      background:rgba(0,0,0,.6); backdrop-filter:blur(4px);
+    }
+    .modal-card{
+      background:#0e1116; border:1px solid #273247; border-radius:14px;
+      padding:16px; width:92vw; max-width:720px; max-height:90vh; overflow-y:auto;
+    }
+    /* 토스트를 항상 모달 위로 띄우기 (존재하는 어떤 토스트 컨테이너든 커버) */
+    #toast-root, .toast, .toast-container, .kv-toast {
+      position: fixed; z-index: 11000 !important;
+    }
   `;
   document.head.appendChild(st);
 }
@@ -762,11 +772,20 @@ function renderGuilds(root, c, paths){
       back.querySelector('#gcancel').onclick = ()=> back.remove();
       back.addEventListener('click', (e)=>{ if(e.target===back) back.remove(); });
 
-      back.querySelector('#gok').onclick = async ()=>{
-        const name = back.querySelector('#gname').value.trim();
-        const file = back.querySelector('#gimg').files?.[0] || null;
-        if (name.length < 2) { showToast('이름은 2자 이상'); return; }
+      const okBtn = back.querySelector('#gok');
+      okBtn.onclick = async ()=>{
+        const nameInput = back.querySelector('#gname');
+        const fileInput = back.querySelector('#gimg');
+        const name = nameInput.value.trim();
+        const file = fileInput.files?.[0] || null;
+
+        if (name.length < 2) { showToast('이름은 2자 이상'); nameInput.focus(); return; }
         if (!c) { showToast('캐릭터를 먼저 선택해줘'); openCharPicker(); return; }
+
+        // 중복 클릭 방지
+        okBtn.disabled = true;
+        const prevLabel = okBtn.textContent;
+        okBtn.textContent = '만드는 중...';
 
         try{
           const data = await createGuild({ charId: c.id, name }); // 서버에서 1000골드 차감 + 생성
@@ -784,8 +803,12 @@ function renderGuilds(root, c, paths){
         }catch(e){
           console.error(e);
           showToast(e?.message || '실패했어');
+          // 실패 시에만 복구
+          okBtn.disabled = false;
+          okBtn.textContent = prevLabel;
         }
       };
+
     }
   };
 
