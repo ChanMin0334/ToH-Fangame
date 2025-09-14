@@ -351,12 +351,19 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
         }
         throw new HttpsError('not-found', '캐릭 없음');
       }
-
-
-      // 요청이 없거나, 대기 상태가 아니면 거절
+      // 요청이 없거나, 대기 상태가 아니면 중단
       if (!rqSnap.exists || (rqSnap.data()?.status !== 'pending')) {
         throw new HttpsError('failed-precondition', '요청 상태가 대기중이 아니야.');
       }
+
+      // (중요) 트랜잭션에서 '읽기'는 전부 여기서 끝낸다
+      const pendQ = db.collection('guild_requests')
+        .where('charId','==', charId)
+        .where('status','==','pending')
+        .limit(50);
+      const pendQs = await tx.get(pendQ);
+
+
 
 
 
@@ -380,12 +387,19 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       });
       tx.update(cRef, { guildId, guild_role: 'member', updatedAt: nowMs() });
       tx.update(gRef, { member_count: cur + 1, updatedAt: nowMs() });
-      if (rqSnap.exists) tx.update(rqRef, { status: 'accepted', decidedAt: nowMs() });
+      if (rqSnap.exists) {
+        tx.update(rqRef, { status: 'accepted', decidedAt: nowMs() });
+      }
 
-      // 다른 pending 자동 취소
-      await autoCancelOtherPendings(tx, charId, guildId);
+      // (중요) 나머지 pending 자동 취소 — 이미 '읽어둔' pendQs로만 처리(쓰기만!)
+      for (const doc of pendQs.docs) {
+        if (doc.id !== `${guildId}__${charId}`) {
+          tx.update(doc.ref, { status: 'auto-cancelled', decidedAt: nowMs() });
+        }
+      }
 
       return { ok: true, mode: 'accepted' };
+
     });
   });
 
