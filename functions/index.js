@@ -520,6 +520,17 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
     if (c.owner_uid !== uid) throw new HttpsError('permission-denied', '내 캐릭터가 아니야');
     if (c.guildId) throw new HttpsError('failed-precondition', '이미 길드 소속이야');
 
+    // [추가] 이 캐릭터가 다른 길드에 가입 신청(pending) 중이면 생성 금지
+    const pendQ = db.collection('guild_requests')
+      .where('charId','==', charId)
+      .where('status','==','pending')
+      .limit(1);
+    const pendSnap = await tx.get(pendQ);
+    if (!pendSnap.empty) {
+      throw new HttpsError('failed-precondition','다른 길드에 가입 신청 중이야. 먼저 신청을 취소해줘.');
+    }
+
+
     const coins0 = Math.floor(Number(user.coins || 0));
     const COST = 1000;
     if (coins0 < COST) throw new HttpsError('failed-precondition', '골드가 부족해');
