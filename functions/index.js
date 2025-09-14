@@ -557,6 +557,61 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 
+
+// === Guild: join/ request ===
+exports.joinGuild = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const guildId = String(req.data?.guildId||'').trim();
+  const charId  = String(req.data?.charId ||'').trim();
+  if(!uid || !guildId || !charId) throw new HttpsError('invalid-argument','uid/guildId/charId 필요');
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const cRef = db.doc(`chars/${charId}`);
+    const [gSnap, cSnap] = await Promise.all([tx.get(gRef), tx.get(cRef)]);
+    if(!gSnap.exists) throw new HttpsError('not-found','길드 없음');
+    if(!cSnap.exists) throw new HttpsError('not-found','캐릭 없음');
+
+    const g = gSnap.data(), c = cSnap.data();
+    if(c.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭이 아니야');
+    if(c.guildId) throw new HttpsError('failed-precondition','이미 길드 소속');
+    const s = g.settings || {};
+    const level = Number(c.level || 1);
+    if (s.minLevel && level < s.minLevel) throw new HttpsError('failed-precondition','레벨이 부족해');
+
+    // 정원 체크
+    const cap = Number(s.maxMembers || 30);
+    const cur = Number(g.member_count || 0);
+    if (s.join === 'free') {
+      if (cur >= cap) throw new HttpsError('failed-precondition','정원 초과');
+
+      // 즉시 가입
+      const memId = `${guildId}__${charId}`;
+      tx.set(db.doc(`guild_members/${memId}`), {
+        guildId, charId, role:'member', joinedAt: Date.now(), owner_uid: uid,
+        points_weekly:0, points_total:0, lastActiveAt: Date.now()
+      });
+      tx.update(cRef, { guildId, guild_role:'member', updatedAt: Date.now() });
+      tx.update(gRef, { member_count: cur + 1, updatedAt: Date.now() });
+
+      return { ok:true, mode:'joined' };
+    }
+
+    if (s.join === 'invite') {
+      throw new HttpsError('failed-precondition','초대 전용 길드');
+    }
+
+    // 신청승인: 요청만 남김
+    const reqRef = db.collection('guild_requests').doc();
+    tx.set(reqRef, {
+      guildId, charId, owner_uid: uid, createdAt: Date.now(), status:'pending'
+    });
+    return { ok:true, mode:'requested' };
+  });
+});
+
+
+
 exports.deleteGuild = onCall(async (req) => {
   const uid = req.auth?.uid || null;
   const { guildId } = req.data || {};
