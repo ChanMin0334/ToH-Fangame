@@ -633,6 +633,8 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   // exports
   // ------------------------
   return {
+    updateGuildDescription,
+    donateToGuild,
     createGuild,
     joinGuild,
     cancelGuildRequest,
