@@ -223,6 +223,76 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
         return { ok: true, mode: 'joined' };
       }
 
+
+
+    // --- 신규 기능 ---
+
+    // 길드 설명 업데이트 (길드장)
+    const updateGuildDescription = onCall({ region: 'us-central1' }, async (req) => {
+        const uid = req.auth?.uid;
+        const { guildId, description } = req.data || {};
+        if (!uid || !guildId) throw new HttpsError('invalid-argument', '필수 인자가 없습니다.');
+
+        const gRef = db.doc(`guilds/${guildId}`);
+        const gSnap = await gRef.get();
+        if (!gSnap.exists) throw new HttpsError('not-found', '길드를 찾을 수 없습니다.');
+        if (!isOwner(uid, gSnap.data())) throw new HttpsError('permission-denied', '길드장만 설명을 변경할 수 있습니다.');
+        
+        await gRef.update({
+            desc: String(description || '').slice(0, 1000), // 1000자 제한
+            updatedAt: nowMs()
+        });
+        return { ok: true };
+    });
+
+    // 길드에 코인 기부 (멤버)
+    const donateToGuild = onCall({ region: 'us-central1' }, async (req) => {
+        const uid = req.auth?.uid;
+        const { guildId, amount } = req.data || {};
+        const parsedAmount = Math.floor(Number(amount));
+
+        if (!uid || !guildId || !parsedAmount || parsedAmount <= 0) {
+            throw new HttpsError('invalid-argument', '유효하지 않은 요청입니다.');
+        }
+
+        const charSnap = await db.collection('chars').where('owner_uid', '==', uid).where('guildId', '==', guildId).limit(1).get();
+        if (charSnap.empty) throw new HttpsError('failed-precondition', '해당 길드에 소속된 캐릭터가 없습니다.');
+        const charId = charSnap.docs[0].id;
+        
+        return db.runTransaction(async (tx) => {
+            const userRef = db.doc(`users/${uid}`);
+            const gRef = db.doc(`guilds/${guildId}`);
+            const memberRef = db.doc(`guilds/${guildId}/members/${charId}`);
+
+            const [userSnap, gSnap, memberSnap] = await Promise.all([tx.get(userRef), tx.get(gRef), tx.get(memberRef)]);
+
+            if (!userSnap.exists) throw new HttpsError('not-found', '사용자 정보를 찾을 수 없습니다.');
+            if (!gSnap.exists) throw new HttpsError('not-found', '길드를 찾을 수 없습니다.');
+
+            const userCoins = userSnap.data().coins || 0;
+            if (userCoins < parsedAmount) throw new HttpsError('failed-precondition', '코인이 부족합니다.');
+
+            // 1. 유저 코인 차감
+            tx.update(userRef, { coins: FieldValue.increment(-parsedAmount) });
+            // 2. 길드 코인 증가
+            tx.update(gRef, { 
+                guild_coins: FieldValue.increment(parsedAmount),
+                weekly_coins: FieldValue.increment(parsedAmount)
+            });
+            // 3. 멤버 기여도 업데이트
+            tx.set(memberRef, {
+                weeklyContribution: FieldValue.increment(parsedAmount),
+                totalContribution: FieldValue.increment(parsedAmount),
+                lastContributionAt: nowMs()
+            }, { merge: true });
+
+            return { ok: true, coinsAfter: userCoins - parsedAmount };
+        });
+    });
+
+
+      
+
       // 신청 방식
       const reqId = `${guildId}__${charId}`;
       const rqRef = db.doc(`guild_requests/${reqId}`);
@@ -413,43 +483,51 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   });
 
   // 멤버 추방 (길드장/스태프). 스태프는 오너/스태프 추방 불가, 오너는 누구든 가능(오너 본인 제외).
-  const kickFromGuild = onCall({ region: 'us-central1' }, async (req) => {
-    const uid = req.auth?.uid || null;
-    const { guildId, charId } = req.data || {};
-    if (!uid || !guildId || !charId) throw new HttpsError('invalid-argument', '필요값');
+    const kickFromGuild = onCall({ region: 'us-central1' }, async (req) => {
+        const uid = req.auth?.uid;
+        const { guildId, targetCharId } = req.data || {};
+        if (!uid || !guildId || !targetCharId) throw new HttpsError('invalid-argument', '필수 인자가 없습니다.');
 
-    return await db.runTransaction(async (tx) => {
-      const gRef = db.doc(`guilds/${guildId}`);
-      const cRef = db.doc(`chars/${charId}`);
-      const [gSnap, cSnap] = await Promise.all([tx.get(gRef), tx.get(cRef)]);
-      if (!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found', '길드/캐릭 없음');
+        return db.runTransaction(async (tx) => {
+            const gRef = db.doc(`guilds/${guildId}`);
+            const targetCharRef = db.doc(`chars/${targetCharId}`);
+            const memberRef = db.doc(`guilds/${guildId}/members/${targetCharId}`);
 
-      const g = gSnap.data(), c = cSnap.data();
-      if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '권한 없음');
-      if (c.guildId !== guildId) throw new HttpsError('failed-precondition', '해당 길드 소속이 아님');
+            const [gSnap, targetCharSnap] = await Promise.all([tx.get(gRef), tx.get(targetCharRef)]);
 
-      const actingIsOwner = isOwner(uid, g);
-      const targetRole = c.guild_role || 'member';
-      if (!actingIsOwner) {
-        // 스태프 권한: 오너/다른 스태프는 추방 불가
-        if (targetRole === 'leader' || targetRole === 'officer') {
-          throw new HttpsError('permission-denied', '해당 멤버를 추방할 권한이 없습니다.');
-        }
-      } else {
-        // 오너 본인은 스스로 추방하지 못함
-        if (targetRole === 'leader') {
-          throw new HttpsError('failed-precondition', '길드장은 추방할 수 없습니다.');
-        }
-      }
+            if (!gSnap.exists() || !targetCharSnap.exists()) throw new HttpsError('not-found', '길드 또는 캐릭터를 찾을 수 없습니다.');
 
-      const cur = Number(g.member_count || 1);
-      tx.update(gRef, { member_count: Math.max(0, cur - 1), updatedAt: nowMs() });
-      tx.update(cRef, { guildId: FieldValue.delete(), guild_role: FieldValue.delete(), updatedAt: nowMs() });
-      tx.set(db.doc(`guild_members/${guildId}__${charId}`), { leftAt: nowMs() }, { merge: true });
+            const g = gSnap.data();
+            const targetChar = targetCharSnap.data();
 
-      return { ok: true, mode: 'kicked' };
+            if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '추방 권한이 없습니다.');
+            if (targetChar.guildId !== guildId) throw new HttpsError('failed-precondition', '해당 멤버는 길드원이 아닙니다.');
+            if (targetChar.guild_role === 'leader') throw new HttpsError('failed-precondition', '길드장은 추방할 수 없습니다.');
+
+            // 부길마(스태프)는 길드장만 추방 가능
+            if (targetChar.guild_role === 'officer' && !isOwner(uid, g)) {
+                throw new HttpsError('permission-denied', '부길마는 길드장만 추방할 수 있습니다.');
+            }
+
+            // 1. 캐릭터 문서에서 길드 정보 제거
+            tx.update(targetCharRef, {
+                guildId: FieldValue.delete(),
+                guild_role: FieldValue.delete()
+            });
+
+            // 2. 길드 멤버 문서 삭제
+            tx.delete(memberRef);
+
+            // 3. 길드 문서 업데이트 (멤버 수, 스태프 목록)
+            const updates = { member_count: FieldValue.increment(-1) };
+            if (targetChar.guild_role === 'officer') {
+                updates.staff_uids = FieldValue.arrayRemove(targetChar.owner_uid);
+            }
+            tx.update(gRef, updates);
+
+            return { ok: true };
+        });
     });
-  });
 
   // 역할 변경(오너만): member <-> officer
   const setGuildRole = onCall({ region: 'us-central1' }, async (req) => {
