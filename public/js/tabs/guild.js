@@ -631,20 +631,34 @@ export default async function showGuild(explicit){
         if(!cid) return;
         const btn = e.target.closest('button');
         const card = btn.closest('.kv-card');
-        // 같은 카드의 버튼들 전체 잠금
-        card.querySelectorAll('button').forEach(b=>{ b.disabled = true; b.dataset.busy='1'; });
+
+        // 카드 안의 버튼 전부 잠금
+        const buttons = Array.from(card.querySelectorAll('button'));
+        buttons.forEach(b=>{ b.disabled = true; b.dataset.busy='1'; });
 
         lock(btn, async ()=>{
-          if(ok){
-            await call('approveGuildJoin')({ guildId: g.id, charId: cid });
-            showToast('승인 완료');
-          }else{
-            await call('rejectGuildJoin')({ guildId: g.id, charId: cid });
-            showToast('거절 완료');
+          try{
+            if(ok){
+              const { data } = await call('approveGuildJoin')({ guildId: g.id, charId: cid });
+              const mode = data?.mode || '';
+              showToast(mode==='accepted' ? '승인 완료' :
+                        mode==='already-in' ? '이미 가입 상태야' : '승인 처리됨');
+            }else{
+              await call('rejectGuildJoin')({ guildId: g.id, charId: cid });
+              showToast('거절 완료');
+            }
+            location.hash = `#/guild/${g.id}/requests`;
+          }catch(e){
+            console.error(e);
+            const code = e?.code || e?.details?.code || '';
+            const msg  = e?.message || e?.details || '실패했어';
+            showToast(`처리 실패: ${msg}${code?` (${code})`:''}`);
+            // 실패했으니 다시 누를 수 있게 버튼 원복
+            buttons.forEach(b=>{ b.disabled = false; b.dataset.busy=''; });
           }
-          location.hash = `#/guild/${g.id}/requests`;
         });
       });
+
 
     }catch(e){
       console.error(e);
