@@ -139,6 +139,24 @@ export default async function showGuild(explicit){
         }
       }catch(_){}
 
+      // 🔔 [추가] 다른 길드에 이미 pending이면 버튼 비활성 + 안내
+      try{
+        if (c?.id) {
+          const q = fx.query(
+            fx.collection(db,'guild_requests'),
+            fx.where('charId','==', c.id),
+            fx.where('status','==','pending'),
+            fx.limit(1)
+          );
+          const qs = await fx.getDocs(q);
+          const d0 = qs.docs[0];
+          if (d0 && d0.id !== `${g.id}__${c.id}`) {
+            btn.disabled = true; btn.textContent = '다른 길드 신청 중';
+          }
+        }
+      }catch(_){}
+
+      
       btn.onclick = async ()=>{
         if(!uid || !c){ showToast('로그인/캐릭터 선택이 필요해'); return; }
         if(c.guildId){ showToast('이미 길드에 소속된 캐릭터야'); return; }
