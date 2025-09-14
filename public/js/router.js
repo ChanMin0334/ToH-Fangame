@@ -34,6 +34,7 @@ export const routes = {
   '#/battlelog': showBattleLog, // 신규 추가
   '#/explorelog': () => import('./tabs/explorelog.js').then(m => (m.default ?? m.showExploreLog)?.()),
   '#/plaza': () => import('./tabs/plaza.js').then(m => (m.default ?? m.showPlaza)?.()),
+  '#/guild': () => import('./tabs/guild.js').then(m => (m.default ?? m.showGuild)?.()),
 
 
   
@@ -61,6 +62,7 @@ export function router(){
   if(hash.startsWith('#/battlelog/')) return routes['#/battlelog']();
   if(hash.startsWith('#/explorelog/')) return routes['#/explorelog']();
   if(hash.startsWith('#/plaza')) return routes['#/plaza']();
+  if(hash.startsWith('#/guild/')) return routes['#/guild']();
 
 
   (routes[hash] || routes['#/home'])();
