@@ -79,6 +79,79 @@ export async function uploadAvatarSquare(charId, file){
   return { thumb_url: thumbUrl, main_url: mainUrl };
 }
 
+
+
+
+// === Guild Badge: 1:1 업로드 (256 썸네일 + 1024 원본 저장) ===
+export async function uploadGuildBadgeSquare(guildId, file){
+  const u = auth.currentUser;
+  if (!u) throw new Error('로그인이 필요해');
+  if (!guildId || !file) throw new Error('guildId, file 필요');
+
+  const buf = await file.arrayBuffer();
+  const bmp = await createImageBitmap(new Blob([buf]));
+  const side = Math.min(bmp.width, bmp.height);
+  const cropX = (bmp.width - side)/2, cropY = (bmp.height - side)/2;
+  const toBlob = (cv, q)=> new Promise(res=> cv.toBlob(res, 'image/webp', q));
+
+  // 1) 썸네일 256
+  const ct = document.createElement('canvas'); ct.width=256; ct.height=256;
+  ct.getContext('2d').drawImage(bmp, cropX, cropY, side, side, 0,0,256,256);
+  let tq=0.9, tB=await toBlob(ct,tq); while(tB.size>150_000 && tq>0.4){ tq-=0.1; tB=await toBlob(ct,tq); }
+
+  // 2) 본판 1024 (긴 변 축소)
+  const scale = 1024/Math.max(bmp.width,bmp.height);
+  const w = Math.round(bmp.width * Math.min(1, scale));
+  const h = Math.round(bmp.height * Math.min(1, scale));
+  const cm = document.createElement('canvas'); cm.width=w; cm.height=h;
+  cm.getContext('2d').drawImage(bmp,0,0,w,h);
+  let mq=0.9, mB=await toBlob(cm,mq); while(mB.size>950_000 && mq>0.4){ mq-=0.1; mB=await toBlob(cm,mq); }
+
+  // 3) Storage 경로
+  const thumbRef = sx.ref(storage, `guild_badges/${u.uid}/${guildId}/thumb_256.webp`);
+  const mainRef  = sx.ref(storage, `guild_badges/${u.uid}/${guildId}/main_1024.webp`);
+
+  // 4) 업로드
+  const [thumbResult, mainResult] = await Promise.all([
+    sx.uploadBytes(thumbRef, tB),
+    sx.uploadBytes(mainRef, mB)
+  ]);
+
+  // 5) URL
+  const [thumbUrl, mainUrl] = await Promise.all([
+    sx.getDownloadURL(thumbResult.ref),
+    sx.getDownloadURL(mainResult.ref)
+  ]);
+
+  // 6) Firestore 반영
+  const now = Date.now();
+  await fx.updateDoc(fx.doc(db, 'guilds', guildId), {
+    badge_url: thumbUrl,
+    updatedAt: now
+  });
+  await fx.setDoc(fx.doc(db, 'guilds', guildId, 'images', 'badge'), {
+    url: mainUrl, w, h, mime: 'image/webp', owner_uid: u.uid, updatedAt: now
+  }, { merge: true });
+
+  return { thumbUrl, mainUrl };
+}
+
+// === Guild: createGuild 래퍼 (서버 onCall 호출) ===
+export async function createGuild({ charId, name }){
+  const u = auth.currentUser;
+  if (!u) throw new Error('로그인이 필요해');
+  const call = httpsCallable(func, 'createGuild');
+  const { data } = await call({ charId, name });
+  if (!data?.ok) throw new Error(data?.error || '길드 생성 실패');
+  return data; // { ok:true, guildId, coinsAfter }
+}
+
+
+
+
+
+
+
 // 상세에서 큰 원본 URL 로드 (캐시 우선)
 export async function getCharMainImageUrl(charId, {cacheFirst=true}={}){
   const ref = fx.doc(db,'chars',charId,'images','main');
