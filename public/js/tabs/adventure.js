@@ -365,6 +365,7 @@ function viewPrep(root, world, site, char){
   
   // 🚨 쿨타임 타이머(tick, setInterval) 로직 전체 삭제
 
+// ANCHOR: btnStart?.addEventListener('click', async ()=>{
   btnStart?.addEventListener('click', async ()=>{
     if (btnStart.disabled) return;
     if (Array.isArray(char.abilities_all) && char.abilities_all.length){
@@ -381,11 +382,16 @@ function viewPrep(root, world, site, char){
     ]);
 
     try {
-      // [핵심] 서버의 startExplore 함수를 호출합니다.
+      // ✅ 서버로 호출하는 부분입니다. Cloudflare Worker를 사용하시더라도
+      // ✅ Firebase Functions의 onCall을 호출하는 방식으로 구현하셨다면 이 코드가 맞습니다.
       const startExploreFn = httpsCallable(func, 'startExplore');
+      
+      // 🔽 서버로 보낼 데이터에 world.name과 site.name을 추가합니다.
       const result = await startExploreFn({
         worldId: world.id,
+        worldName: world.name, // 이름 추가
         siteId: site.id,
+        siteName: site.name,   // 이름 추가
         charId: char.id,
         difficulty: site.difficulty || 'normal'
       });
@@ -410,6 +416,7 @@ function viewPrep(root, world, site, char){
       btnStart.disabled = false;
     }
   });
+// ANCHOR_END: }
 }
 
 // ... openItemPicker, showSharedInventory 등 나머지 함수는 변경 없이 유지 ...
