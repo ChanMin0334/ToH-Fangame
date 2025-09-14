@@ -481,3 +481,7 @@ exports.sellItemsHttp = onRequest({ region: 'us-central1' }, async (req, res) =>
 
 const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
 Object.assign(exports, guildFns);
+exports.kickGuildMember = guildFns.kickFromGuild;
+
+
+
