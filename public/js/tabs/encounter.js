@@ -1,14 +1,8 @@
 // /public/js/tabs/encounter.js
-// 들어오자마자 자동 매칭 → 상단에 상대 카드(이름/intro 요약/스킬 라벨) → 하단에 '조우 시작'
-// 내 캐릭터 카드는 표시하지 않음. '가방 열기'는 모달(더미 데이터).
-
 import { auth, db, fx, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
-// battle.js와 동일하게 클라이언트 매칭 모듈 추가
 import { autoMatch } from '../api/match_client.js';
-
-
 
 // ---------- utils ----------
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c])); }
@@ -30,10 +24,16 @@ function ensureSpinCss(){
 function intentGuard(mode){
   let j=null; try{ j=JSON.parse(sessionStorage.getItem('toh.match.intent')||'null'); }catch(_){}
   if(!j || j.mode!==mode || (Date.now()-(+j.ts||0))>90_000) return null;
-  return j; // {charId, mode, ts}
+  return j;
 }
 
-// --- 내 로드아웃(스킬/아이템) 표시 + 스킬 2개 선택 저장 ---
+// 쿨타임 버튼 UI만 업데이트
+function mountCooldownOnButton(btn, labelReady){
+    btn.disabled = false;
+    btn.textContent = labelReady;
+}
+
+// ... (renderLoadoutForMatch 등 다른 함수들은 기존과 동일하게 유지) ...
 async function renderLoadoutForMatch(charId, myChar){
   const box = document.getElementById('loadoutArea');
   if(!box) return;
@@ -77,7 +77,6 @@ async function renderLoadoutForMatch(charId, myChar){
     </div>
   `;
 
-  // 스킬 체크박스 2개 유지 + 저장
   if(abilities.length){
     const inputs = box.querySelectorAll('input[type=checkbox][data-i]');
     inputs.forEach(inp=>{
@@ -100,23 +99,18 @@ async function renderLoadoutForMatch(charId, myChar){
   }
 }
 
-// ---------- entry ----------
 export async function showEncounter(){
   ensureSpinCss();
   const intent = intentGuard('encounter');
   const root   = document.getElementById('view');
 
-  if(!intent){
-    root.innerHTML = `<section class="container narrow"><div class="kv-card">잘못된 접근이야. 캐릭터 화면에서 ‘조우 시작’으로 들어와줘.</div></section>`;
+  if(!intent || !auth.currentUser){
+    root.innerHTML = `<section class="container narrow"><div class="kv-card">잘못된 접근입니다.</div></section>`;
     return;
   }
-  if(!auth.currentUser){
-    root.innerHTML = `<section class="container narrow"><div class="kv-card">로그인이 필요해.</div></section>`;
-    return;
-  }
-
-  // 상단 레이아웃
-  root.innerHTML = `
+  
+  // ... (innerHTML 설정 및 다른 이벤트 핸들러는 기존과 동일하게 유지) ...
+    root.innerHTML = `
   <section class="container narrow">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <button class="btn ghost" id="btnBack">← 캐릭터로 돌아가기</button>
@@ -154,7 +148,6 @@ export async function showEncounter(){
     location.hash = id ? `#/char/${id}` : '#/home';
   };
 
-  // 가방 모달(더미)
   document.getElementById('btnBag').onclick = ()=>{
     const back = document.createElement('div');
     back.className='modal-back';
@@ -177,48 +170,22 @@ export async function showEncounter(){
     document.body.appendChild(back);
   };
 
-  // 내 캐릭터 불러와서 로드아웃 렌더
   let myChar = {};
   try{
     const meSnap = await fx.getDoc(fx.doc(db,'chars', (intent?.charId||'').replace(/^chars\//,'')));
     if(meSnap.exists()) myChar = meSnap.data();
-  }catch(e){
-    console.error('[encounter] my char load fail', e);
-  }
-  renderLoadoutForMatch(intent.charId, myChar);
+    renderLoadoutForMatch(intent.charId, myChar);
+  }catch(e){ console.error('[encounter] my char load fail', e); }
 
-  // 자동 매칭 시작
-  let matchToken = null;
   const matchArea = document.getElementById('matchArea');
   const btnStart  = document.getElementById('btnStart');
+  let matchToken = null;
 
   try{
-    // 1) 세션 락 먼저 확인 → 없으면 기존 로직 수행
-let data = null;
-const persisted = loadMatchLock('encounter', intent.charId);
-if (persisted) {
-  data = { ok:true, token: persisted.token||null, opponent: persisted.opponent };
-} else {
-  try{
-    const call = httpsCallable(func, 'requestMatch');
-    ({ data } = await call({ charId: intent.charId, mode: 'encounter' }));
-  }catch(_e){
-    data = null;
-  }
-  if(!data?.ok){
-    data = await autoMatch({ db, fx, charId: intent.charId, mode: 'encounter' });
-  }
-  if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
-
-  saveMatchLock('encounter', intent.charId, {
-    token: data.token || null,
-    opponent: data.opponent,
-    // expiresAt: data.expiresAt || (Date.now() + 3*60*1000)
-  });
-}
-
-
-    // 3) 상대 상세 불러와서 카드 렌더
+    const data = await autoMatch({ db, fx, charId: intent.charId, mode: 'encounter' });
+    if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
+    
+    // ... (상대 카드 렌더링 로직은 기존과 동일) ...
     const oppId = String(data.opponent.id||data.opponent.charId||'').replace(/^chars\//,'');
     const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
     const opp = oppDoc.exists() ? oppDoc.data() : {};
@@ -244,24 +211,24 @@ if (persisted) {
       if(oppId) location.hash = `#/char/${oppId}`;
     });
 
-    // 토큰(있으면 저장) + 시작 버튼 활성화
     matchToken = data.token || null;
     btnStart.disabled = false;
     mountCooldownOnButton(btnStart, '조우 시작');
+    
+    // 🚨 btnStart.onclick 수정
     btnStart.onclick = async ()=>{
+      btnStart.disabled = true; // 중복 클릭 방지
       try{
+        // 서버에 쿨타임 설정을 요청 (1분)
         const callCD = httpsCallable(func, 'setGlobalCooldown');
-        await callCD({ seconds: 60 }); // 서버가 쿨타임 고정(연장만)
+        await callCD({ seconds: 60 });
+
+        showToast('조우 로직은 다음 패치에서 이어서 할게!');
+        // TODO: 실제 조우 시작 로직
       }catch(e){
-        showToast('쿨타임 설정에 실패했어. 잠시 후 다시 시도해줘');
-        return; // 서버가 못 박으면 진행 금지
+        showToast(e.message || '조우를 시작할 수 없어.');
+        btnStart.disabled = false; // 실패 시 버튼 복구
       }
-
-      if (getCooldownRemainMs()>0) return showToast('전역 쿨타임 중이야!');
-      applyGlobalCooldown(60); // 조우 시작 시 1분 전역 쿨타임
-
-      showToast('조우 로직은 다음 패치에서 이어서 할게!');
-      // TODO: import('../api/ai.js').then(({startEncounterWithToken})=> startEncounterWithToken({ token: matchToken }));
     };
 
   }catch(e){
