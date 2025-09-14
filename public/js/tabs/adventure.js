@@ -4,11 +4,12 @@ import { db, auth, fx, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { fetchWorlds } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
-// 🚨 서버 함수를 직접 호출하므로, 클라이언트 측 createRun은 더 이상 필요 없습니다.
+// 🚨 findMyActiveRun만 남기고 쿨타임 관련 import는 모두 제거합니다.
 import { findMyActiveRun } from '../api/explore.js';
 import { getUserInventory } from '../api/user.js';
 
-// ===== 로딩 오버레이 유틸리티 =====
+
+// (showLoadingOverlay, ensureModalCss 등 다른 헬퍼 함수들은 기존과 동일하게 유지)
 function showLoadingOverlay(messages = []) {
   const overlay = document.createElement('div');
   overlay.id = 'toh-loading-overlay';
@@ -56,8 +57,6 @@ function showLoadingOverlay(messages = []) {
     }
   };
 }
-
-// ===== modal css (adventure 전용) =====
 function ensureModalCss(){
   if (document.getElementById('toh-modal-css')) return;
   const st = document.createElement('style');
@@ -70,8 +69,6 @@ function ensureModalCss(){
   `;
   document.head.appendChild(st);
 }
-
-// ===== 공용 유틸 =====
 const diffColor = (d)=>{
   const v = String(d||'').toLowerCase();
   if(['easy','이지','normal','노말'].includes(v)) return '#4aa3ff';
@@ -81,8 +78,9 @@ const diffColor = (d)=>{
 const esc = (s)=> String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 function setExploreIntent(into){ sessionStorage.setItem('toh.explore.intent', JSON.stringify(into)); }
 
+
 function injectResumeBanner(root, run){
-  const host = root.querySelector('.bookview') || root;
+  const host = root.querySelector('.bookview') || root; // 세계관 카드들이 들어가는 상자
   const box = document.createElement('div');
   box.className = 'kv-card';
   box.style = 'margin-bottom:10px;border-left:3px solid #4aa3ff;padding-left:10px';
@@ -102,7 +100,7 @@ function injectResumeBanner(root, run){
   box.querySelector('#btnResumeRun').onclick = ()=> location.hash = '#/explore-run/' + run.id;
 }
 
-// ===== 1단계: 세계관 선택 =====
+// ... viewWorldPick, viewSitePick, openCharPicker, 아이템 유틸 함수들은 변경 없이 그대로 유지 ...
 async function viewWorldPick(root){
   const worlds = await fetchWorlds().catch(()=>({ worlds: [] }));
   const list = Array.isArray(worlds?.worlds) ? worlds.worlds : [];
@@ -149,8 +147,6 @@ async function viewWorldPick(root){
     });
   });
 }
-
-// ===== 2단계: 명소(사이트) 선택 =====
 function viewSitePick(root, world){
   const sites = Array.isArray(world?.detail?.sites) ? world.detail.sites : [];
 
@@ -194,22 +190,12 @@ function viewSitePick(root, world){
     });
   });
 }
-
-// ===== 3단계: 캐릭터 선택(모달) =====
 async function openCharPicker(root, world, site){
   const u = auth.currentUser;
   ensureModalCss();
-
   if(!u){ showToast('로그인이 필요해'); return; }
-
-  const qs = await fx.getDocs(fx.query(
-    fx.collection(db,'chars'),
-    fx.where('owner_uid','==', u.uid),
-    fx.limit(50)
-  ));
-
+  const qs = await fx.getDocs(fx.query(fx.collection(db,'chars'), fx.where('owner_uid','==', u.uid), fx.limit(50) ));
   const chars=[]; qs.forEach(d=>chars.push({ id:d.id, ...d.data() }));
-
   chars.sort((a,b)=> (b?.createdAt?.toMillis?.() ?? 0) - (a?.createdAt?.toMillis?.() ?? 0));
 
   const back = document.createElement('div');
@@ -246,9 +232,6 @@ async function openCharPicker(root, world, site){
     });
   });
 }
-
-
-// ===== 아이템 관련 유틸 (중복 정의 방지) =====
 function rarityStyle(r) {
   const map = {
     normal: { bg: '#2a2f3a', border: '#5f6673', text: '#c8d0dc', label: '일반' },
@@ -271,12 +254,14 @@ function ensureItemCss() {
   const st = document.createElement('style');
   st.id = 'toh-item-css';
   st.textContent = `
+  .shine-effect { position: relative; overflow: hidden; }
   .shine-effect::after { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%); transform: rotate(30deg); animation: shine 3s infinite ease-in-out; pointer-events: none; }
   @keyframes shine { 0% { transform: translateX(-75%) translateY(-25%) rotate(30deg); } 100% { transform: translateX(75%) translateY(25%) rotate(30deg); } }
-  .item-card { transition: all .18s ease; will-change: transform, box-shadow; }
+  .item-card { transition: all .18s ease; will-change: transform, box-shadow; outline: none; }
   .item-card:hover, .item-card:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.35); filter: brightness(1.05); }`;
   document.head.appendChild(st);
 }
+
 
 // ===== 4단계: 준비 화면 =====
 function viewPrep(root, world, site, char){
@@ -350,7 +335,9 @@ function viewPrep(root, world, site, char){
     if (!btnStart) return;
     const on = Array.from(skillInputs).filter(x=>x.checked).map(x=>+x.dataset.i);
     const hasNoSkills = !Array.isArray(char.abilities_all) || char.abilities_all.length === 0;
-    btnStart.disabled = !(on.length === 2 || hasNoSkills);
+    // 🚨 쿨타임 체크 로직 삭제
+    const skillsOk = on.length === 2 || hasNoSkills;
+    btnStart.disabled = !skillsOk;
   };
   
   if (Array.isArray(char.abilities_all) && char.abilities_all.length > 0) {
@@ -369,25 +356,25 @@ function viewPrep(root, world, site, char){
             await fx.updateDoc(charRef, { abilities_equipped: on });
             char.abilities_equipped = on;
             showToast('스킬 선택 저장 완료');
-          }catch(e){
-            showToast('저장 실패: ' + e.message);
-          }
+          }catch(e){ showToast('저장 실패: ' + e.message); }
         }
         updateStartEnabled();
       });
     });
   }
+  
+  // 🚨 쿨타임 타이머(tick, setInterval) 로직 전체 삭제
 
-  // 🚨 btnStart의 click 이벤트 핸들러를 서버 호출 방식으로 교체
   btnStart?.addEventListener('click', async ()=>{
     if (btnStart.disabled) return;
     if (Array.isArray(char.abilities_all) && char.abilities_all.length){
-      if ((char.abilities_equipped || []).length !== 2){
+      const eq = Array.isArray(char.abilities_equipped) ? char.abilities_equipped : [];
+      if (eq.length !== 2){
         showToast('스킬을 딱 2개 선택해줘!');
         return;
       }
     }
-
+    
     btnStart.disabled = true;
     const loader = showLoadingOverlay([
       "운명의 주사위를 굴립니다...", "캐릭터의 서사를 확인하는 중...", "모험 장소로 이동 중입니다...",
@@ -403,12 +390,10 @@ function viewPrep(root, world, site, char){
         difficulty: site.difficulty || 'normal'
       });
       
-      const { runId, reused, data } = result.data;
-
+      const { runId, reused } = result.data;
       if (reused) {
         showToast('진행 중인 탐험에 다시 참여합니다.');
       }
-
       if (!runId) throw new Error('서버에서 runId를 받지 못했습니다.');
 
       loader.finish();
@@ -427,17 +412,11 @@ function viewPrep(root, world, site, char){
   });
 }
 
-
-// /public/js/tabs/adventure.js 의 기존 openItemPicker 함수를 교체
-
-// ===== 아이템 목록 및 상세 정보 표시 =====
+// ... openItemPicker, showSharedInventory 등 나머지 함수는 변경 없이 유지 ...
 async function openItemPicker(char) {
-  const allItems = await getUserInventory(); // ◀◀◀ 이 줄을 수정하세요.
-  
-  // 필요한 CSS 주입
+  const allItems = await getUserInventory();
   ensureModalCss();
   ensureItemCss();
-
   const back = document.createElement('div');
   back.className = 'modal-back';
   back.innerHTML = `
@@ -447,32 +426,19 @@ async function openItemPicker(char) {
         <button class="btn ghost" id="mClose">닫기</button>
       </div>
       <div id="inventoryItems" class="grid3" style="gap:12px; max-height:450px; overflow-y:auto; padding:8px 4px 4px 0;"></div>
-
     </div>
   `;
   document.body.appendChild(back);
-
   const inventoryItemsBox = back.querySelector('#inventoryItems');
-  
   if (allItems.length > 0) {
     inventoryItemsBox.innerHTML = '';
     allItems.forEach(item => {
       const style = rarityStyle(item.rarity);
       const isShiny = ['epic', 'legend', 'myth'].includes((item.rarity || '').toLowerCase());
-
       const card = document.createElement('button');
       card.type = 'button';
       card.className = `kv-card item-card ${isShiny ? 'shine-effect' : ''}`;
-      card.style.cssText = `
-        padding: 8px;
-        cursor: pointer;
-        border: 1px solid ${style.border};
-        background: ${style.bg};
-        color: ${style.text};
-        transition: transform 0.2s;
-        width: 100%;
-        text-align: left;
-      `;
+      card.style.cssText = `padding: 8px; cursor: pointer; border: 1px solid ${style.border}; background: ${style.bg}; color: ${style.text}; transition: transform 0.2s; width: 100%; text-align: left;`;
       card.innerHTML = `
         <div class="row" style="align-items:center;gap:8px">
           <div style="font-weight:700;line-height:1.2">${esc(item.name)}</div>
@@ -480,20 +446,53 @@ async function openItemPicker(char) {
         </div>
         <div style="font-size:12px;opacity:.85;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
           ${esc(item.desc_soft || item.desc || item.description || (item.desc_long ? String(item.desc_long).split('\n')[0] : ''))}
-        </div>
-      `;
-
-      card.addEventListener('click', () => showItemDetailModal(item));
+        </div>`;
+      card.addEventListener('click', () => showItemDetailModal(item)); // showItemDetailModal은 이 파일 내에 정의되어 있어야 함
       inventoryItemsBox.appendChild(card);
     });
   } else {
     inventoryItemsBox.innerHTML = `<div class="text-dim">보유한 아이템이 없습니다.</div>`;
   }
-
-  
   const closeModal = () => back.remove();
   back.addEventListener('click', (e) => { if(e.target === back) closeModal(); });
   back.querySelector('#mClose').onclick = closeModal;
+}
+
+function showItemDetailModal(item) {
+    ensureModalCss();
+    const style = rarityStyle(item.rarity);
+    const getItemDesc = (it) => (it?.desc_long || it?.desc_soft || it?.desc || it?.description || '').replace(/\n/g, '<br>');
+    const getEffectsHtml = (it) => {
+        const eff = it?.effects;
+        if (!eff) return '';
+        if (Array.isArray(eff)) return `<ul style="margin:6px 0 0 16px; padding:0;">${eff.map(x=>`<li>${esc(String(x||''))}</li>`).join('')}</ul>`;
+        if (typeof eff === 'object') return `<ul style="margin:6px 0 0 16px; padding:0;">${Object.entries(eff).map(([k,v])=>`<li><b>${esc(k)}</b>: ${esc(String(v??''))}</li>`).join('')}</ul>`;
+        return `<div>${esc(String(eff))}</div>`;
+    };
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.style.zIndex = '10000';
+    back.innerHTML = `
+    <div class="modal-card">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+        <div>
+          <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">
+            <div style="font-weight:900; font-size:18px;">${esc(item.name)}</div>
+            <span class="chip" style="background:${style.border}; color:${style.bg}; font-weight:800;">${esc(style.label)}</span>
+            ${useBadgeHtml(item)}
+          </div>
+        </div>
+        <button class="btn ghost" id="mCloseDetail">닫기</button>
+      </div>
+      <div class="kv-card" style="padding:12px;">
+        <div style="font-size:14px; line-height:1.6;">${getItemDesc(item) || '상세 설명이 없습니다.'}</div>
+        ${item.effects ? `<hr style="margin:12px 0; border-color:#273247;"><div class="kv-label">효과</div><div style="font-size:13px;">${getEffectsHtml(item)}</div>` : ''}
+      </div>
+    </div>`;
+    const closeModal = () => back.remove();
+    back.addEventListener('click', e => { if(e.target === back) closeModal(); });
+    back.querySelector('#mCloseDetail').onclick = closeModal;
+    document.body.appendChild(back);
 }
 
 
@@ -511,31 +510,19 @@ export async function showAdventure(){
   }catch(e){
     console.warn('[adventure] resume check fail', e);
   }
-
 }
-
 export default showAdventure;
 
-// /public/js/tabs/adventure.js 파일 맨 아래에 추가
-
-// ===== 공유 인벤토리 화면 =====
 async function showSharedInventory(root) {
   const u = auth.currentUser;
   if (!u) {
     showToast('로그인이 필요합니다.');
     return;
   }
-
-  // Firestore의 users 컬렉션에서 현재 유저의 문서를 가져옴
   const userDocRef = fx.doc(db, 'users', u.uid);
   const userDocSnap = await fx.getDoc(userDocRef);
-  
-  // 유저 문서에 있는 items_all 배열을 가져옴 (없으면 빈 배열)
   const sharedItems = userDocSnap.exists() ? (userDocSnap.data().items_all || []) : [];
-
-  // 필요한 CSS 주입
   ensureItemCss();
-
   root.innerHTML = `
     <section class="container narrow">
       <div class="book-card">
@@ -546,56 +533,35 @@ async function showSharedInventory(root) {
         </div>
         <div class="bookview p12">
           <div class="kv-label">공유 보관함</div>
-          <div id="inventoryItems" class="grid4" style="gap:12px; max-height:60vh; overflow-y:auto; padding:8px 4px 4px 0;">
-
-            ${/* 아이템 목록 렌더링 */ ''}
-          </div>
+          <div id="inventoryItems" class="grid4" style="gap:12px; max-height:60vh; overflow-y:auto; padding:8px 4px 4px 0;"></div>
         </div>
       </div>
     </section>
   `;
-
   const inventoryItemsBox = root.querySelector('#inventoryItems');
-  
   if (sharedItems.length > 0) {
     inventoryItemsBox.innerHTML = '';
     sharedItems.forEach(item => {
       const style = rarityStyle(item.rarity);
       const isShiny = ['epic', 'legend', 'myth'].includes((item.rarity || '').toLowerCase());
-
       const card = document.createElement('button');
       card.type = 'button';
       card.className = `kv-card item-card ${isShiny ? 'shine-effect' : ''}`;
-      card.style.cssText = `
-        padding: 8px;
-        cursor: pointer;
-        border: 1px solid ${style.border};
-        background: ${style.bg};
-        color: ${style.text};
-        transition: transform 0.2s;
-        width: 100%;
-        text-align: left;
-      `;
+      card.style.cssText = `padding: 8px; cursor: pointer; border: 1px solid ${style.border}; background: ${style.bg}; color: ${style.text}; transition: transform 0.2s; width: 100%; text-align: left;`;
       card.innerHTML = `
-  <div class="row" style="align-items:center;gap:8px">
-    <div style="font-weight:700;line-height:1.2">${esc(item.name)}</div>
-    ${useBadgeHtml(item)}
-  </div>
-  <div style="font-size:12px;opacity:.85;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
-    ${esc(item.desc_soft || item.desc || item.description || '')}
-  </div>
-`;
-
-
+        <div class="row" style="align-items:center;gap:8px">
+          <div style="font-weight:700;line-height:1.2">${esc(item.name)}</div>
+          ${useBadgeHtml(item)}
+        </div>
+        <div style="font-size:12px;opacity:.85;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
+          ${esc(item.desc_soft || item.desc || item.description || '')}
+        </div>`;
       card.addEventListener('click', () => showItemDetailModal(item));
       inventoryItemsBox.appendChild(card);
     });
   } else {
     inventoryItemsBox.innerHTML = `<div class="kv-card text-dim" style="grid-column: 1 / -1;">보관함에 아이템이 없습니다.</div>`;
   }
-
-  
-  // [추가] '탐험' 버튼 클릭 시 viewWorldPick 함수를 호출하여 메인 화면으로 돌아감
   root.querySelector('#btnToExplore').addEventListener('click', () => {
     viewWorldPick(root);
   });
