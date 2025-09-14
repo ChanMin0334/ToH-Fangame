@@ -479,6 +479,80 @@ exports.sellItemsHttp = onRequest({ region: 'us-central1' }, async (req, res) =>
 });
 
 
+// === Guild: createGuild (onCall) ===
+// - 요구: 로그인, 내 캐릭터(charId)여야 함, 지갑(유저 coins)에서 1000골드 차감
+// - 결과: guilds 문서 생성, guild_members 1줄(리더) 생성, chars/{charId}에 guildId, guild_role=leader
+const { HttpsError } = require('firebase-functions/v2/https');
+
+exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
+  const uid = req.auth?.uid || req.auth?.token?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요해');
+
+  const name = String((req.data?.name || '')).trim();
+  const charId = String(req.data?.charId || '').trim();
+  if (name.length < 2 || name.length > 20) {
+    throw new HttpsError('invalid-argument', '길드 이름은 2~20자');
+  }
+  if (!charId) throw new HttpsError('invalid-argument', 'charId 필요');
+
+  const res = await db.runTransaction(async (tx) => {
+    const userRef = db.doc(`users/${uid}`);
+    const charRef = db.doc(`chars/${charId}`);
+
+    const [userSnap, charSnap] = await Promise.all([tx.get(userRef), tx.get(charRef)]);
+    if (!userSnap.exists) throw new HttpsError('failed-precondition', '유저 지갑이 없어');
+    if (!charSnap.exists) throw new HttpsError('failed-precondition', '캐릭터가 없어');
+
+    const user = userSnap.data() || {};
+    const c = charSnap.data() || {};
+    if (c.owner_uid !== uid) throw new HttpsError('permission-denied', '내 캐릭터가 아니야');
+    if (c.guildId) throw new HttpsError('failed-precondition', '이미 길드 소속이야');
+
+    const coins0 = Math.floor(Number(user.coins || 0));
+    const COST = 1000;
+    if (coins0 < COST) throw new HttpsError('failed-precondition', '골드가 부족해');
+
+    // 길드 생성
+    const guildRef = db.collection('guilds').doc();
+    const now = Date.now();
+    tx.set(guildRef, {
+      name,
+      badge_url: '',
+      owner_uid: uid,
+      owner_char_id: charId,
+      createdAt: now,
+      updatedAt: now,
+      member_count: 1,
+      level: 1,
+      exp: 0,
+      settings: { join: 'request', maxMembers: 30, isPublic: true }
+    });
+
+    // 멤버십(리더 1명 등록)
+    const memRef = db.collection('guild_members').doc(`${guildRef.id}__${charId}`);
+    tx.set(memRef, {
+      guildId: guildRef.id,
+      charId,
+      role: 'leader',
+      joinedAt: now,
+      leftAt: null,
+      points_weekly: 0,
+      points_total: 0,
+      lastActiveAt: now,
+      owner_uid: uid
+    });
+
+    // 캐릭터 표식
+    tx.update(charRef, { guildId: guildRef.id, guild_role: 'leader', updatedAt: now });
+
+    // 1000골드 차감
+    tx.update(userRef, { coins: Math.max(0, coins0 - COST), updatedAt: now });
+
+    return { ok: true, guildId: guildRef.id, coinsAfter: coins0 - COST };
+  });
+
+  return res;
+});
 
 
 
