@@ -3,7 +3,8 @@ import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
 import { getUserInventory } from '../api/user.js';
-import { uploadGuildBadgeSquare, createGuild } from '../api/store.js';
+import { uploadGuildBadgeSquare, createGuild, fetchMyChars } from '../api/store.js';
+
 
 
 /* (기존 esc 함수와 동일) */
@@ -23,17 +24,6 @@ function ensureModalCss(){
   document.head.appendChild(st);
 }
 
-// 내 캐릭 리스트 간단 조회(내림차순 최근순, 최대 50개)
-async function fetchMyCharsSimple(uid){
-  const q = fx.query(
-    fx.collection(db, 'chars'),
-    fx.where('owner_uid', '==', uid),
-    fx.orderBy('updatedAt', 'desc'),
-    fx.limit(50)
-  );
-  const snaps = await fx.getDocs(q);
-  return snaps.docs.map(d => ({ id: d.id, ...d.data() }));
-}
 
 
 async function openCharPicker(){
@@ -41,9 +31,11 @@ async function openCharPicker(){
   const u = auth.currentUser;
   if(!u){ showToast('로그인이 필요해'); return; }
 
-  // 내 캐릭 목록 불러오기
-  const list = await fetchMyCharsSimple(u.uid).catch(()=>[]);
-  const items = Array.isArray(list) ? list : [];
+  // 내 캐릭 목록 불러오기 (store.js 내장 함수 사용)
+  let items = await fetchMyChars(u.uid).catch(()=>[]);
+  if (!Array.isArray(items)) items = [];
+  // 최신순 정렬은 클라이언트에서
+  items.sort((a,b)=> (b.updatedAt||0) - (a.updatedAt||0));
 
   const back = document.createElement('div');
   back.className = 'modal-back';
