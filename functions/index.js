@@ -621,6 +621,20 @@ exports.joinGuild = onCall(async (req)=>{
       throw new HttpsError('failed-precondition','가입 조건 미달');
     }
 
+
+    // 🔒🔒🔒 [신규] "다른 길드에 이미 pending" 전역 중복 신청 차단
+    const otherPendingQ = db.collection('guild_requests')
+      .where('charId','==', charId)
+      .where('status','==','pending')
+      .limit(1);
+    const otherPendingSnap = await tx.get(otherPendingQ);
+    const doc0 = otherPendingSnap.docs[0];
+    if (doc0 && doc0.id !== `${guildId}__${charId}`) {
+      throw new HttpsError('failed-precondition','다른 길드에 이미 신청 중이야');
+    }
+    // 🔒🔒🔒
+   
+
     if (s.join === 'free') {
       if (cur >= cap) throw new HttpsError('failed-precondition','정원 초과');
 
