@@ -511,7 +511,8 @@ function renderGuilds(root, c, paths){
         <div class="kv-card">
           <div class="row" style="justify-content:space-between;align-items:center">
             <div style="font-weight:900">길드</div>
-            <div class="chip" id="btnPickChar">${c ? `캐릭터: <b>${esc(c.name||c.id)}</b>` : '캐릭터 선택 필요 (눌러서 선택)'}</div>
+            <div class="chip" id="btnPickChar">${c ? `캐릭터: <b>${esc(c.name||c.id)}</b> <span class="text-dim">(눌러서 변경)</span>` : '캐릭터 선택 필요 (눌러서 선택)'}</div>
+
           </div>
         </div>
 
