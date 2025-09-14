@@ -38,14 +38,26 @@ function saveMatchLock(mode, charId, payload){
   sessionStorage.setItem(_lockKey(mode,charId), JSON.stringify(j));
 }
 
+function getCooldownRemainMs(){ const v = +localStorage.getItem('toh.cooldown.allUntilMs') || 0; return Math.max(0, v - Date.now()); }
+function applyGlobalCooldown(seconds){ const until = Date.now() + (seconds*1000); localStorage.setItem('toh.cooldown.allUntilMs', String(until)); }
+
 function mountCooldownOnButton(btn, labelReady){
-    btn.disabled = false;
-    btn.textContent = labelReady;
-
-    // 더 이상 클라이언트에서 타이머를 돌리지 않습니다.
-    // 서버 응답에 따라 버튼 상태를 관리하는 것이 더 안전합니다.
+  let intervalId = null;
+  const tick = ()=>{
+    const r = getCooldownRemainMs();
+    if(r>0){
+      const s = Math.ceil(r/1000);
+      btn.disabled = true;
+      btn.textContent = `${labelReady} (${s}s)`;
+    }else{
+      btn.disabled = false;
+      btn.textContent = labelReady;
+      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+    }
+  };
+  tick();
+  intervalId = setInterval(tick, 500);
 }
-
 
 function intentGuard(mode){
   let j=null; try{ j=JSON.parse(sessionStorage.getItem('toh.match.intent')||'null'); }catch(_){}
@@ -301,18 +313,12 @@ export async function showBattle(){
         if (hasSkills && myCharData.abilities_equipped?.length !== 2) {
             return showToast('배틀을 시작하려면 스킬을 2개 선택해야 합니다.');
         }
+        if (getCooldownRemainMs() > 0) return;
+        btnStart.disabled = true;
+        applyGlobalCooldown(300);
+        await startBattleProcess(myCharData, opponentCharData);
+    };
 
-      btnStart.disabled = true; // 중복 클릭 방지
-
-      try {
-          // [핵심] 서버에 쿨타임 설정을 요청합니다. (예: 5분)
-          const callCD = httpsCallable(func, 'setGlobalCooldown');
-          await callCD({ seconds: 300 }); 
-
-          // 서버 쿨타임 설정 성공 시, 배틀 프로세스 시작
-          await startBattleProcess(myCharData, opponentCharData);
-
-      
   } catch(e) {
     console.error('[battle] setup error', e);
     document.getElementById('matchArea').innerHTML = `<div class="text-dim">매칭 중 오류 발생: ${e.message}</div>`;
