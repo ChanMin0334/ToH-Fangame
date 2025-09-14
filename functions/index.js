@@ -589,28 +589,20 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
 
 
 // 가입 조건 체크: 배열로 여러 조건 허용 (중복 허용)
+// 가입 조건: 고정 필드 (eloMin / winsMin / likesMin)
 function checkGuildRequirements(requirements, charData){
-  const conds = Array.isArray(requirements) ? requirements : [];
-  for (const r of conds) {
-    const t = String(r?.type||'').toLowerCase();   // 예: 'elo'
-    const op = String(r?.op||'>=');
-    const v  = Number(r?.value);
-    let val = 0;
+  const r = requirements || {};
+  const elo   = Number(charData?.elo || 0);
+  const wins  = Number(charData?.wins || 0);
+  const likes = Number(charData?.likes_total || 0);
 
-    if (t === 'elo') val = Number(charData?.elo || 0);
-    else if (t === 'wins') val = Number(charData?.wins || 0);
-    else if (t === 'likes') val = Number(charData?.likes_total || 0);
-    else continue; // 모르는 조건은 통과(추가하기 쉽도록)
+  if (Number.isFinite(r.eloMin)   && r.eloMin   != null && !(elo   >= r.eloMin))   return false;
+  if (Number.isFinite(r.winsMin)  && r.winsMin  != null && !(wins  >= r.winsMin))  return false;
+  if (Number.isFinite(r.likesMin) && r.likesMin != null && !(likes >= r.likesMin)) return false;
 
-    if (op === '>=' && !(val >= v)) return false;
-    if (op === '>'  && !(val >  v)) return false;
-    if (op === '<=' && !(val <= v)) return false;
-    if (op === '<'  && !(val <  v)) return false;
-    if (op === '==' && !(val == v)) return false;
-    if (op === '!=' && !(val != v)) return false;
-  }
   return true;
 }
+
 
 
 
