@@ -859,6 +859,32 @@ exports.rejectGuildJoin = onCall(async (req)=>{
   return { ok:true, mode:'rejected' };
 });
 
+
+// === [신규] 가입 신청 취소 (신청자 본인만)
+exports.cancelGuildRequest = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, charId } = req.data || {};
+  if(!uid || !guildId || !charId) throw new HttpsError('invalid-argument','필요값');
+
+  const cRef = db.doc(`chars/${charId}`);
+  const rqRef = db.doc(`guild_requests/${guildId}__${charId}`);
+
+  return await db.runTransaction(async (tx)=>{
+    const [cSnap, rqSnap] = await Promise.all([tx.get(cRef), tx.get(rqRef)]);
+    if(!cSnap.exists) throw new HttpsError('not-found','캐릭 없음');
+    if(!rqSnap.exists) throw new HttpsError('not-found','신청 없음');
+
+    const c = cSnap.data(), r = rqSnap.data();
+    if (c.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 취소 가능');
+    if (r.status !== 'pending') return { ok:true, mode:'noop' };
+
+    tx.update(rqRef, { status:'cancelled_by_applicant', decidedAt: Date.now() });
+    return { ok:true, mode:'cancelled' };
+  });
+});
+
+
+
 // 길드 스태프 추가/해제 (로그 보기 권한 부여용)
 // 호출: httpsCallable('setGuildStaff')({ guildId, targetUid, add:true|false })
 exports.setGuildStaff = onCall(async (req)=>{
@@ -878,5 +904,177 @@ exports.setGuildStaff = onCall(async (req)=>{
 
   await gRef.update({ staff_uids: Array.from(set), updatedAt: Date.now() });
   return { ok:true, staff_uids: Array.from(set) };
+});
+
+
+// === [신규] 길드 탈퇴 (캐릭 본인)
+// - 리더가 혼자 남은 경우: 탈퇴 = 길드 삭제와 동일 처리(자동 제거)
+// - 리더인데 다른 멤버가 있으면: 위임하거나 추방으로 정리한 뒤 탈퇴해야 함
+exports.leaveGuild = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { charId } = req.data || {};
+  if(!uid || !charId) throw new HttpsError('invalid-argument','필요값');
+
+  const cRef = db.doc(`chars/${charId}`);
+  return await db.runTransaction(async (tx)=>{
+    const cSnap = await tx.get(cRef);
+    if(!cSnap.exists) throw new HttpsError('not-found','캐릭 없음');
+    const c = cSnap.data();
+    if(c.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 탈퇴 가능');
+    const guildId = c.guildId;
+    if(!guildId) return { ok:true, mode:'noop' };
+
+    const gRef = db.doc(`guilds/${guildId}`);
+    const gSnap = await tx.get(gRef);
+    if(!gSnap.exists) throw new HttpsError('not-found','길드 없음');
+    const g = gSnap.data();
+
+    // 현재 멤버 수 파악
+    const memId = `${guildId}__${charId}`;
+    const memRef = db.doc(`guild_members/${memId}`);
+
+    // 멤버 수 카운트
+    const q = await db.collection('guild_members').where('guildId','==', guildId).get();
+    const memberCount = q.docs.filter(d => !d.data().leftAt).length || g.member_count || 1;
+
+    if (c.guild_role === 'leader') {
+      if (memberCount > 1) {
+        throw new HttpsError('failed-precondition','리더는 위임 후 탈퇴 가능');
+      }
+      // 혼자만 남았다면 길드 삭제와 동일 처리
+      tx.update(cRef, { guildId: FieldValue.delete(), guild_role: FieldValue.delete(), updatedAt: Date.now() });
+      tx.update(gRef, { member_count: 0 });
+      tx.set(memRef, { leftAt: Date.now() }, { merge:true });
+      // 길드 문서 삭제
+      tx.delete(gRef);
+      return { ok:true, mode:'deleted' };
+    }
+
+    // 일반/오피서 탈퇴
+    tx.update(cRef, { guildId: FieldValue.delete(), guild_role: FieldValue.delete(), updatedAt: Date.now() });
+    tx.set(memRef, { leftAt: Date.now() }, { merge:true });
+    tx.update(gRef, { member_count: Math.max(0, (g.member_count||1)-1), updatedAt: Date.now() });
+
+    return { ok:true, mode:'left' };
+  });
+});
+
+
+// === [신규] 길드 추방 (리더 또는 오피서)
+// - 오피서는 'member'만 추방 가능
+// - 리더는 officer/member 추방 가능(본인 제외)
+exports.kickGuildMember = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, targetCharId } = req.data || {};
+  if(!uid || !guildId || !targetCharId) throw new HttpsError('invalid-argument','필요값');
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const tRef = db.doc(`chars/${targetCharId}`);
+    const [gSnap, tSnap] = await Promise.all([tx.get(gRef), tx.get(tRef)]);
+    if(!gSnap.exists) throw new HttpsError('not-found','길드 없음');
+    if(!tSnap.exists) throw new HttpsError('not-found','대상 캐릭 없음');
+
+    const g = gSnap.data(), t = tSnap.data();
+    if (t.guildId !== guildId) throw new HttpsError('failed-precondition','해당 길드 소속이 아님');
+
+    // 호출자 권한: 리더 or 오피서
+    // (간단화: 호출자 UID가 g.owner_uid 이면 리더 권한, 아니면 staff_uids 에 있으면 오피서 권한)
+    const isLeader = (g.owner_uid === uid);
+    const isOfficer = Array.isArray(g.staff_uids) && g.staff_uids.includes(uid);
+    if (!isLeader && !isOfficer) throw new HttpsError('permission-denied','권한 없음');
+
+    if (t.guild_role === 'leader') throw new HttpsError('failed-precondition','리더는 추방 불가');
+    if (t.guild_role === 'officer' && !isLeader) throw new HttpsError('permission-denied','오피서는 리더만 추방 가능');
+
+    // 처리
+    const memId = `${guildId}__${targetCharId}`;
+    tx.update(tRef, { guildId: FieldValue.delete(), guild_role: FieldValue.delete(), updatedAt: Date.now() });
+    tx.set(db.doc(`guild_members/${memId}`), { leftAt: Date.now() }, { merge:true });
+    tx.update(gRef, { member_count: Math.max(0, (g.member_count||1)-1), updatedAt: Date.now() });
+
+    return { ok:true };
+  });
+});
+
+
+// === [신규] 길드 역할 변경 (리더 전용): officer <-> member
+exports.setGuildRole = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, charId, makeOfficer } = req.data || {};
+  if(!uid || !guildId || !charId) throw new HttpsError('invalid-argument','필요값');
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const cRef = db.doc(`chars/${charId}`);
+    const [gSnap, cSnap] = await Promise.all([tx.get(gRef), tx.get(cRef)]);
+    if(!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found','길드/캐릭 없음');
+
+    const g = gSnap.data(), c = cSnap.data();
+    if (g.owner_uid !== uid) throw new HttpsError('permission-denied','리더만 가능');
+    if (c.guildId !== guildId) throw new HttpsError('failed-precondition','해당 길드원이 아님');
+    if (c.guild_role === 'leader') throw new HttpsError('failed-precondition','리더 역할 변경 불가');
+
+    const role = makeOfficer ? 'officer' : 'member';
+    tx.update(cRef, { guild_role: role, updatedAt: Date.now() });
+
+    // staff_uids(로그 열람 권한)도 동기화
+    const set = new Set(Array.isArray(g.staff_uids)? g.staff_uids : []);
+    if (makeOfficer) set.add(c.owner_uid);
+    else set.delete(c.owner_uid);
+    tx.update(gRef, { staff_uids: Array.from(set), updatedAt: Date.now() });
+
+    return { ok:true, role };
+  });
+});
+
+
+// === [신규] 길드장 위임 (리더 -> 다른 길드원)
+exports.transferGuildOwner = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, toCharId } = req.data || {};
+  if(!uid || !guildId || !toCharId) throw new HttpsError('invalid-argument','필요값');
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const tRef = db.doc(`chars/${toCharId}`);
+    const [gSnap, tSnap] = await Promise.all([tx.get(gRef), tx.get(tRef)]);
+    if(!gSnap.exists || !tSnap.exists) throw new HttpsError('not-found','길드/대상 캐릭 없음');
+
+    const g = gSnap.data(), t = tSnap.data();
+    if (g.owner_uid !== uid) throw new HttpsError('permission-denied','현 리더만 위임 가능');
+    if (t.guildId !== guildId) throw new HttpsError('failed-precondition','해당 길드원이 아님');
+
+    // 현 리더 캐릭(문자열로 저장된 경우가 있어 소유 캐릭 찾아보기)
+    // 가장 안전하게: guild_members에서 role=='leader' 인 캐릭을 찾아 demote
+    const currentLeader = await db.collection('guild_members')
+      .where('guildId','==', guildId).where('role','==','leader').limit(1).get();
+
+    // 1) 길드 문서 오너 교체
+    tx.update(gRef, {
+      owner_uid: t.owner_uid,
+      owner_char_id: toCharId,
+      updatedAt: Date.now()
+    });
+
+    // 2) 대상 캐릭을 leader로
+    const newLeaderMemId = `${guildId}__${toCharId}`;
+    tx.set(db.doc(`guild_members/${newLeaderMemId}`), { role:'leader' }, { merge:true });
+    tx.update(tRef, { guild_role:'leader', updatedAt: Date.now() });
+
+    // 3) 기존 리더를 officer 로 내리기 (있다면)
+    if (!currentLeader.empty) {
+      const oldMem = currentLeader.docs[0];
+      const [gId, oldCharId] = oldMem.id.split('__');
+      const oldCharRef = db.doc(`chars/${oldCharId}`);
+      tx.set(oldMem.ref, { role:'officer' }, { merge:true });
+      tx.update(oldCharRef, { guild_role:'officer', updatedAt: Date.now() });
+
+      // staff_uids 에 신규/기존 반영: 새 리더는 자동으로 staff 성격, 기존 리더 UID는 남겨도 되고 제거해도 되는데
+      // 여기서는 남겨두되, 필요하면 이후 setGuildRole로 조정.
+    }
+
+    return { ok:true };
+  });
 });
 
