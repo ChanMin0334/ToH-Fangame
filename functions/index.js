@@ -553,6 +553,73 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
   return res;
 });
 
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestore');
+const { getStorage } = require('firebase-admin/storage');
+
+exports.deleteGuild = onCall(async (req) => {
+  const uid = req.auth?.uid || null;
+  const { guildId } = req.data || {};
+  if (!uid || !guildId) throw new HttpsError('invalid-argument', 'uid/guildId 필요');
+
+  const db = getFirestore();
+  const gRef = db.collection('guilds').doc(guildId);
+  const gSnap = await gRef.get();
+  if (!gSnap.exists) throw new HttpsError('not-found', '길드를 찾을 수 없음');
+
+  const g = gSnap.data();
+  if (g.owner_uid !== uid)
+    throw new HttpsError('permission-denied', '길드장만 삭제 가능');
+
+  // 1) 모든 길드원 무소속 처리 (chars.guildId, guild_role 제거)
+  let total = 0, last = null;
+  while (true) {
+    let q = db.collection('chars')
+      .where('guildId', '==', guildId)
+      .orderBy(FieldPath.documentId())
+      .limit(400);
+    if (last) q = q.startAfter(last);
+
+    const qs = await q.get();
+    if (qs.empty) break;
+
+    const batch = db.batch();
+    const now = Date.now();
+    qs.docs.forEach(d => {
+      batch.update(d.ref, {
+        guildId: FieldValue.delete(),
+        guild_role: FieldValue.delete(),
+        updatedAt: now
+      });
+    });
+    await batch.commit();
+
+    total += qs.size;
+    last = qs.docs[qs.docs.length - 1];
+  }
+
+  // 2) 길드 images 서브콜렉션 정리(있으면)
+  try {
+    const imgs = await gRef.collection('images').listDocuments();
+    const b = db.batch();
+    imgs.forEach(ref => b.delete(ref));
+    await b.commit();
+  } catch (_) {}
+
+  // 3) 길드 배지 파일 정리(소유자 uid 기준 경로)
+  try {
+    const bucket = getStorage().bucket();
+    const prefix = `guild_badges/${g.owner_uid}/${guildId}/`;
+    const [files] = await bucket.getFiles({ prefix });
+    if (files.length) await bucket.deleteFiles({ prefix, force: true });
+  } catch (_) {}
+
+  // 4) 길드 문서 삭제
+  await gRef.delete();
+
+  return { ok: true, removedMembers: total };
+});
+
 
 
 
