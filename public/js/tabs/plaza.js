@@ -556,7 +556,7 @@ function renderGuilds(root, c, paths){
           <div class="row" style="justify-content:space-between;align-items:center">
             <div style="font-weight:900">길드</div>
             <div class="row" style="gap:8px;align-items:center">
-              <button id="btn-open-create" class="btn">🏰 길드 만들기</button>
+              <button id="btn-open-create" class="btn" ${myGuildId?'disabled title="이미 길드 소속이야"':''}>🏰 길드 만들기</button>
               <div class="chip">🪙 <b id="guild-coin">${coin}</b> <span class="text-dim">(지갑)</span></div>
             </div>
           </div>
@@ -616,6 +616,7 @@ function renderGuilds(root, c, paths){
 
     // 3) 상단 "길드 만들기" 버튼 — 캐릭터 없으면 먼저 고르게
     root.querySelector('#btn-open-create')?.addEventListener('click', ()=>{
+      if (myGuildId) { showToast('이미 길드 소속이라 만들 수 없어'); return; }
       if (!c) { openCharPicker(); return; }
       // 아래의 만들기 모달을 재사용
       openCreateModal();
