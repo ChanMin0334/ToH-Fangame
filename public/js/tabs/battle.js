@@ -1,11 +1,10 @@
 // /public/js/tabs/battle.js
-import { auth, db, fx } from '../api/firebase.js';
+import { auth, db, fx, func } from '../api/firebase.js'; // func 추가
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js'; // httpsCallable 추가
 import { showToast } from '../ui/toast.js';
 import { autoMatch } from '../api/match_client.js';
-// ai.js에서 새로운 함수들을 가져오도록 수정
-import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateFinalBattleLog } from '../api/ai.js'; 
-// getRelationBetween을 추가
-import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js'; 
+import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateFinalBattleLog } from '../api/ai.js';
+import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js';
 import { getUserInventory } from '../api/user.js';
 import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js';
 
@@ -38,25 +37,10 @@ function saveMatchLock(mode, charId, payload){
   sessionStorage.setItem(_lockKey(mode,charId), JSON.stringify(j));
 }
 
-function getCooldownRemainMs(){ const v = +localStorage.getItem('toh.cooldown.allUntilMs') || 0; return Math.max(0, v - Date.now()); }
-function applyGlobalCooldown(seconds){ const until = Date.now() + (seconds*1000); localStorage.setItem('toh.cooldown.allUntilMs', String(until)); }
-
+// 쿨타임 버튼 UI만 업데이트 (실제 검증은 서버에서)
 function mountCooldownOnButton(btn, labelReady){
-  let intervalId = null;
-  const tick = ()=>{
-    const r = getCooldownRemainMs();
-    if(r>0){
-      const s = Math.ceil(r/1000);
-      btn.disabled = true;
-      btn.textContent = `${labelReady} (${s}s)`;
-    }else{
-      btn.disabled = false;
-      btn.textContent = labelReady;
-      if (intervalId) { clearInterval(intervalId); intervalId = null; }
-    }
-  };
-  tick();
-  intervalId = setInterval(tick, 500);
+    btn.disabled = false;
+    btn.textContent = labelReady;
 }
 
 function intentGuard(mode){
@@ -65,8 +49,8 @@ function intentGuard(mode){
   return j;
 }
 
-// ---------- Battle Progress & Logic ----------
-
+// ... (showBattleProgressUI, startBattleProcess 함수 등은 기존과 동일하게 유지) ...
+// (복사하기 편하도록 전체 코드를 제공합니다)
 function showBattleProgressUI(myChar, opponentChar) {
   const overlay = document.createElement('div');
   overlay.id = 'battle-progress-overlay';
@@ -118,7 +102,6 @@ function showBattleProgressUI(myChar, opponentChar) {
   };
 }
 
-// /public/js/tabs/battle.js 의 startBattleProcess 함수
 async function startBattleProcess(myChar, opponentChar) {
     const progress = showBattleProgressUI(myChar, opponentChar);
     try {
@@ -154,14 +137,13 @@ async function startBattleProcess(myChar, opponentChar) {
         const attackerData = simplifyForAI(myChar, myInv);
         const defenderData = simplifyForAI(opponentChar, oppInv);
         
-        // 두 캐릭터의 관계 조회
         const relation = await getRelationBetween(myChar.id, opponentChar.id);
 
         const battleData = { 
             prompts: chosenPrompts, 
             attacker: attackerData, 
             defender: defenderData,
-            relation: relation // 조회된 관계 정보 추가
+            relation: relation
         };
         
         progress.update('AI가 3가지 전투 시나리오 구상 중...', 40);
@@ -176,42 +158,35 @@ async function startBattleProcess(myChar, opponentChar) {
 
         progress.update('배틀 결과 저장...', 95);
 
-        // 경험치 밸런스 조정 (서버리스 환경이므로 클라이언트에서 수행)
         const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
         finalLog.exp_char0 = clamp(finalLog.exp_char0, 5, 50);
         finalLog.exp_char1 = clamp(finalLog.exp_char1, 5, 50);
 
         const logData = {
-            attacker_uid: myChar.owner_uid, // <-- 이 줄을 추가하세요!
+            attacker_uid: myChar.owner_uid,
             attacker_char: `chars/${myChar.id}`,
             defender_char: `chars/${opponentChar.id}`,
             attacker_snapshot: { name: myChar.name, thumb_url: myChar.thumb_url || null },
             defender_snapshot: { name: opponentChar.name, thumb_url: opponentChar.thumb_url || null },
             relation_at_battle: relation || null,
-            ...finalLog, // title, content, winner, exp, items_used 등 포함
+            ...finalLog,
             endedAt: fx.serverTimestamp()
         };
 
         const logRef = await fx.addDoc(fx.collection(db, 'battle_logs'), logData);
 
-        // [수정] Cloudflare Worker를 호출하여 후처리 실행
         try {
             progress.update('서버에 결과 반영 중...', 98);
-            
-            // 5단계에서 복사한 본인의 Worker URL을 여기에 붙여넣으세요.
             const workerUrl = 'https://toh-battle-processor.pokemonrgby.workers.dev'; 
-
             const res = await fetch(workerUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ logId: logRef.id })
             });
-
             if (!res.ok) {
                 const errorData = await res.json();
                 throw new Error(errorData.error || 'Worker에서 오류가 발생했습니다.');
             }
-
         } catch (e) {
             console.error('배틀 결과 반영 실패:', e);
             showToast(`결과를 반영하는 중 서버 오류가 발생했습니다: ${e.message}`);
@@ -231,7 +206,7 @@ async function startBattleProcess(myChar, opponentChar) {
         if (btnStart) mountCooldownOnButton(btnStart, '배틀 시작');
     }
 }
-// ---------- entry ----------
+
 export async function showBattle(){
   ensureSpinCss();
   const intent = intentGuard('battle');
@@ -295,11 +270,10 @@ export async function showBattle(){
     const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
     
     if (!oppDoc.exists()) {
-      // 상대 캐릭터가 삭제되었거나 없는 경우, 매칭 정보를 초기화하고 재매칭
       showToast('상대 정보가 없어 다시 매칭할게.');
       sessionStorage.removeItem(_lockKey('battle', intent.charId));
-      setTimeout(() => showBattle(), 1000); // 1초 후 재시도
-      return; // 현재 로직 중단
+      setTimeout(() => showBattle(), 1000);
+      return;
     }
     
     opponentCharData = { id: oppDoc.id, ...oppDoc.data() };
@@ -308,15 +282,29 @@ export async function showBattle(){
 
     const btnStart = document.getElementById('btnStart');
     mountCooldownOnButton(btnStart, '배틀 시작');
+    
+    // 🚨 btnStart.onclick 수정
     btnStart.onclick = async () => {
         const hasSkills = myCharData.abilities_all && myCharData.abilities_all.length > 0;
         if (hasSkills && myCharData.abilities_equipped?.length !== 2) {
             return showToast('배틀을 시작하려면 스킬을 2개 선택해야 합니다.');
         }
-        if (getCooldownRemainMs() > 0) return;
-        btnStart.disabled = true;
-        applyGlobalCooldown(300);
-        await startBattleProcess(myCharData, opponentCharData);
+
+        btnStart.disabled = true; // 중복 클릭 방지
+
+        try {
+            // 서버에 쿨타임 설정을 요청 (5분)
+            const callCD = httpsCallable(func, 'setGlobalCooldown');
+            await callCD({ seconds: 300 }); 
+
+            // 성공 시 배틀 프로세스 시작
+            await startBattleProcess(myCharData, opponentCharData);
+
+        } catch (e) {
+            // 서버가 쿨타임 등의 이유로 요청을 거부하면 에러 발생
+            showToast(e.message || '배틀을 시작할 수 없어.');
+            btnStart.disabled = false; // 실패 시 버튼 다시 활성화
+        }
     };
 
   } catch(e) {
@@ -325,6 +313,7 @@ export async function showBattle(){
   }
 }
 
+// ... (renderOpponentCard, renderLoadoutForMatch, openItemPicker 함수는 기존과 동일하게 유지) ...
 function renderOpponentCard(matchArea, opp) {
     const intro = truncate(opp.summary || opp.intro || '', 160);
     const abilities = Array.isArray(opp.abilities_all)
@@ -467,13 +456,11 @@ async function openItemPicker(c, onSave) {
             const item = inv.find(it => it.id === itemId);
             if (!item) return;
 
-            // ◀◀◀ 이 부분을 통째로 교체하세요.
-            // 상세 모달을 호출하고, 선택 결과를 콜백으로 받아 picker를 새로고침합니다.
             showItemDetailModal(item, {
                 equippedIds: selectedIds,
                 onUpdate: (newSelectedIds) => {
                     selectedIds = newSelectedIds;
-                    renderModalContent(); // 부모 모달(picker) UI 새로고침
+                    renderModalContent();
                 }
             });
         });
