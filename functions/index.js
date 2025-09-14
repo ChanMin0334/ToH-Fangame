@@ -496,6 +496,14 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
   if (!charId) throw new HttpsError('invalid-argument', 'charId 필요');
 
   const res = await db.runTransaction(async (tx) => {
+    const nameKey = normalizeGuildName(name);
+    if (nameKey.length < 2) throw new HttpsError('invalid-argument', '길드 이름은 2자 이상');
+
+    // 이름 예약 문서(유일키): guild_names/{nameKey}
+    const nameRef = db.doc(`guild_names/${nameKey}`);
+    const nameSnap = await tx.get(nameRef);
+    if (nameSnap.exists) throw new HttpsError('already-exists', '이미 존재하는 이름이야');
+
     const userRef = db.doc(`users/${uid}`);
     const charRef = db.doc(`chars/${charId}`);
 
@@ -508,6 +516,17 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
     if (c.owner_uid !== uid) throw new HttpsError('permission-denied', '내 캐릭터가 아니야');
     if (c.guildId) throw new HttpsError('failed-precondition', '이미 길드 소속이야');
 
+    // [추가] 이 캐릭터가 다른 길드에 가입 신청(pending) 중이면 생성 금지
+    const pendQ = db.collection('guild_requests')
+      .where('charId','==', charId)
+      .where('status','==','pending')
+      .limit(1);
+    const pendSnap = await tx.get(pendQ);
+    if (!pendSnap.empty) {
+      throw new HttpsError('failed-precondition','다른 길드에 가입 신청 중이야. 먼저 신청을 취소해줘.');
+    }
+
+
     const coins0 = Math.floor(Number(user.coins || 0));
     const COST = 1000;
     if (coins0 < COST) throw new HttpsError('failed-precondition', '골드가 부족해');
@@ -517,16 +536,22 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
     const now = Date.now();
     tx.set(guildRef, {
       name,
+      name_lower: nameKey,          // ★ 추가: 소문자 키
+      staff_uids: [uid],            // ★ 추가: 스태프 기본값(길드장 포함)
       badge_url: '',
       owner_uid: uid,
       owner_char_id: charId,
       createdAt: now,
       updatedAt: now,
+      name_lower: nameKey,      // ★ 추가
+      staff_uids: [uid],        // ★ 추가: 길드장 기본 스태프
+
       member_count: 1,
       level: 1,
       exp: 0,
       settings: { join: 'request', maxMembers: 30, isPublic: true }
     });
+
 
     // 멤버십(리더 1명 등록)
     const memRef = db.collection('guild_members').doc(`${guildRef.id}__${charId}`);
@@ -547,6 +572,8 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
 
     // 1000골드 차감
     tx.update(userRef, { coins: Math.max(0, coins0 - COST), updatedAt: now });
+    // 이름 예약 문서에 현재 길드 연결 (같은 트랜잭션)
+    tx.set(nameRef, { guildId: guildRef.id, name, createdAt: now });
 
     return { ok: true, guildId: guildRef.id, coinsAfter: coins0 - COST };
   });
@@ -558,28 +585,20 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
 
 
 // 가입 조건 체크: 배열로 여러 조건 허용 (중복 허용)
+// 가입 조건: 고정 필드 (eloMin / winsMin / likesMin)
 function checkGuildRequirements(requirements, charData){
-  const conds = Array.isArray(requirements) ? requirements : [];
-  for (const r of conds) {
-    const t = String(r?.type||'').toLowerCase();   // 예: 'elo'
-    const op = String(r?.op||'>=');
-    const v  = Number(r?.value);
-    let val = 0;
+  const r = requirements || {};
+  const elo   = Number(charData?.elo || 0);
+  const wins  = Number(charData?.wins || 0);
+  const likes = Number(charData?.likes_total || 0);
 
-    if (t === 'elo') val = Number(charData?.elo || 0);
-    else if (t === 'wins') val = Number(charData?.wins || 0);
-    else if (t === 'likes') val = Number(charData?.likes_total || 0);
-    else continue; // 모르는 조건은 통과(추가하기 쉽도록)
+  if (Number.isFinite(r.eloMin)   && r.eloMin   != null && !(elo   >= r.eloMin))   return false;
+  if (Number.isFinite(r.winsMin)  && r.winsMin  != null && !(wins  >= r.winsMin))  return false;
+  if (Number.isFinite(r.likesMin) && r.likesMin != null && !(likes >= r.likesMin)) return false;
 
-    if (op === '>=' && !(val >= v)) return false;
-    if (op === '>'  && !(val >  v)) return false;
-    if (op === '<=' && !(val <= v)) return false;
-    if (op === '<'  && !(val <  v)) return false;
-    if (op === '==' && !(val == v)) return false;
-    if (op === '!=' && !(val != v)) return false;
-  }
   return true;
 }
+
 
 
 
@@ -621,6 +640,20 @@ exports.joinGuild = onCall(async (req)=>{
       throw new HttpsError('failed-precondition','가입 조건 미달');
     }
 
+
+    // 🔒🔒🔒 [신규] "다른 길드에 이미 pending" 전역 중복 신청 차단
+    const otherPendingQ = db.collection('guild_requests')
+      .where('charId','==', charId)
+      .where('status','==','pending')
+      .limit(1);
+    const otherPendingSnap = await tx.get(otherPendingQ);
+    const doc0 = otherPendingSnap.docs[0];
+    if (doc0 && doc0.id !== `${guildId}__${charId}`) {
+      throw new HttpsError('failed-precondition','다른 길드에 이미 신청 중이야');
+    }
+    // 🔒🔒🔒
+   
+
     if (s.join === 'free') {
       if (cur >= cap) throw new HttpsError('failed-precondition','정원 초과');
 
@@ -632,7 +665,19 @@ exports.joinGuild = onCall(async (req)=>{
       });
       tx.update(cRef, { guildId, guild_role:'member', updatedAt: Date.now() });
       tx.update(gRef, { member_count: cur + 1, updatedAt: Date.now() });
-      return { ok:true, mode:'joined' };
+      // free-join 시에도 이 캐릭터의 다른 pending 자동 취소
+      const othersQ = db.collection('guild_requests')
+        .where('charId','==', charId)
+        .where('status','==','pending')
+        .limit(50);
+      const othersSnap = await tx.get(othersQ);
+      for (const d of othersSnap.docs) {
+        if (d.id !== `${guildId}__${charId}`) {
+          tx.update(d.ref, { status:'auto-cancelled', decidedAt: Date.now() });
+        }
+      }
+
+     return { ok:true, mode:'joined' };
     }
 
     // 신청 승인 방식: "같은 문서ID"로 idempotent
@@ -710,6 +755,23 @@ exports.deleteGuild = onCall(async (req) => {
     const [files] = await bucket.getFiles({ prefix });
     if (files.length) await bucket.deleteFiles({ prefix, force: true });
   } catch (_) {}
+  // 이름 예약 해제
+  try {
+    const nameKey = normalizeGuildName(g.name);
+    if (nameKey) {
+      await db.doc(`guild_names/${nameKey}`).delete();
+    }
+  } catch (_) {}
+
+
+  // 🔧🔧🔧 [신규] 이 길드의 대기 신청 정리
+  try {
+    const qs = await db.collection('guild_requests').where('guildId','==', guildId).get();
+    const b = db.batch();
+    qs.docs.forEach(d => b.update(d.ref, { status:'cancelled_by_guild_delete', decidedAt: Date.now() }));
+    await b.commit();
+  } catch (_) {}
+  // 🔧🔧🔧
 
   // 4) 길드 문서 삭제
   await gRef.delete();
@@ -718,44 +780,69 @@ exports.deleteGuild = onCall(async (req) => {
 });
 
 
-exports.approveGuildJoin = onCall(async (req)=>{
-  const uid = req.auth?.uid || null;
-  const { guildId, charId } = req.data || {};
-  if(!uid || !guildId || !charId) throw new HttpsError('invalid-argument','필요값');
+exports.approveGuildJoin = onCall({ region: 'us-central1' }, async (req) => {
+  try {
+    const uid = req.auth?.uid || null;
+    const { guildId, charId } = req.data || {};
+    if (!uid || !guildId || !charId) throw new HttpsError('invalid-argument', '필요값');
 
-  return await db.runTransaction(async (tx)=>{
-    const gRef = db.doc(`guilds/${guildId}`);
-    const cRef = db.doc(`chars/${charId}`);
-    const rqRef = db.doc(`guild_requests/${guildId}__${charId}`);
+    return await db.runTransaction(async (tx) => {
+      const gRef = db.doc(`guilds/${guildId}`);
+      const cRef = db.doc(`chars/${charId}`);
+      const rqRef = db.doc(`guild_requests/${guildId}__${charId}`);
 
-    const [gSnap, cSnap, rqSnap] = await Promise.all([tx.get(gRef), tx.get(cRef), tx.get(rqRef)]);
-    if(!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found','길드/캐릭 없음');
+      // 모든 읽기 먼저
+      const [gSnap, cSnap, rqSnap] = await Promise.all([tx.get(gRef), tx.get(cRef), tx.get(rqRef)]);
+      if (!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found', '길드/캐릭 없음');
 
-    const g = gSnap.data(), c = cSnap.data();
-    if (g.owner_uid !== uid) throw new HttpsError('permission-denied','길드장만 가능');
+      const g = gSnap.data(), c = cSnap.data();
+      if (g.owner_uid !== uid) throw new HttpsError('permission-denied', '길드장만 가능');
 
-    if (c.guildId) { // 이미 가입된 상태면 요청만 정리
-      if (rqSnap.exists) tx.update(rqRef, { status:'accepted', decidedAt: Date.now() });
-      return { ok:true, mode:'already-in' };
-    }
+      if (c.guildId) { // 이미 가입된 상태면 요청만 정리
+        if (rqSnap.exists) tx.update(rqRef, { status: 'accepted', decidedAt: Date.now() });
+        return { ok: true, mode: 'already-in' };
+      }
 
-    const s = g.settings || {};
-    const cap = Number(s.maxMembers || 30);
-    const cur = Number(g.member_count || 0);
-    if (cur >= cap) throw new HttpsError('failed-precondition','정원 초과');
+      const s = g.settings || {};
+      const cap = Number(s.maxMembers || 30);
+      const cur = Number(g.member_count || 0);
+      if (cur >= cap) throw new HttpsError('failed-precondition', '정원 초과');
 
-    // 가입 처리
-    tx.set(db.doc(`guild_members/${guildId}__${charId}`), {
-      guildId, charId, role:'member', joinedAt: Date.now(), owner_uid: c.owner_uid,
-      points_weekly:0, points_total:0, lastActiveAt: Date.now()
+      // 이 캐릭의 "다른 길드" pending 미리 조회(읽기)
+      const othersQ = db.collection('guild_requests')
+        .where('charId', '==', charId)
+        .where('status', '==', 'pending')
+        .limit(50);
+      const othersSnap = await tx.get(othersQ);
+
+      // ── 이제부터 쓰기 ──
+      tx.set(db.doc(`guild_members/${guildId}__${charId}`), {
+        guildId, charId, role: 'member', joinedAt: Date.now(), owner_uid: c.owner_uid,
+        points_weekly: 0, points_total: 0, lastActiveAt: Date.now()
+      });
+      tx.update(cRef, { guildId, guild_role: 'member', updatedAt: Date.now() });
+      tx.update(gRef, { member_count: cur + 1, updatedAt: Date.now() });
+      if (rqSnap.exists) tx.update(rqRef, { status: 'accepted', decidedAt: Date.now() });
+
+      // 다른 길드 대기중 전부 취소
+      for (const d of othersSnap.docs) {
+        if (d.id !== `${guildId}__${charId}`) {
+          tx.update(d.ref, { status: 'auto-cancelled', decidedAt: Date.now() });
+        }
+      }
+
+      return { ok: true, mode: 'accepted' };
     });
-    tx.update(cRef, { guildId, guild_role:'member', updatedAt: Date.now() });
-    tx.update(gRef, { member_count: cur + 1, updatedAt: Date.now() });
-    if (rqSnap.exists) tx.update(rqRef, { status:'accepted', decidedAt: Date.now() });
-
-    return { ok:true, mode:'accepted' };
-  });
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (msg.includes('requires an index')) {
+      throw new HttpsError('failed-precondition', 'index-required:guild_requests(charId,status)');
+    }
+    if (e instanceof HttpsError) throw e;
+    throw new HttpsError('internal', msg || 'internal');
+  }
 });
+
 
 exports.rejectGuildJoin = onCall(async (req)=>{
   const uid = req.auth?.uid || null;
@@ -772,4 +859,222 @@ exports.rejectGuildJoin = onCall(async (req)=>{
   return { ok:true, mode:'rejected' };
 });
 
+
+// === [신규] 가입 신청 취소 (신청자 본인만)
+exports.cancelGuildRequest = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, charId } = req.data || {};
+  if(!uid || !guildId || !charId) throw new HttpsError('invalid-argument','필요값');
+
+  const cRef = db.doc(`chars/${charId}`);
+  const rqRef = db.doc(`guild_requests/${guildId}__${charId}`);
+
+  return await db.runTransaction(async (tx)=>{
+    const [cSnap, rqSnap] = await Promise.all([tx.get(cRef), tx.get(rqRef)]);
+    if(!cSnap.exists) throw new HttpsError('not-found','캐릭 없음');
+    if(!rqSnap.exists) throw new HttpsError('not-found','신청 없음');
+
+    const c = cSnap.data(), r = rqSnap.data();
+    if (c.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 취소 가능');
+    if (r.status !== 'pending') return { ok:true, mode:'noop' };
+
+    tx.update(rqRef, { status:'cancelled_by_applicant', decidedAt: Date.now() });
+    return { ok:true, mode:'cancelled' };
+  });
+});
+
+
+
+// 길드 스태프 추가/해제 (로그 보기 권한 부여용)
+// 호출: httpsCallable('setGuildStaff')({ guildId, targetUid, add:true|false })
+exports.setGuildStaff = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, targetUid, add } = req.data || {};
+  if(!uid || !guildId || !targetUid) throw new HttpsError('invalid-argument','필요값');
+
+  const gRef = db.doc(`guilds/${guildId}`);
+  const gSnap = await gRef.get();
+  if(!gSnap.exists) throw new HttpsError('not-found','길드 없음');
+
+  const g = gSnap.data();
+  if (g.owner_uid !== uid) throw new HttpsError('permission-denied','길드장만 변경 가능');
+
+  const set = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
+  if (add) set.add(targetUid); else set.delete(targetUid);
+
+  await gRef.update({ staff_uids: Array.from(set), updatedAt: Date.now() });
+  return { ok:true, staff_uids: Array.from(set) };
+});
+
+
+// === [신규] 길드 탈퇴 (캐릭 본인)
+// - 리더가 혼자 남은 경우: 탈퇴 = 길드 삭제와 동일 처리(자동 제거)
+// - 리더인데 다른 멤버가 있으면: 위임하거나 추방으로 정리한 뒤 탈퇴해야 함
+exports.leaveGuild = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { charId } = req.data || {};
+  if(!uid || !charId) throw new HttpsError('invalid-argument','필요값');
+
+  const cRef = db.doc(`chars/${charId}`);
+  return await db.runTransaction(async (tx)=>{
+    const cSnap = await tx.get(cRef);
+    if(!cSnap.exists) throw new HttpsError('not-found','캐릭 없음');
+    const c = cSnap.data();
+    if(c.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 탈퇴 가능');
+    const guildId = c.guildId;
+    if(!guildId) return { ok:true, mode:'noop' };
+
+    const gRef = db.doc(`guilds/${guildId}`);
+    const gSnap = await tx.get(gRef);
+    if(!gSnap.exists) throw new HttpsError('not-found','길드 없음');
+    const g = gSnap.data();
+
+    // 현재 멤버 수 파악
+    const memId = `${guildId}__${charId}`;
+    const memRef = db.doc(`guild_members/${memId}`);
+
+    // 멤버 수 카운트
+    const q = await db.collection('guild_members').where('guildId','==', guildId).get();
+    const memberCount = q.docs.filter(d => !d.data().leftAt).length || g.member_count || 1;
+
+    if (c.guild_role === 'leader') {
+      if (memberCount > 1) {
+        throw new HttpsError('failed-precondition','리더는 위임 후 탈퇴 가능');
+      }
+      // 혼자만 남았다면 길드 삭제와 동일 처리
+      tx.update(cRef, { guildId: FieldValue.delete(), guild_role: FieldValue.delete(), updatedAt: Date.now() });
+      tx.update(gRef, { member_count: 0 });
+      tx.set(memRef, { leftAt: Date.now() }, { merge:true });
+      // 길드 문서 삭제
+      tx.delete(gRef);
+      return { ok:true, mode:'deleted' };
+    }
+
+    // 일반/오피서 탈퇴
+    tx.update(cRef, { guildId: FieldValue.delete(), guild_role: FieldValue.delete(), updatedAt: Date.now() });
+    tx.set(memRef, { leftAt: Date.now() }, { merge:true });
+    tx.update(gRef, { member_count: Math.max(0, (g.member_count||1)-1), updatedAt: Date.now() });
+
+    return { ok:true, mode:'left' };
+  });
+});
+
+
+// === [신규] 길드 추방 (리더 또는 오피서)
+// - 오피서는 'member'만 추방 가능
+// - 리더는 officer/member 추방 가능(본인 제외)
+exports.kickGuildMember = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, targetCharId } = req.data || {};
+  if(!uid || !guildId || !targetCharId) throw new HttpsError('invalid-argument','필요값');
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const tRef = db.doc(`chars/${targetCharId}`);
+    const [gSnap, tSnap] = await Promise.all([tx.get(gRef), tx.get(tRef)]);
+    if(!gSnap.exists) throw new HttpsError('not-found','길드 없음');
+    if(!tSnap.exists) throw new HttpsError('not-found','대상 캐릭 없음');
+
+    const g = gSnap.data(), t = tSnap.data();
+    if (t.guildId !== guildId) throw new HttpsError('failed-precondition','해당 길드 소속이 아님');
+
+    // 호출자 권한: 리더 or 오피서
+    // (간단화: 호출자 UID가 g.owner_uid 이면 리더 권한, 아니면 staff_uids 에 있으면 오피서 권한)
+    const isLeader = (g.owner_uid === uid);
+    const isOfficer = Array.isArray(g.staff_uids) && g.staff_uids.includes(uid);
+    if (!isLeader && !isOfficer) throw new HttpsError('permission-denied','권한 없음');
+
+    if (t.guild_role === 'leader') throw new HttpsError('failed-precondition','리더는 추방 불가');
+    if (t.guild_role === 'officer' && !isLeader) throw new HttpsError('permission-denied','오피서는 리더만 추방 가능');
+
+    // 처리
+    const memId = `${guildId}__${targetCharId}`;
+    tx.update(tRef, { guildId: FieldValue.delete(), guild_role: FieldValue.delete(), updatedAt: Date.now() });
+    tx.set(db.doc(`guild_members/${memId}`), { leftAt: Date.now() }, { merge:true });
+    tx.update(gRef, { member_count: Math.max(0, (g.member_count||1)-1), updatedAt: Date.now() });
+
+    return { ok:true };
+  });
+});
+
+
+// === [신규] 길드 역할 변경 (리더 전용): officer <-> member
+exports.setGuildRole = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, charId, makeOfficer } = req.data || {};
+  if(!uid || !guildId || !charId) throw new HttpsError('invalid-argument','필요값');
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const cRef = db.doc(`chars/${charId}`);
+    const [gSnap, cSnap] = await Promise.all([tx.get(gRef), tx.get(cRef)]);
+    if(!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found','길드/캐릭 없음');
+
+    const g = gSnap.data(), c = cSnap.data();
+    if (g.owner_uid !== uid) throw new HttpsError('permission-denied','리더만 가능');
+    if (c.guildId !== guildId) throw new HttpsError('failed-precondition','해당 길드원이 아님');
+    if (c.guild_role === 'leader') throw new HttpsError('failed-precondition','리더 역할 변경 불가');
+
+    const role = makeOfficer ? 'officer' : 'member';
+    tx.update(cRef, { guild_role: role, updatedAt: Date.now() });
+
+    // staff_uids(로그 열람 권한)도 동기화
+    const set = new Set(Array.isArray(g.staff_uids)? g.staff_uids : []);
+    if (makeOfficer) set.add(c.owner_uid);
+    else set.delete(c.owner_uid);
+    tx.update(gRef, { staff_uids: Array.from(set), updatedAt: Date.now() });
+
+    return { ok:true, role };
+  });
+});
+
+
+// === [신규] 길드장 위임 (리더 -> 다른 길드원)
+exports.transferGuildOwner = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, toCharId } = req.data || {};
+  if(!uid || !guildId || !toCharId) throw new HttpsError('invalid-argument','필요값');
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const tRef = db.doc(`chars/${toCharId}`);
+    const [gSnap, tSnap] = await Promise.all([tx.get(gRef), tx.get(tRef)]);
+    if(!gSnap.exists || !tSnap.exists) throw new HttpsError('not-found','길드/대상 캐릭 없음');
+
+    const g = gSnap.data(), t = tSnap.data();
+    if (g.owner_uid !== uid) throw new HttpsError('permission-denied','현 리더만 위임 가능');
+    if (t.guildId !== guildId) throw new HttpsError('failed-precondition','해당 길드원이 아님');
+
+    // 현 리더 캐릭(문자열로 저장된 경우가 있어 소유 캐릭 찾아보기)
+    // 가장 안전하게: guild_members에서 role=='leader' 인 캐릭을 찾아 demote
+    const currentLeader = await db.collection('guild_members')
+      .where('guildId','==', guildId).where('role','==','leader').limit(1).get();
+
+    // 1) 길드 문서 오너 교체
+    tx.update(gRef, {
+      owner_uid: t.owner_uid,
+      owner_char_id: toCharId,
+      updatedAt: Date.now()
+    });
+
+    // 2) 대상 캐릭을 leader로
+    const newLeaderMemId = `${guildId}__${toCharId}`;
+    tx.set(db.doc(`guild_members/${newLeaderMemId}`), { role:'leader' }, { merge:true });
+    tx.update(tRef, { guild_role:'leader', updatedAt: Date.now() });
+
+    // 3) 기존 리더를 officer 로 내리기 (있다면)
+    if (!currentLeader.empty) {
+      const oldMem = currentLeader.docs[0];
+      const [gId, oldCharId] = oldMem.id.split('__');
+      const oldCharRef = db.doc(`chars/${oldCharId}`);
+      tx.set(oldMem.ref, { role:'officer' }, { merge:true });
+      tx.update(oldCharRef, { guild_role:'officer', updatedAt: Date.now() });
+
+      // staff_uids 에 신규/기존 반영: 새 리더는 자동으로 staff 성격, 기존 리더 UID는 남겨도 되고 제거해도 되는데
+      // 여기서는 남겨두되, 필요하면 이후 setGuildRole로 조정.
+    }
+
+    return { ok:true };
+  });
+});
 
