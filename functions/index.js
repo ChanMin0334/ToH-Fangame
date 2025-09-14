@@ -666,7 +666,19 @@ exports.joinGuild = onCall(async (req)=>{
       });
       tx.update(cRef, { guildId, guild_role:'member', updatedAt: Date.now() });
       tx.update(gRef, { member_count: cur + 1, updatedAt: Date.now() });
-      return { ok:true, mode:'joined' };
+      // free-join 시에도 이 캐릭터의 다른 pending 자동 취소
+      const othersQ = db.collection('guild_requests')
+        .where('charId','==', charId)
+        .where('status','==','pending')
+        .limit(50);
+      const othersSnap = await tx.get(othersQ);
+      for (const d of othersSnap.docs) {
+        if (d.id !== `${guildId}__${charId}`) {
+          tx.update(d.ref, { status:'auto-cancelled', decidedAt: Date.now() });
+        }
+      }
+
+     return { ok:true, mode:'joined' };
     }
 
     // 신청 승인 방식: "같은 문서ID"로 idempotent
