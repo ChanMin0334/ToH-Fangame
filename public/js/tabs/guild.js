@@ -6,6 +6,22 @@ import { showToast } from '../ui/toast.js';
 const call = (name)=> httpsCallable(func, name);
 const esc  = (s)=> String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+// [공통] 버튼 잠금 도우미
+function lock(btn, runner){
+  if(!btn) return runner();
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.dataset.busy = '1';
+  btn.textContent = '처리 중…';
+  return Promise.resolve()
+    .then(runner)
+    .finally(()=>{
+      btn.disabled = false;
+      btn.dataset.busy = '';
+      btn.textContent = old;
+    });
+}
+
 // #/guild/{id}/{sub}
 function parseGuildId(){
   const h = location.hash || '';
@@ -55,11 +71,13 @@ export default async function showGuild(explicit){
     <div class="bookmarks">
       <a href="#/plaza/guilds" class="bookmark">🏰 길드</a>
       <a href="#/guild/${esc(g.id)}/about"     class="bookmark ${sub==='about'?'active':''}">소개</a>
-      ${isOwner? `<a href="#/guild/${esc(g.id)}/settings"  class="bookmark ${sub==='settings'?'active':''}">설정</a>` : ``}
-      ${isOwner? `<a href="#/guild/${esc(g.id)}/requests"  class="bookmark ${sub==='requests'?'active':''}">가입 승인</a>` : ``}
+      <a href="#/guild/${esc(g.id)}/members"   class="bookmark ${sub==='members'?'active':''}">멤버</a>
+      ${isOwner? `<a href="#/guild/${esc(g.id)}/settings" class="bookmark ${sub==='settings'?'active':''}">설정</a>` : ``}
+      ${isOwner? `<a href="#/guild/${esc(g.id)}/requests" class="bookmark ${sub==='requests'?'active':''}">가입 승인</a>` : ``}
     </div>
 
     <div class="bookview">
+      <!-- 상단 소형 헤더(가입 버튼 포함) -->
       <div class="kv-card">
         <div class="row" style="gap:12px;align-items:center">
           <img src="${esc(g.badge_url||'')}" onerror="this.style.display='none'"
@@ -92,12 +110,47 @@ export default async function showGuild(explicit){
 
   // ── 소개 ─────────────────────────────────────────────
   if (sub === 'about') {
-    // 소개
-    const about = document.createElement('div');
-    about.className = 'kv-card text-dim';
-    about.style.marginTop = '8px';
-    about.textContent = g.desc || '소개가 아직 없어요.';
-    body.appendChild(about);
+    // [추가] 히어로 섹션 (1:1 이미지 + 이름 + 코인 진행바 + 상태)
+    {
+      const hero = document.createElement('div');
+      hero.className = 'kv-card';
+      hero.style.padding = '12px';
+      const weekly = Number(g.weekly_points||0);
+      const pct = Math.min(100, weekly % 100); // 100코인 단위 진행 느낌
+      hero.innerHTML = `
+        <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;align-items:center">
+          <div style="width:120px;height:120px;border-radius:16px;overflow:hidden;border:1px solid #273247;background:#0b0f16">
+            <img src="${esc(g.badge_url||'')}" onerror="this.style.display='none'"
+                 style="width:100%;height:100%;object-fit:cover;">
+          </div>
+          <div>
+            <div style="font-weight:900;font-size:22px;line-height:1.2">${esc(g.name||'(이름없음)')}</div>
+            <div style="margin-top:8px">
+              <div style="font-size:12px;color:#8aa0b3">이번 주 총 기여 코인</div>
+              <div style="position:relative;height:10px;border-radius:6px;background:#13202e;overflow:hidden;margin-top:4px">
+                <div style="position:absolute;inset:0;transform-origin:left;width:${pct}%;height:100%;background:linear-gradient(90deg,#3aa0ff,#6fe3ff)"></div>
+              </div>
+              <div style="margin-top:4px;font-size:12px;color:#8aa0b3">
+                ${weekly} 코인(주간) · 멤버 ${g.member_count||1}명
+                ${g.settings?.isPublic===false?'· 비공개':''}
+                ${g.settings?.maxMembers?`· 정원 ${g.settings.maxMembers}`:''}
+                · 가입 ${esc((g.settings?.join==='free'?'즉시가입':g.settings?.join==='invite'?'초대전용':'신청승인'))}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      body.appendChild(hero);
+    }
+
+    // 소개 텍스트
+    {
+      const about = document.createElement('div');
+      about.className = 'kv-card text-dim';
+      about.style.marginTop = '8px';
+      about.textContent = g.desc || '소개가 아직 없어요.';
+      body.appendChild(about);
+    }
 
     // 내가 이 길드 소속(리더 제외) → 탈퇴
     if (c && c.guildId === g.id && c.guild_role !== 'leader') {
@@ -110,17 +163,16 @@ export default async function showGuild(explicit){
           <button id="btn-leave" class="btn danger small">탈퇴</button>
         </div>`;
       body.appendChild(box);
-      box.querySelector('#btn-leave').onclick = async ()=>{
+      const leaveBtn = box.querySelector('#btn-leave');
+      leaveBtn.onclick = ()=> lock(leaveBtn, async ()=>{
         if (!confirm('정말 탈퇴할까?')) return;
-        try{
-          const { data } = await call('leaveGuild')({ charId: c.id });
-          if(!data?.ok) throw new Error('탈퇴 실패');
-          showToast('탈퇴했어'); location.hash = '#/plaza/guilds';
-        }catch(e){ console.error(e); showToast(e?.message||'실패'); }
-      };
+        const { data } = await call('leaveGuild')({ charId: c.id });
+        if(!data?.ok) throw new Error('탈퇴 실패');
+        showToast('탈퇴했어'); location.hash = '#/plaza/guilds';
+      });
     }
 
-    // 미가입 & 초대전용 아니면 → 가입 조건 표시 + 신청/취소 UI
+    // 미가입 & 초대전용 아니면 → 가입 조건 + 신청/취소 UI
     if (c && !c.guildId && g.settings?.join !== 'invite') {
       const cond = document.createElement('div');
       cond.className = 'kv-card';
@@ -140,12 +192,11 @@ export default async function showGuild(explicit){
         </div>`;
       body.appendChild(cond);
 
-      // 버튼들
       const joinBtn = document.getElementById('btn-join');
       const cancelBtn = cond.querySelector('#btn-cancel-join');
       const rqId = c?.id ? `${g.id}__${c.id}` : null;
 
-      // pending이면 표시 전환
+      // pending 표시 전환
       try{
         if (rqId) {
           const rqSnap = await fx.getDoc(fx.doc(db,'guild_requests', rqId));
@@ -158,43 +209,114 @@ export default async function showGuild(explicit){
 
       // 신청
       if (joinBtn) {
-        joinBtn.onclick = async ()=>{
+        joinBtn.onclick = ()=> lock(joinBtn, async ()=>{
           if(!uid || !c){ showToast('로그인/캐릭터 선택이 필요해'); return; }
           if(c.guildId){ showToast('이미 길드 소속 캐릭터야'); return; }
-          try{
-            joinBtn.disabled = true;
-            const { data } = await call('joinGuild')({ guildId: g.id, charId: c.id });
-            if(!data?.ok) throw new Error(data?.error||'실패');
-            if(data.mode==='joined'){
-              showToast('길드에 가입했어!'); location.hash = '#/plaza/guilds';
-            }else if (data.mode==='already-requested'){
-              showToast('이미 신청한 상태야.'); joinBtn.textContent = '신청됨'; cancelBtn.style.display = '';
-            }else{
-              showToast('가입 신청을 보냈어!'); joinBtn.textContent = '신청됨'; cancelBtn.style.display = '';
-            }
-          }catch(e){
-            console.error(e); showToast(e?.message||'실패했어');
-            joinBtn.disabled = false;
+          const { data } = await call('joinGuild')({ guildId: g.id, charId: c.id });
+          if(!data?.ok) throw new Error(data?.error||'실패');
+          if(data.mode==='joined'){
+            showToast('길드에 가입했어!'); location.hash = '#/plaza/guilds';
+          }else if (data.mode==='already-requested'){
+            showToast('이미 신청한 상태야.'); joinBtn.textContent = '신청됨'; cancelBtn.style.display = '';
+          }else{
+            showToast('가입 신청을 보냈어!'); joinBtn.textContent = '신청됨'; cancelBtn.style.display = '';
           }
-        };
+        });
       }
 
       // 신청 취소
-      cancelBtn.onclick = async ()=>{
+      cancelBtn.onclick = ()=> lock(cancelBtn, async ()=>{
         if(!uid || !c){ showToast('로그인이 필요해'); return; }
-        try{
-          cancelBtn.disabled = true;
-          const { data } = await call('cancelGuildRequest')({ guildId: g.id, charId: c.id });
-          if(!data?.ok) throw new Error('취소 실패');
-          showToast('가입 신청을 취소했어');
-          if (joinBtn) { joinBtn.disabled = false; joinBtn.textContent = (g.settings?.join==='free'?'가입하기':(g.settings?.join==='invite'?'초대 전용':'가입 신청')); }
-          cancelBtn.style.display = 'none';
-        }catch(e){
-          console.error(e); showToast(e?.message||'실패했어');
-          cancelBtn.disabled = false;
+        const { data } = await call('cancelGuildRequest')({ guildId: g.id, charId: c.id });
+        if(!data?.ok) throw new Error('취소 실패');
+        showToast('가입 신청을 취소했어');
+        if (joinBtn) { 
+          joinBtn.disabled = false; 
+          joinBtn.textContent = (g.settings?.join==='free'?'가입하기':(g.settings?.join==='invite'?'초대 전용':'가입 신청')); 
         }
-      };
+        cancelBtn.style.display = 'none';
+      });
     }
+  }
+
+  // ── 멤버 ─────────────────────────────────────────────
+  if (sub === 'members') {
+    const box = document.createElement('div');
+    box.className = 'kv-card';
+    box.style.padding = '8px';
+    box.innerHTML = `
+      <div class="row" style="align-items:center;gap:8px">
+        <div class="kv-label">멤버</div>
+        <div style="flex:1"></div>
+        <select id="sort2" class="input small">
+          <option value="weekly">주간 기여 순</option>
+          <option value="name">이름 순</option>
+        </select>
+      </div>
+      <div id="memGrid" class="col" style="gap:8px;margin-top:8px"></div>
+    `;
+    body.appendChild(box);
+
+    const memGrid = box.querySelector('#memGrid');
+    const sort2 = box.querySelector('#sort2');
+
+    const q = fx.query(
+      fx.collection(db,'guild_members'),
+      fx.where('guildId','==', g.id),
+      fx.limit(500)
+    );
+    const qs = await fx.getDocs(q);
+
+    const rows = [];
+    const roleRank = { leader:0, officer:1, member:2 }; // 1순위: 역할
+    for (const d of qs.docs) {
+      const m = d.data(); if (m.leftAt) continue;
+      const cid = m.charId;
+      const cs = await fx.getDoc(fx.doc(db,'chars', cid));
+      const cd = cs.exists()? cs.data() : {};
+      const role = m.role || cd.guild_role || 'member';
+      rows.push({
+        cid,
+        name: cd.name || cid,
+        role,
+        rank: roleRank[role] ?? 9,
+        weekly: Number(m.points_weekly||0), // 2순위: 주간 기여
+        elo: Number(cd.elo||0),
+        thumb: cd.thumb_url || cd.image_url || ''
+      });
+    }
+
+    function render(){
+      const sortSecondary = sort2.value;
+      const arr = [...rows].sort((a,b)=>{
+        if (a.rank !== b.rank) return a.rank - b.rank;                 // 역할 우선
+        if (sortSecondary === 'weekly'){                                // 그다음 주간 기여
+          if (b.weekly !== a.weekly) return b.weekly - a.weekly;
+        }
+        return (a.name||'').localeCompare(b.name||'','ko');             // 이름 보조
+      });
+
+      memGrid.innerHTML = arr.map(x=>`
+        <div class="kv-card" style="padding:8px">
+          <div class="row" style="gap:10px;align-items:center">
+            <img src="${esc(x.thumb)}" onerror="this.style.display='none'"
+                 style="width:40px;height:40px;border-radius:8px;object-fit:cover;background:#111">
+            <div>
+              <div style="font-weight:700">${esc(x.name)}</div>
+              <div class="text-dim" style="font-size:12px">
+                ${x.role==='leader'?'길드마스터':x.role==='officer'?'부길드마':'멤버'}
+                · 주간 기여 ${x.weekly} · ELO ${x.elo}
+              </div>
+            </div>
+            <div style="flex:1"></div>
+            <a class="btn ghost small" href="#/char/${esc(x.cid)}">보기</a>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    render();
+    sort2.onchange = render;
   }
 
   // ── 설정(길드장) ────────────────────────────────────
@@ -222,6 +344,12 @@ export default async function showGuild(explicit){
         <label class="kv-card" style="padding:8px">
           <div class="kv-label">최대 인원</div>
           <input id="g-max" class="input" type="number" min="5" max="100" value="${Number(s.maxMembers||30)}">
+        </label>
+
+        <!-- 길드 소개(설명) -->
+        <label class="kv-card" style="padding:8px">
+          <div class="kv-label">길드 소개(설명)</div>
+          <textarea id="g-desc" class="input" rows="4" placeholder="길드 소개를 적어줘">${esc(g.desc||'')}</textarea>
         </label>
 
         <div class="kv-card" style="padding:8px">
@@ -267,35 +395,40 @@ export default async function showGuild(explicit){
     body.querySelector('#clear-wins').onclick  = ()=> body.querySelector('#req-wins').value  = '';
     body.querySelector('#clear-likes').onclick = ()=> body.querySelector('#req-likes').value = '';
 
-    // 저장
-    body.querySelector('#g-save').onclick = async ()=>{
-      try{
-        const settings = {
-          join: body.querySelector('#g-join').value,
-          isPublic: body.querySelector('#g-public').checked,
-          maxMembers: Math.max(5, Math.min(100, Number(body.querySelector('#g-max').value||30))),
-          requirements: {
-            eloMin:   body.querySelector('#req-elo').value   === '' ? null : Math.max(0, Number(body.querySelector('#req-elo').value)),
-            winsMin:  body.querySelector('#req-wins').value  === '' ? null : Math.max(0, Number(body.querySelector('#req-wins').value)),
-            likesMin: body.querySelector('#req-likes').value === '' ? null : Math.max(0, Number(body.querySelector('#req-likes').value)),
-          }
-        };
-        await fx.updateDoc(fx.doc(db,'guilds', g.id), { settings, updatedAt: Date.now() });
-        showToast('저장 완료');
-        location.hash = `#/guild/${g.id}/about`;
-      }catch(e){ console.error(e); showToast(e?.message||'저장 실패'); }
-    };
+    // 저장 (lock 적용 + desc 포함)
+    {
+      const btn = body.querySelector('#g-save');
+      btn.onclick = ()=> lock(btn, async ()=>{
+        try{
+          const settings = {
+            join: body.querySelector('#g-join').value,
+            isPublic: body.querySelector('#g-public').checked,
+            maxMembers: Math.max(5, Math.min(100, Number(body.querySelector('#g-max').value||30))),
+            requirements: {
+              eloMin:   body.querySelector('#req-elo').value   === '' ? null : Math.max(0, Number(body.querySelector('#req-elo').value)),
+              winsMin:  body.querySelector('#req-wins').value  === '' ? null : Math.max(0, Number(body.querySelector('#req-wins').value)),
+              likesMin: body.querySelector('#req-likes').value === '' ? null : Math.max(0, Number(body.querySelector('#req-likes').value)),
+            }
+          };
+          const desc = body.querySelector('#g-desc')?.value ?? '';
+          await fx.updateDoc(fx.doc(db,'guilds', g.id), { settings, desc, updatedAt: Date.now() });
+          showToast('저장 완료');
+          location.hash = `#/guild/${g.id}/about`;
+        }catch(e){ console.error(e); showToast(e?.message||'저장 실패'); }
+      });
+    }
 
-    // 삭제
-    body.querySelector('#g-delete').onclick = async ()=>{
-      const a = confirm('정말 길드를 삭제할까? 멤버는 모두 무소속이 돼.'); if(!a) return;
-      const b = confirm('되돌릴 수 없어. 진행할래?'); if(!b) return;
-      try{
+    // 삭제 (lock 적용)
+    {
+      const delBtn = body.querySelector('#g-delete');
+      delBtn.onclick = ()=> lock(delBtn, async ()=>{
+        const a = confirm('정말 길드를 삭제할까? 멤버는 모두 무소속이 돼.'); if(!a) return;
+        const b = confirm('되돌릴 수 없어. 진행할래?'); if(!b) return;
         const { data } = await call('deleteGuild')({ guildId: g.id });
         showToast(`삭제 완료 (해제된 멤버: ${data?.removedMembers??0})`);
         location.hash = '#/plaza/guilds';
-      }catch(e){ console.error(e); showToast(e?.message||'삭제 실패'); }
-    };
+      });
+    }
 
     // 대기 신청 목록
     (async ()=>{
@@ -325,15 +458,16 @@ export default async function showGuild(explicit){
               </div>`;
           })).then(rows => rows.join(''));
 
-      wrapList.addEventListener('click', async (e)=>{
+      wrapList.addEventListener('click', (e)=>{
         const a = e.target.closest('[data-acc]'); const r = e.target.closest('[data-rej]');
         const cid = a?.dataset.acc || r?.dataset.rej;
         if(!cid) return;
-        try{
+        const btn = e.target.closest('button');
+        lock(btn, async ()=>{
           if(a){ await call('approveGuildJoin')({ guildId: g.id, charId: cid }); showToast('승인했어'); }
           else { await call('rejectGuildJoin')({ guildId: g.id, charId: cid }); showToast('거절했어'); }
           location.hash = `#/guild/${g.id}/settings`;
-        }catch(err){ console.error(err); showToast(err?.message||'실패'); }
+        });
       });
     })();
 
@@ -368,17 +502,18 @@ export default async function showGuild(explicit){
       }));
       memWrap.innerHTML = rows.filter(Boolean).join('');
 
-      memWrap.addEventListener('click', async (e)=>{
+      memWrap.addEventListener('click', (e)=>{
         const k = e.target.closest('[data-kick]');
         const t = e.target.closest('[data-toggle]');
         const x = e.target.closest('[data-transfer]');
         const cid = k?.dataset.kick || t?.dataset.toggle || x?.dataset.transfer;
         if (!cid) return;
-        try{
+        const btn = e.target.closest('button');
+        lock(btn, async ()=>{
           if (k) {
             if (!confirm('정말 추방할까?')) return;
             await call('kickGuildMember')({ guildId: g.id, targetCharId: cid });
-            showToast('추방했어'); e.target.closest('.kv-card')?.remove();
+            showToast('추방했어'); btn.closest('.kv-card')?.remove();
           } else if (t) {
             const nowOfficer = t.textContent.includes('해제');
             await call('setGuildRole')({ guildId: g.id, charId: cid, makeOfficer: !nowOfficer });
@@ -389,7 +524,7 @@ export default async function showGuild(explicit){
             await call('transferGuildOwner')({ guildId: g.id, toCharId: cid });
             showToast('길드장을 위임했어'); location.hash = `#/guild/${g.id}/about`;
           }
-        }catch(err){ console.error(err); showToast(err?.message||'실패'); }
+        });
       });
     })();
   }
@@ -432,11 +567,12 @@ export default async function showGuild(explicit){
         </div>
       `).join('');
 
-      rqBox.addEventListener('click', async (e)=>{
+      rqBox.addEventListener('click', (e)=>{
         const ok = e.target.closest('[data-ok]'); const no = e.target.closest('[data-no]');
         const cid = ok?.dataset.ok || no?.dataset.no;
         if(!cid) return;
-        try{
+        const btn = e.target.closest('button');
+        lock(btn, async ()=>{
           if(ok){
             await call('approveGuildJoin')({ guildId: g.id, charId: cid });
             showToast('승인 완료'); location.hash = `#/guild/${g.id}/requests`;
@@ -444,7 +580,7 @@ export default async function showGuild(explicit){
             await call('rejectGuildJoin')({ guildId: g.id, charId: cid });
             showToast('거절 완료'); location.hash = `#/guild/${g.id}/requests`;
           }
-        }catch(err){ console.error(err); showToast(err?.message||'실패했어'); }
+        });
       });
     }catch(e){
       console.error(e);
