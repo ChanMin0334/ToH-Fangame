@@ -9,6 +9,10 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   // ------------------------
   const nowMs = () => Date.now();
 
+  // 테스트용 1분(60초). 실제 런칭 때는 3600*1000 으로 바꾸면 1시간.
+  const GUILD_JOIN_COOL_MS = 60 * 1000;
+
+
   // 이름 예약 키(중복 방지). 한글/영문/숫자만 남기고 소문자/공백제거.
   function normalizeGuildName(name) {
     return String(name || '')
@@ -199,9 +203,16 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       const cur = Number(g.member_count || 0);
       const requirements = s.requirements || [];
 
-      if (s.join === 'invite') {
-        throw new HttpsError('failed-precondition', '초대 전용 길드');
+      // 최근 신청 쿨타임(신청 방식에만 적용; 즉시가입 free에는 적용 안 함)
+      if (s.join !== 'free') {
+        const now = nowMs();
+        const until = Number((c && c.guild_apply_until) || 0);
+        if (until && now < until) {
+          // details에 until 넣어줄게(프런트에서 남은 시간 표시 가능)
+          throw new HttpsError('resource-exhausted', 'join_cooldown', { until });
+        }
       }
+
 
       // 전역 중복 신청 방지
       await ensureNoOtherPending(tx, charId, guildId);
@@ -234,6 +245,9 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       tx.set(rqRef, {
         guildId, charId, owner_uid: uid, createdAt: nowMs(), status: 'pending'
       });
+      // 신청 쿨타임 시작
+      tx.update(cRef, { guild_apply_until: nowMs() + GUILD_JOIN_COOL_MS });
+
       return { ok: true, mode: 'requested' };
     });
   });
@@ -327,7 +341,17 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       const cRef = db.doc(`chars/${charId}`);
       const rqRef = db.doc(`guild_requests/${guildId}__${charId}`);
       const [gSnap, cSnap, rqSnap] = await Promise.all([tx.get(gRef), tx.get(cRef), tx.get(rqRef)]);
-      if (!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found', '길드/캐릭 없음');
+      if (!gSnap.exists) throw new HttpsError('not-found', '길드/캐릭 없음');
+      if (!cSnap.exists) {
+        // 신청 문서가 있다면 '신청자 캐릭 삭제'로 마감 처리하고 종료
+        const rq = rqSnap?.exists ? rqSnap.data() : null;
+        if (rq && rq.status === 'pending') {
+          tx.update(rqRef, { status: 'rejected_char_deleted', decidedAt: nowMs() });
+          return { ok: true, mode: 'rejected_char_deleted' };
+        }
+        throw new HttpsError('not-found', '캐릭 없음');
+      }
+
 
       const g = gSnap.data(), c = cSnap.data();
       if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '권한 없음');
@@ -407,6 +431,12 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       // 멤버 문서 제거(있으면)
       const memRef = db.doc(`guild_members/${guildId}__${charId}`);
       tx.set(memRef, { leftAt: nowMs() }, { merge: true });
+// [추가] 부길마였다면 staff_uids에서 제거
+      {
+        const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
+        staffSet.delete(c.owner_uid);
+        tx.update(gRef, { staff_uids: Array.from(staffSet), updatedAt: nowMs() });
+      }
 
       return { ok: true, mode: 'left' };
     });
@@ -447,6 +477,14 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       tx.update(cRef, { guildId: FieldValue.delete(), guild_role: FieldValue.delete(), updatedAt: nowMs() });
       tx.set(db.doc(`guild_members/${guildId}__${charId}`), { leftAt: nowMs() }, { merge: true });
 
+      // [추가] 부길마였다면 staff_uids에서 제거
+      {
+        const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
+        staffSet.delete(c.owner_uid);
+        tx.update(gRef, { staff_uids: Array.from(staffSet), updatedAt: nowMs() });
+      }
+
+      
       return { ok: true, mode: 'kicked' };
     });
   });
