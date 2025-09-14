@@ -554,7 +554,7 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
   return res;
 });
 
-const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestore');
+
 const { getStorage } = require('firebase-admin/storage');
 
 
