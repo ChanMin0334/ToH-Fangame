@@ -22,7 +22,74 @@ function ensureModalCss(){
   `;
   document.head.appendChild(st);
 }
-/* (기존 코드 이어짐) */
+
+// 내 캐릭 리스트 간단 조회(내림차순 최근순, 최대 50개)
+async function fetchMyCharsSimple(uid){
+  const q = fx.query(
+    fx.collection(db, 'chars'),
+    fx.where('owner_uid', '==', uid),
+    fx.orderBy('updatedAt', 'desc'),
+    fx.limit(50)
+  );
+  const snaps = await fx.getDocs(q);
+  return snaps.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+
+async function openCharPicker(){
+  ensureModalCss();
+  const u = auth.currentUser;
+  if(!u){ showToast('로그인이 필요해'); return; }
+
+  // 내 캐릭 목록 불러오기
+  const list = await fetchMyCharsSimple(u.uid).catch(()=>[]);
+  const items = Array.isArray(list) ? list : [];
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal-card" style="max-width:720px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-weight:900;font-size:18px;">캐릭터 선택</div>
+        <button class="btn ghost" id="mClose">닫기</button>
+      </div>
+      <div class="grid3" style="gap:10px;">
+        ${items.length ? items.map(c => `
+          <button class="kv-card" data-cid="${c.id}"
+            style="text-align:left;display:flex;gap:10px;align-items:center;">
+            <img src="${c.image_url || c.thumb_url || ''}" onerror="this.style.display='none'"
+                 style="width:56px;height:56px;border-radius:10px;object-fit:cover;background:#111">
+            <div>
+              <div style="font-weight:700">${esc(c.name || '(이름 없음)')}</div>
+              <div class="text-dim" style="font-size:12px">${esc(c.world_id || '')}</div>
+            </div>
+          </button>
+        `).join('') : `<div class="kv-card text-dim">캐릭터가 없어. 먼저 캐릭터를 만들어줘.</div>`}
+      </div>
+    </div>
+  `;
+
+  const close = ()=> back.remove();
+  back.addEventListener('click', e=>{ if(e.target===back) close(); });
+  back.querySelector('#mClose')?.addEventListener('click', close);
+  back.querySelectorAll('[data-cid]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const cid = btn.getAttribute('data-cid');
+      if(!cid) return;
+      sessionStorage.setItem('toh.activeChar', cid);
+      close();
+      // 선택 후 길드 탭 새로고침
+      showPlaza();
+    });
+  });
+
+  document.body.appendChild(back);
+}
+
+
+
+
+
 
 // URL 경로를 파싱하는 방식을 개선하여 메인 탭과 서브 탭을 모두 인식합니다.
 function subpath(){
@@ -452,7 +519,7 @@ function renderGuilds(root, c, paths){
         <div class="kv-card">
           <div class="row" style="justify-content:space-between;align-items:center">
             <div style="font-weight:900">길드</div>
-            <div class="chip">🪙 <b id="guild-coin">${coin}</b> <span class="text-dim">(지갑)</span></div>
+            <div class="chip" id="btnPickChar">${c ? `캐릭터: <b>${esc(c.name||c.id)}</b>` : '캐릭터 선택 필요 (눌러서 선택)'}</div>
           </div>
         </div>
 
@@ -494,6 +561,21 @@ function renderGuilds(root, c, paths){
       </div>
     `;
 
+    // 캐릭터가 없으면 칩/카드 클릭 시 선택 모달 열기
+    if(!c){
+      const btn = root.querySelector('#btnPickChar');
+      if(btn){
+        btn.style.cursor = 'pointer';
+        btn.addEventListener('click', openCharPicker);
+      }
+      // 상단 카드 아무 곳이나 눌러도 열리게
+      root.querySelector('.bookview .kv-card')?.addEventListener('click', (e)=>{
+        if(e.target.closest('#btnPickChar')) return;
+        openCharPicker();
+      });
+    }
+
+
     // 이벤트: 로고 변경
     const fileInp = root.querySelector('#guild-logo-file');
     if (fileInp && myGuild) {
@@ -511,6 +593,7 @@ function renderGuilds(root, c, paths){
         }finally{
           e.target.value = '';
         }
+
       };
     }
 
