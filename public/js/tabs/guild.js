@@ -418,29 +418,6 @@ export default async function showGuild(explicit){
         </div>
 
 
-        {
-          const upBtn = body.querySelector('#g-badge-upload');
-          const fileIn = body.querySelector('#g-badge-file');
-          if (upBtn && fileIn){
-            upBtn.onclick = ()=> lock(upBtn, async ()=>{
-              const f = fileIn.files?.[0];
-              if(!f){ showToast('이미지를 선택해줘'); return; }
-              try{
-                const st = getStorage();
-                const ext = (f.name.split('.').pop()||'png').toLowerCase();
-                const path = `guild_badges/${g.owner_uid}/${g.id}/badge-${Date.now()}.${ext}`;
-                const ref = stRef(st, path);
-                await uploadBytes(ref, f);
-                const url = await getDownloadURL(ref);
-                await fx.updateDoc(fx.doc(db,'guilds', g.id), { badge_url: url, updatedAt: Date.now() });
-                showToast('배지를 업데이트했어');
-                location.hash = `#/guild/${g.id}/about`;
-              }catch(e){ console.error(e); showToast('업로드 실패'); }
-            });
-          }
-        }
-
-
         <div class="kv-card" style="padding:8px">
           <div class="kv-label">멤버 관리</div>
           <div id="mem-list" class="col" style="gap:8px"></div>
@@ -487,6 +464,28 @@ export default async function showGuild(explicit){
         location.hash = '#/plaza/guilds';
       });
     }
+
+    {
+      const upBtn = body.querySelector('#g-badge-upload');
+       const fileIn = body.querySelector('#g-badge-file');
+       if (upBtn && fileIn){
+         upBtn.onclick = ()=> lock(upBtn, async ()=>{
+           const f = fileIn.files?.[0];
+           if(!f){ showToast('이미지를 선택해줘'); return; }
+          try{
+            const st = getStorage();
+             const ext = (f.name.split('.').pop()||'png').toLowerCase();
+             const path = `guild_badges/${g.owner_uid}/${g.id}/badge-${Date.now()}.${ext}`;
+              const ref = stRef(st, path);
+            await uploadBytes(ref, f);
+            const url = await getDownloadURL(ref);
+            await fx.updateDoc(fx.doc(db,'guilds', g.id), { badge_url: url, updatedAt: Date.now() });
+             showToast('배지를 업데이트했어');
+            location.hash = `#/guild/${g.id}/about`;
+          }catch(e){ console.error(e); showToast('업로드 실패'); }
+        });
+       }
+     }
 
     // 대기 신청 목록
     /*(async ()=>{
