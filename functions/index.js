@@ -757,8 +757,7 @@ exports.approveGuildJoin = onCall(async (req)=>{
     const cap = Number(s.maxMembers || 30);
     const cur = Number(g.member_count || 0);
     if (cur >= cap) throw new HttpsError('failed-precondition','정원 초과');
-
-    // 가입 처리
+      // 가입 처리
     tx.set(db.doc(`guild_members/${guildId}__${charId}`), {
       guildId, charId, role:'member', joinedAt: Date.now(), owner_uid: c.owner_uid,
       points_weekly:0, points_total:0, lastActiveAt: Date.now()
@@ -767,7 +766,21 @@ exports.approveGuildJoin = onCall(async (req)=>{
     tx.update(gRef, { member_count: cur + 1, updatedAt: Date.now() });
     if (rqSnap.exists) tx.update(rqRef, { status:'accepted', decidedAt: Date.now() });
 
+    // 🔒🔒🔒 [신규] 이 캐릭터의 "다른 길드" pending 모두 취소
+    const othersQ = db.collection('guild_requests')
+      .where('charId','==', charId)
+      .where('status','==','pending')
+      .limit(50);
+    const othersSnap = await tx.get(othersQ);
+    for (const d of othersSnap.docs) {
+      if (d.id !== `${guildId}__${charId}`) {
+        tx.update(d.ref, { status:'auto-cancelled', decidedAt: Date.now() });
+      }
+    }
+    // 🔒🔒🔒
+
     return { ok:true, mode:'accepted' };
+
   });
 });
 
