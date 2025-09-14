@@ -555,6 +555,36 @@ exports.createGuild = onCall({ region: 'us-central1' }, async (req) => {
 });
 
 
+
+
+// 가입 조건 체크: 배열로 여러 조건 허용 (중복 허용)
+function checkGuildRequirements(requirements, charData){
+  const conds = Array.isArray(requirements) ? requirements : [];
+  for (const r of conds) {
+    const t = String(r?.type||'').toLowerCase();   // 예: 'elo'
+    const op = String(r?.op||'>=');
+    const v  = Number(r?.value);
+    let val = 0;
+
+    if (t === 'elo') val = Number(charData?.elo || 0);
+    else if (t === 'wins') val = Number(charData?.wins || 0);
+    else if (t === 'likes') val = Number(charData?.likes_total || 0);
+    else continue; // 모르는 조건은 통과(추가하기 쉽도록)
+
+    if (op === '>=' && !(val >= v)) return false;
+    if (op === '>'  && !(val >  v)) return false;
+    if (op === '<=' && !(val <= v)) return false;
+    if (op === '<'  && !(val <  v)) return false;
+    if (op === '==' && !(val == v)) return false;
+    if (op === '!=' && !(val != v)) return false;
+  }
+  return true;
+}
+
+
+
+
+
 const { getStorage } = require('firebase-admin/storage');
 
 
@@ -575,13 +605,22 @@ exports.joinGuild = onCall(async (req)=>{
     const g = gSnap.data(), c = cSnap.data();
     if(c.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭이 아니야');
     if(c.guildId) throw new HttpsError('failed-precondition','이미 길드 소속');
-    const s = g.settings || {};
-    const level = Number(c.level || 1);
-    if (s.minLevel && level < s.minLevel) throw new HttpsError('failed-precondition','레벨이 부족해');
 
-    // 정원 체크
+    const s = g.settings || {};
     const cap = Number(s.maxMembers || 30);
     const cur = Number(g.member_count || 0);
+    const requirements = s.requirements || [];
+
+    // 초대전용은 거절
+    if (s.join === 'invite') {
+      throw new HttpsError('failed-precondition','초대 전용 길드');
+    }
+
+    // 조건 체크(elo 등). 조건은 배열/중복 허용
+    if (!checkGuildRequirements(requirements, c)) {
+      throw new HttpsError('failed-precondition','가입 조건 미달');
+    }
+
     if (s.join === 'free') {
       if (cur >= cap) throw new HttpsError('failed-precondition','정원 초과');
 
@@ -593,22 +632,25 @@ exports.joinGuild = onCall(async (req)=>{
       });
       tx.update(cRef, { guildId, guild_role:'member', updatedAt: Date.now() });
       tx.update(gRef, { member_count: cur + 1, updatedAt: Date.now() });
-
       return { ok:true, mode:'joined' };
     }
 
-    if (s.join === 'invite') {
-      throw new HttpsError('failed-precondition','초대 전용 길드');
+    // 신청 승인 방식: "같은 문서ID"로 idempotent
+    const reqId = `${guildId}__${charId}`;
+    const rqRef = db.doc(`guild_requests/${reqId}`);
+    const rqSnap = await tx.get(rqRef);
+    if (rqSnap.exists) {
+      const r = rqSnap.data();
+      if (r.status === 'pending') return { ok:true, mode:'already-requested' };
+      // 이전에 거절된 건이면 다시 pending 으로 되살리기 허용
     }
-
-    // 신청승인: 요청만 남김
-    const reqRef = db.collection('guild_requests').doc();
-    tx.set(reqRef, {
+    tx.set(rqRef, {
       guildId, charId, owner_uid: uid, createdAt: Date.now(), status:'pending'
     });
     return { ok:true, mode:'requested' };
   });
 });
+
 
 
 
@@ -676,5 +718,58 @@ exports.deleteGuild = onCall(async (req) => {
 });
 
 
+exports.approveGuildJoin = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, charId } = req.data || {};
+  if(!uid || !guildId || !charId) throw new HttpsError('invalid-argument','필요값');
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const cRef = db.doc(`chars/${charId}`);
+    const rqRef = db.doc(`guild_requests/${guildId}__${charId}`);
+
+    const [gSnap, cSnap, rqSnap] = await Promise.all([tx.get(gRef), tx.get(cRef), tx.get(rqRef)]);
+    if(!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found','길드/캐릭 없음');
+
+    const g = gSnap.data(), c = cSnap.data();
+    if (g.owner_uid !== uid) throw new HttpsError('permission-denied','길드장만 가능');
+
+    if (c.guildId) { // 이미 가입된 상태면 요청만 정리
+      if (rqSnap.exists) tx.update(rqRef, { status:'accepted', decidedAt: Date.now() });
+      return { ok:true, mode:'already-in' };
+    }
+
+    const s = g.settings || {};
+    const cap = Number(s.maxMembers || 30);
+    const cur = Number(g.member_count || 0);
+    if (cur >= cap) throw new HttpsError('failed-precondition','정원 초과');
+
+    // 가입 처리
+    tx.set(db.doc(`guild_members/${guildId}__${charId}`), {
+      guildId, charId, role:'member', joinedAt: Date.now(), owner_uid: c.owner_uid,
+      points_weekly:0, points_total:0, lastActiveAt: Date.now()
+    });
+    tx.update(cRef, { guildId, guild_role:'member', updatedAt: Date.now() });
+    tx.update(gRef, { member_count: cur + 1, updatedAt: Date.now() });
+    if (rqSnap.exists) tx.update(rqRef, { status:'accepted', decidedAt: Date.now() });
+
+    return { ok:true, mode:'accepted' };
+  });
+});
+
+exports.rejectGuildJoin = onCall(async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, charId } = req.data || {};
+  if(!uid || !guildId || !charId) throw new HttpsError('invalid-argument','필요값');
+
+  const gRef = db.doc(`guilds/${guildId}`);
+  const gSnap = await gRef.get();
+  if(!gSnap.exists) throw new HttpsError('not-found','길드 없음');
+  if (gSnap.data().owner_uid !== uid) throw new HttpsError('permission-denied','길드장만 가능');
+
+  const rqRef = db.doc(`guild_requests/${guildId}__${charId}`);
+  await rqRef.set({ status:'rejected', decidedAt: Date.now() }, { merge:true });
+  return { ok:true, mode:'rejected' };
+});
 
 
