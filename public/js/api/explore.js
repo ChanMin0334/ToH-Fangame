@@ -2,8 +2,7 @@
 import { db, auth, fx } from './firebase.js';
 import { grantExp } from './store.js';
 
-// 🚨🚨🚨 문제의 원인이 된 아래 import 구문을 삭제했습니다. 🚨🚨🚨
-// import { EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS, apply as applyCooldown } from './cooldown.js';
+// 🚨🚨🚨 에러의 원인이 된 이 import 구문을 완전히 삭제했습니다. 🚨🚨🚨
 
 const STAMINA_BASE = 10;
 
@@ -100,8 +99,7 @@ export async function createRun({ world, site, char }){
     throw new Error('탐험 시작에 실패했습니다. 잠시 후 다시 시도해주세요.');
   }
 
-  // 🚨🚨🚨 클라이언트에서 쿨타임을 적용하는 이 코드를 삭제했습니다. 🚨🚨🚨
-  // applyCooldown(EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS);
+  // 🚨🚨🚨 클라이언트에서 쿨타임을 적용하는 이 코드를 완전히 삭제했습니다. 🚨🚨🚨
 
   return runRef.id;
 }
