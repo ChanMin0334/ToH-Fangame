@@ -614,6 +614,30 @@ function renderGuilds(root, c, paths){
       });
     });
 
+
+      // [추가] 이 캐릭터가 다른 길드에 신청(pending) 중이면 생성 버튼 잠금
+    const makeBtn = root.querySelector('#btn-open-create');
+    if (makeBtn && c?.id) {
+      try{
+        const q = fx.query(
+          fx.collection(db,'guild_requests'),
+          fx.where('charId','==', c.id),
+          fx.where('status','==','pending'),
+          fx.limit(1)
+        );
+        const qs = await fx.getDocs(q);
+        if (!qs.empty) {
+          makeBtn.disabled = true;
+          makeBtn.textContent = '다른 길드 신청 중';
+          makeBtn.title = '신청을 취소하거나 결과가 나올 때까지 기다려줘';
+        }
+      }catch(e){
+        console.error(e);
+      }
+    }
+
+
+    
     // 3) 상단 "길드 만들기" 버튼 — 캐릭터 없으면 먼저 고르게
     root.querySelector('#btn-open-create')?.addEventListener('click', ()=>{
       if (myGuildId) { showToast('이미 길드 소속이라 만들 수 없어'); return; }
