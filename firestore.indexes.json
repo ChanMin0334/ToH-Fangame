@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "guild_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "charId", "order": "ASC" },
+        { "fieldPath": "status", "order": "ASC" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
