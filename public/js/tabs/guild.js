@@ -3,13 +3,27 @@ import { db, fx } from '../api/firebase.js';
 
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// URL 해시에서 guildId 추출(여러 형태 방어)
+function parseGuildId(){
+  const h = location.hash || '';
+  // 1) #/guild/{id}
+  const m = h.match(/^#\/guild\/([^/?#]+)/);
+  if (m?.[1]) return decodeURIComponent(m[1]);
+  // 2) #/guild?id={id}
+  const qm = h.match(/[?&]id=([^&]+)/);
+  if (qm?.[1]) return decodeURIComponent(qm[1]);
+  return '';
+}
+
 async function loadGuild(id){
   if(!id) return null;
   const snap = await fx.getDoc(fx.doc(db, 'guilds', id));
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
-export default async function showGuild(guildId){
+export default async function showGuild(explicitId){
+  const guildId = (explicitId || parseGuildId()).trim();
+
   const root = document.getElementById('view');
   root.innerHTML = `<section class="container narrow"><div class="spin-center" style="margin-top:40px;"></div></section>`;
 
