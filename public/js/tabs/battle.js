@@ -207,6 +207,7 @@ async function startBattleProcess(myChar, opponentChar) {
     }
 }
 
+// ANCHOR: export async function showBattle(){
 export async function showBattle(){
   ensureSpinCss();
   const intent = intentGuard('battle');
@@ -249,6 +250,7 @@ export async function showBattle(){
 
   let myCharData = null;
   let opponentCharData = null;
+  const matchArea = document.getElementById('matchArea');
 
   try {
     const meSnap = await fx.getDoc(fx.doc(db, 'chars', intent.charId));
@@ -256,62 +258,56 @@ export async function showBattle(){
     myCharData = { id: meSnap.id, ...meSnap.data() };
     await renderLoadoutForMatch(document.getElementById('loadoutArea'), myCharData);
 
-    let matchData = null;
-    const persisted = loadMatchLock('battle', intent.charId);
-    if (persisted) {
-      matchData = { ok:true, token: persisted.token||null, opponent: persisted.opponent };
-    } else {
-      matchData = await autoMatch({ db, fx, charId: intent.charId, mode: 'battle' });
-      if(!matchData?.ok || !matchData?.opponent) throw new Error('매칭 상대를 찾지 못했습니다.');
-      saveMatchLock('battle', intent.charId, { token: matchData.token, opponent: matchData.opponent });
-    }
-
-    const oppId = String(matchData.opponent.id||matchData.opponent.charId||'').replace(/^chars\//,'');
-    const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
-    
-    if (!oppDoc.exists()) {
-      showToast('상대 정보가 없어 다시 매칭할게.');
-      sessionStorage.removeItem(_lockKey('battle', intent.charId));
-      setTimeout(() => showBattle(), 1000);
-      return;
-    }
-    
-    opponentCharData = { id: oppDoc.id, ...oppDoc.data() };
-    
-    renderOpponentCard(document.getElementById('matchArea'), opponentCharData);
-
+    // ✅ [수정] 페이지 로드 시에는 서버를 호출하지 않고, UI만 준비시킵니다.
+    matchArea.innerHTML = `<div class="text-dim">스킬과 아이템을 확인하고 '배틀 시작'을 눌러주세요.</div>`;
     const btnStart = document.getElementById('btnStart');
-    mountCooldownOnButton(btnStart, '배틀 시작');
+    btnStart.disabled = false; // 버튼 활성화
     
-    // 🚨 btnStart.onclick 수정
+    // 🚨 btnStart.onclick 로직을 서버 호출 중심으로 변경
     btnStart.onclick = async () => {
         const hasSkills = myCharData.abilities_all && myCharData.abilities_all.length > 0;
         if (hasSkills && myCharData.abilities_equipped?.length !== 2) {
             return showToast('배틀을 시작하려면 스킬을 2개 선택해야 합니다.');
         }
 
-        btnStart.disabled = true; // 중복 클릭 방지
+        btnStart.disabled = true;
+        matchArea.innerHTML = `<div class="spin"></div><div>상대를 찾고 쿨타임을 확인하는 중…</div>`;
 
         try {
-            // 서버에 쿨타임 설정을 요청 (5분)
-            const callCD = httpsCallable(func, 'setGlobalCooldown');
-            await callCD({ seconds: 300 }); 
+            // [핵심] '배틀 시작' 클릭 시 서버에 매칭과 쿨타임 처리를 요청합니다.
+            const requestMatchFn = httpsCallable(func, 'requestMatch');
+            const result = await requestMatchFn({ charId: intent.charId, mode: 'battle' });
+            
+            if (!result.data.ok) {
+                throw new Error(result.data.reason || '매칭에 실패했습니다.');
+            }
+            
+            const matchData = result.data;
+            const oppId = String(matchData.opponent.id || '').replace(/^chars\//, '');
+            const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
 
-            // 성공 시 배틀 프로세스 시작
+            if (!oppDoc.exists()) throw new Error('매칭된 상대 정보를 불러올 수 없습니다.');
+            
+            opponentCharData = { id: oppDoc.id, ...oppDoc.data() };
+            renderOpponentCard(matchArea, opponentCharData);
+
+            // 매칭 성공 후 바로 배틀 프로세스 시작
             await startBattleProcess(myCharData, opponentCharData);
 
         } catch (e) {
-            // 서버가 쿨타임 등의 이유로 요청을 거부하면 에러 발생
+            // 서버에서 보낸 쿨타임 에러 메시지 등이 여기에 표시됩니다.
             showToast(e.message || '배틀을 시작할 수 없어.');
-            btnStart.disabled = false; // 실패 시 버튼 다시 활성화
+            matchArea.innerHTML = `<div class="text-dim">오류: ${e.message}</div>`;
+            btnStart.disabled = false; // 에러 발생 시 버튼을 다시 활성화합니다.
         }
     };
 
   } catch(e) {
     console.error('[battle] setup error', e);
-    document.getElementById('matchArea').innerHTML = `<div class="text-dim">매칭 중 오류 발생: ${e.message}</div>`;
+    matchArea.innerHTML = `<div class="text-dim">페이지 로딩 중 오류 발생: ${e.message}</div>`;
   }
 }
+// ANCHOR_END: }
 
 // ... (renderOpponentCard, renderLoadoutForMatch, openItemPicker 함수는 기존과 동일하게 유지) ...
 function renderOpponentCard(matchArea, opp) {
