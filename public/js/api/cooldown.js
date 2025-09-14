@@ -1,36 +1,29 @@
 // /public/js/api/cooldown.js
-// const DEFAULT_MS = 60 * 60 * 1000; // 1시간
 
-const DEFAULT_MS = 60 * 60 * 1000; // 테스트용, 1분
-
-
-function now(){ return Date.now(); }
-
-export function getRemain(key){
-  const until = +localStorage.getItem(key) || 0;
-  return Math.max(0, until - now());
+/**
+ * 서버에서 받은 쿨타임 종료 시각(ms)을 기준으로 남은 시간을 계산합니다.
+ * @param {number | null | undefined} untilMs - 쿨타임이 끝나는 절대 시간 (밀리초)
+ * @returns {number} 남은 시간 (밀리초, 0 이상)
+ */
+export function getRemain(untilMs) {
+  const ts = Number(untilMs || 0);
+  if (ts <= 0) return 0;
+  return Math.max(0, ts - Date.now());
 }
 
-export function apply(key, ms = DEFAULT_MS){
-  localStorage.setItem(key, String(now() + ms));
-  return getRemain(key);
+/**
+ * 남은 시간을 "mm:ss" 또는 "h:mm:ss" 형식의 문자열로 변환합니다.
+ * @param {number} ms - 남은 시간 (밀리초)
+ * @returns {string} 포맷된 시간 문자열
+ */
+export function formatRemain(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  
+  const mmStr = String(mm).padStart(2, '0');
+  const ssStr = String(ss).padStart(2, '0');
+
+  return (hh > 0 ? `${hh}:${mmStr}` : mmStr) + `:${ssStr}`;
 }
-
-export function isReady(key){
-  return getRemain(key) <= 0;
-}
-
-export function formatRemain(ms){
-  const s = Math.max(0, Math.ceil(ms/1000));
-  const hh = Math.floor(s/3600), mm = Math.floor((s%3600)/60), ss = s%60;
-  return (hh? hh+':' : '') + String(mm).padStart(2,'0') + ':' + String(ss).padStart(2,'0');
-}
-
-// 탐험 전용 기본 키/상수도 노출 (필요하면 다른 곳에서도 재사용)
-export const EXPLORE_COOLDOWN_KEY = 'toh.cooldown.exploreUntilMs';
-export const EXPLORE_COOLDOWN_MS  = DEFAULT_MS;
-
-export default {
-  getRemain, apply, isReady, formatRemain,
-  EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS
-};
