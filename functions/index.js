@@ -784,57 +784,69 @@ exports.deleteGuild = onCall(async (req) => {
 });
 
 
-exports.approveGuildJoin = onCall(async (req)=>{
-  const uid = req.auth?.uid || null;
-  const { guildId, charId } = req.data || {};
-  if(!uid || !guildId || !charId) throw new HttpsError('invalid-argument','필요값');
+exports.approveGuildJoin = onCall({ region: 'us-central1' }, async (req) => {
+  try {
+    const uid = req.auth?.uid || null;
+    const { guildId, charId } = req.data || {};
+    if (!uid || !guildId || !charId) throw new HttpsError('invalid-argument', '필요값');
 
-  return await db.runTransaction(async (tx)=>{
-    const gRef = db.doc(`guilds/${guildId}`);
-    const cRef = db.doc(`chars/${charId}`);
-    const rqRef = db.doc(`guild_requests/${guildId}__${charId}`);
+    return await db.runTransaction(async (tx) => {
+      const gRef = db.doc(`guilds/${guildId}`);
+      const cRef = db.doc(`chars/${charId}`);
+      const rqRef = db.doc(`guild_requests/${guildId}__${charId}`);
 
-    const [gSnap, cSnap, rqSnap] = await Promise.all([tx.get(gRef), tx.get(cRef), tx.get(rqRef)]);
-    if(!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found','길드/캐릭 없음');
+      // 모든 읽기 먼저
+      const [gSnap, cSnap, rqSnap] = await Promise.all([tx.get(gRef), tx.get(cRef), tx.get(rqRef)]);
+      if (!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found', '길드/캐릭 없음');
 
-    const g = gSnap.data(), c = cSnap.data();
-    if (g.owner_uid !== uid) throw new HttpsError('permission-denied','길드장만 가능');
+      const g = gSnap.data(), c = cSnap.data();
+      if (g.owner_uid !== uid) throw new HttpsError('permission-denied', '길드장만 가능');
 
-    if (c.guildId) { // 이미 가입된 상태면 요청만 정리
-      if (rqSnap.exists) tx.update(rqRef, { status:'accepted', decidedAt: Date.now() });
-      return { ok:true, mode:'already-in' };
-    }
-
-    const s = g.settings || {};
-    const cap = Number(s.maxMembers || 30);
-    const cur = Number(g.member_count || 0);
-    if (cur >= cap) throw new HttpsError('failed-precondition','정원 초과');
-      // 가입 처리
-    tx.set(db.doc(`guild_members/${guildId}__${charId}`), {
-      guildId, charId, role:'member', joinedAt: Date.now(), owner_uid: c.owner_uid,
-      points_weekly:0, points_total:0, lastActiveAt: Date.now()
-    });
-    tx.update(cRef, { guildId, guild_role:'member', updatedAt: Date.now() });
-    tx.update(gRef, { member_count: cur + 1, updatedAt: Date.now() });
-    if (rqSnap.exists) tx.update(rqRef, { status:'accepted', decidedAt: Date.now() });
-
-    // 🔒🔒🔒 [신규] 이 캐릭터의 "다른 길드" pending 모두 취소
-    const othersQ = db.collection('guild_requests')
-      .where('charId','==', charId)
-      .where('status','==','pending')
-      .limit(50);
-    const othersSnap = await tx.get(othersQ);
-    for (const d of othersSnap.docs) {
-      if (d.id !== `${guildId}__${charId}`) {
-        tx.update(d.ref, { status:'auto-cancelled', decidedAt: Date.now() });
+      if (c.guildId) { // 이미 가입된 상태면 요청만 정리
+        if (rqSnap.exists) tx.update(rqRef, { status: 'accepted', decidedAt: Date.now() });
+        return { ok: true, mode: 'already-in' };
       }
+
+      const s = g.settings || {};
+      const cap = Number(s.maxMembers || 30);
+      const cur = Number(g.member_count || 0);
+      if (cur >= cap) throw new HttpsError('failed-precondition', '정원 초과');
+
+      // 이 캐릭의 "다른 길드" pending 미리 조회(읽기)
+      const othersQ = db.collection('guild_requests')
+        .where('charId', '==', charId)
+        .where('status', '==', 'pending')
+        .limit(50);
+      const othersSnap = await tx.get(othersQ);
+
+      // ── 이제부터 쓰기 ──
+      tx.set(db.doc(`guild_members/${guildId}__${charId}`), {
+        guildId, charId, role: 'member', joinedAt: Date.now(), owner_uid: c.owner_uid,
+        points_weekly: 0, points_total: 0, lastActiveAt: Date.now()
+      });
+      tx.update(cRef, { guildId, guild_role: 'member', updatedAt: Date.now() });
+      tx.update(gRef, { member_count: cur + 1, updatedAt: Date.now() });
+      if (rqSnap.exists) tx.update(rqRef, { status: 'accepted', decidedAt: Date.now() });
+
+      // 다른 길드 대기중 전부 취소
+      for (const d of othersSnap.docs) {
+        if (d.id !== `${guildId}__${charId}`) {
+          tx.update(d.ref, { status: 'auto-cancelled', decidedAt: Date.now() });
+        }
+      }
+
+      return { ok: true, mode: 'accepted' };
+    });
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (msg.includes('requires an index')) {
+      throw new HttpsError('failed-precondition', 'index-required:guild_requests(charId,status)');
     }
-    // 🔒🔒🔒
-
-    return { ok:true, mode:'accepted' };
-
-  });
+    if (e instanceof HttpsError) throw e;
+    throw new HttpsError('internal', msg || 'internal');
+  }
 });
+
 
 exports.rejectGuildJoin = onCall(async (req)=>{
   const uid = req.auth?.uid || null;
