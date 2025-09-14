@@ -494,91 +494,143 @@ function renderGuilds(root, c, paths){
     const coin = await loadMyCoins();
 
     // 내 캐릭 길드 상태 확인
-    let myGuildId = null, myGuild = null;
+    let myGuildId = null, myGuild = null, myRole = null;
     if (c?.id) {
       const cs = await fx.getDoc(fx.doc(db, 'chars', c.id));
       const cd = cs.exists() ? cs.data() : {};
       myGuildId = cd?.guildId || null;
+      myRole = cd?.guild_role || null;
       if (myGuildId) {
         const gs = await fx.getDoc(fx.doc(db, 'guilds', myGuildId));
         myGuild = gs.exists() ? ({ id: gs.id, ...gs.data() }) : null;
       }
     }
 
-    root.innerHTML = `
-      ${navHTML(paths)}
-      <div class="bookview">
-        <div class="kv-card">
-          <div class="row" style="justify-content:space-between;align-items:center">
-            <div style="font-weight:900">길드</div>
-            <div class="chip" id="btnPickChar">${c ? `캐릭터: <b>${esc(c.name||c.id)}</b> <span class="text-dim">(눌러서 변경)</span>` : '캐릭터 선택 필요 (눌러서 선택)'}</div>
+    // 공개 길드 목록(모두에게 보임) — 인덱스 필요 없게 where만 쓰고 정렬은 클라에서
+    let guilds = [];
+    try{
+      const qs = await fx.getDocs(
+        fx.query(
+          fx.collection(db, 'guilds'),
+          fx.where('settings.isPublic','==', true),
+          fx.limit(50)
+        )
+      );
+      guilds = qs.docs.map(d => ({ id: d.id, ...d.data() }));
+      // 보기 좋은 정렬: 주간포인트 -> 인원 -> 최근 업데이트
+      guilds.sort((a,b)=> (b.weekly_points||0)-(a.weekly_points||0)
+        || (b.member_count||0)-(a.member_count||0)
+        || (b.updatedAt||0)-(a.updatedAt||0));
+    }catch(e){
+      console.error('guild list load failed', e);
+      guilds = [];
+    }
 
-          </div>
-        </div>
-
-        <div class="kv-card">
-          <div class="row" style="justify-content:space-between;align-items:center">
-            <div class="text-dim">${c ? `캐릭터: <b>${esc(c.name||c.id)}</b>` : '캐릭터 선택 필요'}</div>
-            ${c ? '' : '<div></div>'}
-          </div>
-        </div>
-
-        ${
-          !c ? `
-            <div class="kv-card text-dim" style="margin-top:8px">캐릭터를 먼저 선택해줘.</div>
-          ` : myGuild ? `
-            <div class="kv-card link" id="my-guild-card" style="margin-top:8px; cursor:pointer">
-              <div class="row" style="gap:12px;align-items:center">
-                <img src="${esc(myGuild.badge_url||'')}" onerror="this.style.display='none'" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;border:1px solid #273247;">
-                <div>
-                  <div style="font-weight:900">${esc(myGuild.name||'(이름없음)')}</div>
-                  <div class="text-dim" style="font-size:12px">멤버 ${myGuild.member_count||1}명 · 레벨 ${myGuild.level||1}</div>
-                </div>
-                <div style="flex:1"></div>
-                <label class="btn ghost small" style="cursor:pointer">
-                  로고 변경
-                  <input id="guild-logo-file" type="file" accept="image/*" style="display:none">
-                </label>
-              </div>
+    // 카드 한 장(공개 리스트 용)
+    const guildCard = (g)=>`
+      <div class="kv-card link guild-card" data-gid="${g.id}" style="cursor:pointer">
+        <div class="row" style="gap:12px;align-items:center">
+          <img src="${esc(g.badge_url||'')}" onerror="this.style.display='none'" alt=""
+               style="width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid #273247;">
+          <div>
+            <div style="font-weight:900">${esc(g.name||'(이름없음)')}</div>
+            <div class="text-dim" style="font-size:12px">
+              멤버 ${g.member_count||1}명 · 레벨 ${g.level||1} ·
+              ${g.settings?.join==='free'?'즉시가입':
+                g.settings?.join==='invite'?'초대전용':'신청승인'}
+              ${g.settings?.minLevel?`· 최소레벨 ${g.settings.minLevel}`:''}
             </div>
-          ` : `
-            <div class="kv-card" style="margin-top:8px">
-              <div class="col" style="gap:8px">
-                <div style="font-weight:900">아직 길드가 없어</div>
-                <div class="text-dim" style="font-size:12px">길드를 만들면 캐릭터가 리더가 되고, <b>1000골드</b>가 차감돼.</div>
-                <button id="btn-make-guild" class="btn">🏰 길드 만들기 (🪙 1000)</button>
-              </div>
-            </div>
-          `
-        }
+          </div>
+          <div style="flex:1"></div>
+          <a class="btn ghost small" href="#/guild/${g.id}">보기</a>
+        </div>
       </div>
     `;
 
-    // 항상 칩 클릭으로 캐릭터 선택 모달 열기 (선택 후에도 다시 변경 가능)
+    root.innerHTML = `
+      ${navHTML(paths)}
+      <div class="bookview">
+
+        <!-- 상단 헤더: 길드 생성 버튼 + 지갑 -->
+        <div class="kv-card">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <div style="font-weight:900">길드</div>
+            <div class="row" style="gap:8px;align-items:center">
+              <button id="btn-open-create" class="btn">🏰 길드 만들기</button>
+              <div class="chip">🪙 <b id="guild-coin">${coin}</b> <span class="text-dim">(지갑)</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 캐릭터 칩: 항상 눌러서 선택/변경 가능 -->
+        <div class="kv-card">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <div class="text-dim"><span id="btnPickChar" style="cursor:pointer">
+              ${c ? `캐릭터: <b>${esc(c.name||c.id)}</b> <span class="text-dim">(눌러서 변경)</span>`
+                 : '캐릭터 선택 필요 (눌러서 선택)'}
+            </span></div>
+            <div></div>
+          </div>
+        </div>
+
+        <!-- 내 길드(있으면) + 설정/로고 -->
+        ${myGuild ? `
+          <div class="kv-card" id="my-guild-card" style="margin-top:8px; cursor:pointer">
+            <div class="row" style="gap:12px;align-items:center">
+              <img src="${esc(myGuild.badge_url||'')}" onerror="this.style.display='none'" alt=""
+                   style="width:48px;height:48px;border-radius:8px;object-fit:cover;border:1px solid #273247;">
+              <div>
+                <div style="font-weight:900">${esc(myGuild.name||'(이름없음)')}</div>
+                <div class="text-dim" style="font-size:12px">멤버 ${myGuild.member_count||1}명 · 레벨 ${myGuild.level||1}</div>
+              </div>
+              <div style="flex:1"></div>
+              <label class="btn ghost small" style="cursor:pointer">
+                로고 변경 <input id="guild-logo-file" type="file" accept="image/*" style="display:none">
+              </label>
+              ${myRole==='leader' ? `<button class="btn ghost small" id="btn-guild-settings">설정</button>` : ``}
+              <a class="btn small" href="#/guild/${myGuild.id}">열기</a>
+            </div>
+          </div>
+        `:''}
+
+        <!-- 공개 길드 목록 -->
+        <div class="kv-card" style="margin-top:8px">
+          <div style="font-weight:900; margin-bottom:8px">공개 길드</div>
+          ${guilds.length ? guilds.map(guildCard).join('') : `<div class="text-dim">아직 공개 길드가 없어.</div>`}
+        </div>
+      </div>
+    `;
+
+    // 1) 캐릭터 선택/변경 모달
     const pick = root.querySelector('#btnPickChar');
-    if (pick) {
-      pick.style.cursor = 'pointer';
-      pick.title = '클릭해서 캐릭터 변경';
-      pick.onclick = openCharPicker;
-    }
-    // 카드 아무 곳이나 눌러도 열리는 건 '미선택일 때만'
-    if (!c) {
-      root.querySelector('.bookview .kv-card')?.addEventListener('click', (e)=>{
-        if (e.target.closest('#btnPickChar')) return;
-         openCharPicker();
+    if (pick){ pick.onclick = openCharPicker; }
+
+    // 2) 공개 길드 카드 클릭 → 상세 링크로
+    root.querySelectorAll('.guild-card').forEach(el=>{
+      el.addEventListener('click', (e)=>{
+        if (e.target.closest('a')) return; // 내부 링크 버튼은 그대로
+        const gid = el.getAttribute('data-gid');
+        if(gid) location.hash = `#/guild/${gid}`;
       });
-    }
-    // 내 길드 카드 클릭 → 상세 페이지로
+    });
+
+    // 3) 상단 "길드 만들기" 버튼 — 캐릭터 없으면 먼저 고르게
+    root.querySelector('#btn-open-create')?.addEventListener('click', ()=>{
+      if (!c) { openCharPicker(); return; }
+      // 아래의 만들기 모달을 재사용
+      openCreateModal();
+    });
+
+    // 4) 내 길드 카드 전체 클릭 → 상세
     const gcard = root.querySelector('#my-guild-card');
     if (gcard && myGuild) {
-      gcard.addEventListener('click', ()=>{
+      gcard.addEventListener('click', (e)=>{
+        if (e.target.closest('label') || e.target.closest('button') || e.target.closest('a')) return;
         location.hash = `#/guild/${myGuild.id}`;
       });
     }
 
-
-
-    // 이벤트: 로고 변경
+    // 5) 로고 업로드
     const fileInp = root.querySelector('#guild-logo-file');
     if (fileInp && myGuild) {
       fileInp.onchange = async (e)=>{
@@ -586,8 +638,7 @@ function renderGuilds(root, c, paths){
         try{
           const { thumbUrl } = await uploadGuildBadgeSquare(myGuild.id, f);
           showToast('길드 로고가 바뀌었어!');
-          // 즉시 미리보기 업데이트
-          const img = root.querySelector('img');
+          const img = root.querySelector('#my-guild-card img');
           if (img) img.src = thumbUrl;
         }catch(err){
           console.error(err);
@@ -595,62 +646,120 @@ function renderGuilds(root, c, paths){
         }finally{
           e.target.value = '';
         }
-
       };
     }
 
-    // 이벤트: 길드 만들기(1000골드 차감)
-    const btn = root.querySelector('#btn-make-guild');
-    if (btn) {
-      btn.onclick = async ()=>{
-        ensureModalCss();
-        const back = document.createElement('div');
-        back.className='modal-back';
-        back.innerHTML = `
-          <div class="modal-card" style="max-width:520px;display:flex;flex-direction:column;gap:12px">
-            <div style="font-weight:900;font-size:18px">길드 만들기</div>
-            <input id="gname" class="input" placeholder="길드 이름(2~20자)" maxlength="20">
-            <label class="btn ghost" style="cursor:pointer;align-self:flex-start">
-              1:1 로고 이미지 선택
-              <input id="gimg" type="file" accept="image/*" style="display:none">
-            </label>
-            <div class="text-dim" style="font-size:12px">생성 시 <b>🪙 1000</b>이 차감돼. 되돌릴 수 없어.</div>
-            <div class="row" style="justify-content:flex-end;gap:8px">
-              <button class="btn ghost" id="gcancel">취소</button>
-              <button class="btn" id="gok">만들기</button>
-            </div>
+    // 6) 길드 설정(길드장만)
+    root.querySelector('#btn-guild-settings')?.addEventListener('click', ()=>{
+      ensureModalCss();
+      const back = document.createElement('div');
+      back.className='modal-back';
+      const s = myGuild?.settings || {};
+      back.innerHTML = `
+        <div class="modal-card" style="max-width:520px;display:flex;flex-direction:column;gap:12px">
+          <div style="font-weight:900;font-size:18px">길드 설정</div>
+
+          <label class="kv-card" style="padding:8px">
+            <div class="kv-label">가입 방식</div>
+            <select id="g-join" class="input">
+              <option value="free" ${s.join==='free'?'selected':''}>즉시가입</option>
+              <option value="request" ${(!s.join || s.join==='request')?'selected':''}>신청승인</option>
+              <option value="invite" ${s.join==='invite'?'selected':''}>초대전용</option>
+            </select>
+          </label>
+
+          <label class="kv-card" style="padding:8px">
+            <div class="kv-label">공개 여부</div>
+            <div><input id="g-public" type="checkbox" ${s.isPublic!==false?'checked':''}> 공개(목록에 노출)</div>
+          </label>
+
+          <label class="kv-card" style="padding:8px">
+            <div class="kv-label">최대 인원</div>
+            <input id="g-max" class="input" type="number" min="5" max="100" value="${Number(s.maxMembers||30)}">
+          </label>
+
+          <label class="kv-card" style="padding:8px">
+            <div class="kv-label">최소 캐릭터 레벨(선택)</div>
+            <input id="g-minlv" class="input" type="number" min="0" max="200" value="${Number(s.minLevel||0)}">
+          </label>
+
+          <div class="row" style="justify-content:flex-end;gap:8px">
+            <button class="btn ghost" id="g-cancel">닫기</button>
+            <button class="btn" id="g-save">저장</button>
           </div>
-        `;
-        document.body.appendChild(back);
-        back.querySelector('#gcancel').onclick = ()=> back.remove();
+        </div>
+      `;
+      document.body.appendChild(back);
+      back.querySelector('#g-cancel').onclick = ()=> back.remove();
+      back.addEventListener('click', (e)=>{ if(e.target===back) back.remove(); });
 
-        back.querySelector('#gok').onclick = async ()=>{
-          const name = back.querySelector('#gname').value.trim();
-          const file = back.querySelector('#gimg').files?.[0] || null;
-          if (name.length < 2) { showToast('이름은 2자 이상'); return; }
+      back.querySelector('#g-save').onclick = async ()=>{
+        try{
+          const now = Date.now();
+          const settings = {
+            join: back.querySelector('#g-join').value,
+            isPublic: back.querySelector('#g-public').checked,
+            maxMembers: Math.max(5, Math.min(100, Number(back.querySelector('#g-max').value||30))),
+            minLevel: Math.max(0, Number(back.querySelector('#g-minlv').value||0))
+          };
+          await fx.updateDoc(fx.doc(db,'guilds', myGuild.id), { settings, updatedAt: now });
+          showToast('길드 설정을 저장했어.');
+          back.remove();
+          await render();
+        }catch(e){
+          console.error(e);
+          showToast(e?.message || '저장 실패');
+        }
+      };
+    });
 
-          try{
-            // 서버에서 원자적으로 생성 + 1000골드 차감
-            const data = await createGuild({ charId: c.id, name });
-            if (!data?.ok) throw new Error('생성 실패');
+    // 7) 길드 만들기 모달 함수(상단 버튼/없을 때 버튼 둘 다 이걸 호출)
+    function openCreateModal(){
+      ensureModalCss();
+      const back = document.createElement('div');
+      back.className='modal-back';
+      back.innerHTML = `
+        <div class="modal-card" style="max-width:520px;display:flex;flex-direction:column;gap:12px">
+          <div style="font-weight:900;font-size:18px">길드 만들기</div>
+          <input id="gname" class="input" placeholder="길드 이름(2~20자)" maxlength="20">
+          <label class="btn ghost" style="cursor:pointer;align-self:flex-start">
+            1:1 로고 이미지 선택
+            <input id="gimg" type="file" accept="image/*" style="display:none">
+          </label>
+          <div class="text-dim" style="font-size:12px">생성 시 <b>🪙 1000</b>이 차감돼. 되돌릴 수 없어.</div>
+          <div class="row" style="justify-content:flex-end;gap:8px">
+            <button class="btn ghost" id="gcancel">취소</button>
+            <button class="btn" id="gok">만들기</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(back);
+      back.querySelector('#gcancel').onclick = ()=> back.remove();
+      back.addEventListener('click', (e)=>{ if(e.target===back) back.remove(); });
 
-            // 로고 파일이 있으면 업로드(1:1 자동 자르기)
-            if (file) await uploadGuildBadgeSquare(data.guildId, file);
+      back.querySelector('#gok').onclick = async ()=>{
+        const name = back.querySelector('#gname').value.trim();
+        const file = back.querySelector('#gimg').files?.[0] || null;
+        if (name.length < 2) { showToast('이름은 2자 이상'); return; }
+        if (!c) { showToast('캐릭터를 먼저 선택해줘'); openCharPicker(); return; }
 
-            showToast('길드를 만들었어! (1000골드 차감)');
-            back.remove();
+        try{
+          const data = await createGuild({ charId: c.id, name }); // 서버에서 1000골드 차감 + 생성
+          if (!data?.ok) throw new Error('생성 실패');
 
-            // 지갑 표시 갱신
-            const chip = root.querySelector('#guild-coin');
-            if (chip && typeof data.coinsAfter === 'number') chip.textContent = String(data.coinsAfter);
+          if (file) await uploadGuildBadgeSquare(data.guildId, file);
 
-            // 화면 다시 그림
-            await render();
-          }catch(e){
-            console.error(e);
-            showToast(e?.message || '실패했어');
-          }
-        };
+          showToast('길드를 만들었어! (1000골드 차감)');
+          back.remove();
+
+          const chip = root.querySelector('#guild-coin');
+          if (chip && typeof data.coinsAfter === 'number') chip.textContent = String(data.coinsAfter);
+
+          await render();
+        }catch(e){
+          console.error(e);
+          showToast(e?.message || '실패했어');
+        }
       };
     }
   };
