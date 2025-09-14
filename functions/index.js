@@ -147,6 +147,7 @@ exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
   return { ok:true, token, opponent: opp };
 });
 
+// 🚨 기존 setGlobalCooldown 함수를 교체합니다.
 // 전역 쿨타임(초) 설정 — 서버 시간 기준, 기존보다 "연장만" 가능(단축 불가)
 exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
   try{
@@ -156,13 +157,18 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
     const seconds = Math.max(1, Math.min(600, Number(req.data?.seconds || 60)));
     const userRef = db.doc(`users/${uid}`);
 
+    // 트랜잭션을 사용하여 동시성 문제를 방지합니다.
     await db.runTransaction(async (tx)=>{
       const now = Timestamp.now();
       const snap = await tx.get(userRef);
-      const exist = snap.exists ? snap.get('cooldown_all_until') : null;
-      const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis()); // 절대 단축 불가
-      const until = Timestamp.fromMillis(baseMs + seconds*1000);
-      tx.set(userRef, { cooldown_all_until: until }, { merge:true });
+      const userData = snap.exists ? snap.data() : {};
+
+      // 쿨타임 필드 이름을 더 명확하게 변경: cooldown_all_until
+      const existingCooldown = userData.cooldown_all_until;
+      const baseMs = Math.max(existingCooldown?.toMillis?.() || 0, now.toMillis()); // 절대 단축 불가
+
+      const newCooldownUntil = Timestamp.fromMillis(baseMs + seconds * 1000);
+      tx.set(userRef, { cooldown_all_until: newCooldownUntil }, { merge:true });
     });
 
     return { ok:true };
@@ -174,7 +180,7 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
 });
 
 
-
+// 🚨 기존 startExplore 함수를 교체합니다.
 // === [탐험 시작] onCall ===
 exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
@@ -187,49 +193,53 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
   const userRef = db.doc(`users/${uid}`);
   const runRef  = db.collection('explore_runs').doc();
 
-  // [탐험 전용 쿨타임] 1시간 — 시작 시점에 검사
-  const userSnap = await userRef.get();
-  const cd = userSnap.exists ? userSnap.get('cooldown_explore_until') : null;
-  if (cd && cd.toMillis() > Date.now()){
-    return { ok:false, reason:'cooldown', until: cd.toMillis() };
-  }
+  // 트랜잭션 안에서 쿨타임 검사와 캐릭터 상태 변경을 함께 처리합니다.
+  const result = await db.runTransaction(async (tx)=>{
+    const userSnap = await tx.get(userRef);
+    const charSnap = await tx.get(charRef);
 
-  // 캐릭/소유권 검사 + 동시진행 금지
-  const charSnap = await charRef.get();
-  if(!charSnap.exists) throw new HttpsError('failed-precondition','캐릭터 없음');
-  const ch = charSnap.data()||{};
-  if (ch.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 시작 가능');
-  if (ch.explore_active_run) {
-    const old = await db.doc(ch.explore_active_run).get();
-    if (old.exists) return { ok:true, reused:true, runId: old.id, data: old.data() };
-  }
+    if(!charSnap.exists) throw new HttpsError('failed-precondition','캐릭터 없음');
+    const ch = charSnap.data()||{};
+    if (ch.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 시작 가능');
+    
+    // [보안 강화] 탐험 전용 쿨타임을 서버에서 직접 확인합니다.
+    const userData = userSnap.exists ? userSnap.data() : {};
+    const exploreCooldown = userData.cooldown_explore_until;
+    if (exploreCooldown && exploreCooldown.toMillis() > Date.now()){
+      const remaining = Math.ceil((exploreCooldown.toMillis() - Date.now()) / 1000);
+      throw new HttpsError('failed-precondition', `탐험 쿨타임이 ${remaining}초 남았어.`);
+    }
+    
+    // 동시 진행 금지 로직은 유지
+    if (ch.explore_active_run) {
+      const oldRunSnap = await tx.get(db.doc(ch.explore_active_run));
+      if (oldRunSnap.exists) {
+        return { ok:true, reused:true, runId: oldRunSnap.id, data: oldRunSnap.data() };
+      }
+    }
 
-  const diffKey = (EXPLORE_CONFIG.diff[difficulty] ? difficulty : 'normal');
-  const payload = {
-    charRef: charRef.path, owner_uid: uid,
-    worldId, siteId, difficulty: diffKey,
-    status:'running',
-    staminaStart: EXPLORE_CONFIG.staminaStart,
-    staminaNow:  EXPLORE_CONFIG.staminaStart,
-    turn:0, events: [],
-    createdAt: nowTs(), updatedAt: nowTs()
-  };
-
-  await db.runTransaction(async (tx)=>{
-    const cdoc = await tx.get(charRef);
-    const c = cdoc.data()||{};
-    if (c.explore_active_run) throw new HttpsError('aborted','이미 진행중');
-
+    const diffKey = (EXPLORE_CONFIG.diff[difficulty] ? difficulty : 'normal');
+    const payload = {
+      charRef: charRef.path, owner_uid: uid,
+      worldId, siteId, difficulty: diffKey,
+      status:'running',
+      staminaStart: EXPLORE_CONFIG.staminaStart,
+      staminaNow:  EXPLORE_CONFIG.staminaStart,
+      turn:0, events: [],
+      createdAt: nowTs(), updatedAt: nowTs()
+    };
+    
     tx.set(runRef, payload);
     tx.update(charRef, { explore_active_run: runRef.path, updatedAt: Date.now() });
 
-    // [쿨타임 1시간] — 현재 남은 쿨타임보다 “연장만”
-    const baseMs = Math.max(coolMillis(userSnap.get?.('cooldown_explore_until')), Date.now());
-    const until  = require('firebase-admin/firestore').Timestamp.fromMillis(baseMs + 60*60*1000);
-    tx.set(userRef, { cooldown_explore_until: until }, { merge:true });
+    // [보안 강화] 탐험 시작 시 서버에서 쿨타임을 기록합니다. (1시간)
+    const newCooldown = Timestamp.fromMillis(Date.now() + 60 * 60 * 1000);
+    tx.set(userRef, { cooldown_explore_until: newCooldown }, { merge:true });
+    
+    return { ok:true, runId: runRef.id, data: payload, cooldownApplied:true };
   });
 
-  return { ok:true, runId: runRef.id, data: payload, cooldownApplied:true };
+  return result;
 });
 
 // === [탐험 한 턴 진행] onCall ===
