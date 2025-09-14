@@ -527,7 +527,7 @@ function renderGuilds(root, c, paths){
           !c ? `
             <div class="kv-card text-dim" style="margin-top:8px">캐릭터를 먼저 선택해줘.</div>
           ` : myGuild ? `
-            <div class="kv-card" style="margin-top:8px">
+            <div class="kv-card link" id="my-guild-card" style="margin-top:8px; cursor:pointer">
               <div class="row" style="gap:12px;align-items:center">
                 <img src="${esc(myGuild.badge_url||'')}" onerror="this.style.display='none'" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;border:1px solid #273247;">
                 <div>
@@ -554,19 +554,28 @@ function renderGuilds(root, c, paths){
       </div>
     `;
 
-    // 캐릭터가 없으면 칩/카드 클릭 시 선택 모달 열기
-    if(!c){
-      const btn = root.querySelector('#btnPickChar');
-      if(btn){
-        btn.style.cursor = 'pointer';
-        btn.addEventListener('click', openCharPicker);
-      }
-      // 상단 카드 아무 곳이나 눌러도 열리게
+    // 항상 칩 클릭으로 캐릭터 선택 모달 열기 (선택 후에도 다시 변경 가능)
+    const pick = root.querySelector('#btnPickChar');
+    if (pick) {
+      pick.style.cursor = 'pointer';
+      pick.title = '클릭해서 캐릭터 변경';
+      pick.onclick = openCharPicker;
+    }
+    // 카드 아무 곳이나 눌러도 열리는 건 '미선택일 때만'
+    if (!c) {
       root.querySelector('.bookview .kv-card')?.addEventListener('click', (e)=>{
-        if(e.target.closest('#btnPickChar')) return;
-        openCharPicker();
+        if (e.target.closest('#btnPickChar')) return;
+         openCharPicker();
       });
     }
+    // 내 길드 카드 클릭 → 상세 페이지로
+    const gcard = root.querySelector('#my-guild-card');
+    if (gcard && myGuild) {
+      gcard.addEventListener('click', ()=>{
+        location.hash = `#/guild/${myGuild.id}`;
+      });
+    }
+
 
 
     // 이벤트: 로고 변경
