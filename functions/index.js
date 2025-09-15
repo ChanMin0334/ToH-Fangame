@@ -493,6 +493,53 @@ async function _pickAdminUid() {
   return null;
 }
 
+
+
+
+
+// === [helper] 오늘/어제 파티션에서 직전 시작 로그 찾기 (색인 불필요) ===
+function __dayStamp(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+function __yester(d = new Date()) {
+  const t = new Date(d);
+  t.setDate(t.getDate() - 1);
+  return t;
+}
+
+// 색인 없이: when만 정렬해서 가져오고, who/where는 메모리에서 필터
+async function __findPrevStartAt(uid, whereStr, excludePath = null) {
+  const days = [__dayStamp(new Date()), __dayStamp(__yester(new Date()))];
+  const candidates = [];
+  for (const day of days) {
+    try {
+      const col = admin.firestore().collection('logs').doc(day).collection('rows');
+      const snap = await col.orderBy('when', 'desc').limit(50).get(); // 단일 정렬만
+      for (const doc of snap.docs) {
+        if (excludePath && doc.ref.path === excludePath) continue; // 방금 쓴 현재 로그 제외
+        const who = doc.get('who');
+        const where = doc.get('where');
+        const when = doc.get('when');
+        if (when && who === uid && where === whereStr) {
+          candidates.push(when);
+        }
+      }
+    } catch (e) {
+      console.error('[notifyEarlyStart] scan fail for day', day, e);
+    }
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.toMillis() - a.toMillis());
+  return candidates[0];
+}
+
+
+
+
+
 // HTTP: POST /notifyEarlyStart
 // body: { actor_uid?, kind, where, diffMs, context? }
 // Authorization: Bearer <ID_TOKEN> (선택; 있으면 서버에서 검증)
@@ -531,39 +578,18 @@ exports.notifyEarlyStart = onRequest({ region:'us-central1' }, async (req, res) 
   const uid = actorUid || actor_uid || null;
   if (!uid || !where) return res.status(200).json({ ok:true, note:'missing-uid-or-where' });
 
-  // --- 서버에서 diff 계산 (collectionGroup 으로 전일/과거까지 포함) ---
-  const now = admin.firestore.Timestamp.now();
-  // 최신 2건 가져와서 "바로 직전"을 prev로 사용
-  const cg = admin.firestore().collectionGroup('rows')
-    .where('who', '==', uid)
-    .where('where', '==', String(where))
-    .orderBy('when', 'desc')
-    .limit(2);
-  const ss = await cg.get();
+  // --- 서버에서 diff 계산 (오늘/어제 파티션, 색인 불필요) ---
+  const nowTs = admin.firestore.Timestamp.now();
+  const excludePath = (context && context.log_ref) ? String(context.log_ref) : null;
 
-  let prevAt = null;
-  if (!ss.empty) {
-    const docs = ss.docs;
-    // 가장 최신(0번)이 방금 생성된 현재 로그일 가능성이 높음 → 그 다음(1번)을 prev로 본다.
-    // 만약 1번이 없다면 과거 로그가 없는 첫 시작이므로 prevAt=null
-    if (docs.length >= 2) {
-      prevAt = docs[1].get('when') || null;
-    } else {
-      // 1건만 있을 때: 그 1건이 지금 이 호출 이전에 있던 로그인지 판별
-      const firstWhen = docs[0].get('when');
-      if (firstWhen && firstWhen.toMillis() < now.toMillis() - 10 * 1000) {
-        // 10초보다 더 이전이면 그걸 prev로 인정
-        prevAt = firstWhen;
-      }
-    }
-  }
-
+  const prevAt = await __findPrevStartAt(uid, String(where), excludePath);
   if (!prevAt) {
-    // 첫 시작이거나 과거 로그 못 찾음 → 알림 보낼 필요 없음
-    return res.json({ ok:true, note:'no-prev' });
+    return res.json({ ok: true, note: 'no-prev' }); // 첫 로그거나 과거 기록 없음
   }
 
-  const diffMs = now.toMillis() - prevAt.toMillis();
+  const diffMs = nowTs.toMillis() - prevAt.toMillis();
+  console.log('[notifyEarlyStart]', { uid, where, prevAt: prevAt.toMillis(), now: nowTs.toMillis(), diffMs });
+
   const THRESHOLDS = {
     'battle#start': 4 * 60 * 1000,     // 4분
     'explore#start': 59 * 60 * 1000    // 59분
