@@ -32,19 +32,27 @@ async function writeLogRow({ kind, where, msg, extra, ref }) {
 
   const day = dayStamp();
   const col = fx.collection(fx.doc(db, 'logs', day), 'rows');
-  const whoName  = (u.displayName || '').trim();
   const whoEmail = (u.email || '').trim();
+// displayName이 없으면 이메일의 @ 앞부분으로 대체
+  const whoName  = (u.displayName && u.displayName.trim()) || (whoEmail ? whoEmail.split('@')[0] : '');
+
 
   const data = {
-    
-    who: u.uid,                   // ★ 규칙: who == request.auth.uid
-    when: fx.serverTimestamp(),    // ★ 규칙: 서버시간 토큰
-    kind: String(kind || ''),      // 'battle' | 'explore' | ...
-    where: String(where || ''),    // 예: 'battle#start'
-    msg: String(msg || ''),        // 예: '배틀 시작'
+    who: u.uid,                    // 규칙 필수
+    when: fx.serverTimestamp(),    // 규칙 필수
+    kind: String(kind || ''),      // 규칙 필수
+    where: String(where || ''),    // 규칙 필수
+    msg: String(msg || ''),        // 규칙 필수
+
+    // ↓ 이름/이메일 저장 (검색/표시용)
+    ...(whoName  ? { who_name: whoName, who_name_lc: whoName.toLowerCase() } : {}),
+    ...(whoEmail ? { who_email: whoEmail } : {}),
+
+    // 선택 필드
     ...(ref   ? { ref: String(ref) } : {}),
     ...(extra ? { extra } : {}),
   };
+
   const docRef = await fx.addDoc(col, data);
   return { id: docRef.id, day };
 }
