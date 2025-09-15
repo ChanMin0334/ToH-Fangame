@@ -161,6 +161,29 @@ service cloud.firestore {
       allow write: if false;
     }
 
+
+    // ===== logs =====
+    // logs/{id} : { day, who_uid, who_name, kind, msg, payload?, when, app? }
+    match /logs/{id} {
+      // 읽기: 로그인만 되어 있으면 허용
+      allow read: if isSignedIn();
+
+      // 쓰기: 로그인한 본인이 자기 uid로 쓰는 것만 허용
+      allow create: if isSignedIn()
+        && request.resource.data.day is string
+        && request.resource.data.who_uid == request.auth.uid
+        && request.resource.data.when is timestamp
+        && request.resource.data.kind is string
+        && request.resource.data.msg is string;
+
+        // 수정/삭제는 막기 (로그 무결성)
+      allow update, delete: if false;
+    }
+
+
+
+
+
     // ===== logs (YYYY-MM-DD 파티션) =====
     // 예: logs/2025-09-15/{autoId}
     // 필수 필드: when(서버시간 토큰), who(uid), kind(string), where(string), msg(string)
