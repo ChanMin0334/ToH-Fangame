@@ -629,7 +629,7 @@ exports.notifyEarlyStart = onRequest({ region:'us-central1' }, async (req, res) 
         body: lines.join('\n'),
         sentAt: admin.firestore.FieldValue.serverTimestamp(),
         read: false,
-        extra: { kind, where, diffMs, uid, context: context || null, prevAt: prevAt.toMillis(), now: now.toMillis() }
+        extra: { kind, where, diffMs, uid, context: context || null, prevAt: prevAt.toMillis(), now: nowTs.toMillis() }
       });
 
     return res.json({ ok:true, mailed:true, diffMs });
