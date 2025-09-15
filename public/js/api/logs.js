@@ -3,6 +3,8 @@
 //  - fx 는 firebase/firestore 모듈 네임스페이스( addDoc, collection, query ... )
 
 import { db, fx, auth } from './firebase.js';
+import { sendAdminMail } from './notify.js';
+
 
 /* --------------------- 유틸 --------------------- */
 // YYYY-MM-DD (로컬 타임존)
@@ -12,6 +14,11 @@ export function dayStamp(d = new Date()) {
   const dd = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${dd}`;
 }
+
+// ===== [조기 시작 감지 임계값] =====
+const BATTLE_ALERT_MS  = 4  * 60 * 1000;   // 4분
+const EXPLORE_ALERT_MS = 59 * 60 * 1000;   // 59분
+
 
 // 안전 JSON 직렬화 (길이 제한)
 function safeJson(value, maxLen = 2000) {
@@ -54,10 +61,73 @@ async function writeLog(kind, where, msg, extra = null, ref = null) {
 }
 
 // 외부에서 쓰는 간단 API
-export async function logInfo(where, msg, extra = null, ref = null) {
-  try { return await writeLog('info', where, msg, extra, ref); }
-  catch (e) { console.warn('[logs] info failed', e); return false; }
+// kind: 'battle' | 'explore' | ...
+// title: '배틀 시작' / '탐험 시작' 등
+// extra: { code: 'battle_start' | 'explore_start', ... }  ← 시작 로그일 때 code 꼭 넣기
+// refPath: 관련 문서 경로 문자열 (예: `explore_runs/xxxx`)
+export async function logInfo(kind, title, extra = {}, refPath = null) {
+  const u = auth.currentUser;
+  const now = new Date();
+  const day = dayStamp(now);
+
+  // 1) 로그 한 줄 쓰기
+  const data = {
+    kind, title,
+    uid:  u?.uid || null,
+    name: u?.displayName || null,
+    extra: extra || {},
+    ref: refPath || null,
+    createdAt: fx.serverTimestamp(),
+  };
+  const docRef = await fx.addDoc(fx.collection(db, 'logs', day, 'rows'), data);
+
+  // 2) "가장 최근 시작 로그" 비교 → 조기면 우편 알림
+  try {
+    // code 자동 추론(편의): extra.code가 있으면 그 값을 우선
+    const code = extra?.code
+      || (kind === 'battle'  && /시작|스케치/.test(title) ? 'battle_start'
+      :  kind === 'explore' && /시작/.test(title)         ? 'explore_start'
+      :  null);
+
+    if (code === 'battle_start' || code === 'explore_start') {
+      const threshold = (code === 'battle_start') ? BATTLE_ALERT_MS : EXPLORE_ALERT_MS;
+
+      // 유저별, 코드별 최근시각 저장소: log_cursors/{uid}/codes/{code}
+      const cursorRef = fx.doc(db, 'log_cursors', u.uid, 'codes', code);
+      const prevSnap = await fx.getDoc(cursorRef);
+      const prevAt = (prevSnap.exists() && typeof prevSnap.data().lastAt?.toDate === 'function')
+        ? prevSnap.data().lastAt.toDate()
+        : null;
+
+      if (prevAt) {
+        const diff = now.getTime() - prevAt.getTime(); // ms
+        if (diff >= 0 && diff <= threshold) {
+          const mm = Math.floor(diff / 60000);
+          const ss = Math.floor((diff % 60000) / 1000);
+          const titleKo = (code === 'battle_start') ? '배틀 시작' : '탐험 시작';
+
+          await sendAdminMail({
+            title: `[조기 시작 로그 감지] ${titleKo}`,
+            body:
+              `최근 "${titleKo}" 로그 이후 ${mm}분 ${ss}초 만에 새 "${titleKo}" 로그가 생성됐어.\n` +
+              `유저: ${u?.displayName || u?.uid}\n` +
+              `종류: ${kind}\n` +
+              `제목: ${title}`,
+            ref: `logs/${day}/rows/${docRef.id}`,
+            extra: { code, diffMs: diff, kind, title, extra }
+          });
+        }
+      }
+      // 최신 시작시각 갱신(서버시각)
+      await fx.setDoc(cursorRef, { lastAt: fx.serverTimestamp(), lastRef: `logs/${day}/rows/${docRef.id}` }, { merge: true });
+    }
+  } catch (e) {
+    console.warn('[logs] early-start check failed', e);
+  }
+
+  return docRef.id;
 }
+
 export async function logError(where, msg, extra = null, ref = null) {
   try { return await writeLog('error', where, msg, extra, ref); }
   catch (e) { console.warn('[logs] error failed', e); return false; }
