@@ -117,6 +117,28 @@ export async function createRun({ world, site, char }){
     throw new Error('이미 진행 중인 탐험이 있어');
   }
 
+
+
+  // --- Guild-based stamina bonus (미가입이면 0) ---
+  const charDocRef = fx.doc(db, 'chars', char.id);
+  const charDocSnap = await fx.getDoc(charDocRef);
+  const charData = charDocSnap.exists() ? charDocSnap.data() : {};
+  const guildId = charData.guildId || null;
+
+  let staminaBonus = 0;
+  if (guildId) {
+    const gSnap = await fx.getDoc(fx.doc(db, 'guilds', guildId));
+    const g = gSnap.exists() ? gSnap.data() : {};
+    const staminaLv = Math.max(0, Math.floor(Number(g?.investments?.stamina_lv || 0)));
+    const role = String(charData.guild_role || 'member');
+    const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
+    const isStaffHere = staff.includes(charData.owner_uid);
+    const rf = (role === 'leader') ? 3 : (isStaffHere ? 2 : 1);
+    staminaBonus = staminaLv * rf;
+  }
+  const staminaStart = Math.max(1, STAMINA_BASE + staminaBonus);
+
+
   const payload = {
     charRef: `chars/${char.id}`,
     owner_uid: u.uid,
@@ -124,8 +146,8 @@ export async function createRun({ world, site, char }){
     site_id: site.id,   site_name: site.name,
     difficulty: site.difficulty || 'normal',
     startedAt: fx.serverTimestamp(),
-    stamina_start: STAMINA_BASE,
-    stamina: STAMINA_BASE,
+    stamina_start: staminaStart,
+    stamina: staminaStart,
     turn: 0,
     status: 'ongoing',
     summary3: '',
