@@ -83,6 +83,146 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   // Functions
   // ------------------------
 
+
+// ===== Guild Progression & Investments =====
+function levelUpCost(currentLevel){
+  const L = Math.max(1, Number(currentLevel || 1));
+  return Math.max(200, Math.floor(200 * Math.pow(L, 1.3)));
+}
+
+function roleFactor(role, uid, g){
+  if (String(role||'') === 'leader') return 3;
+  const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
+  return staff.includes(uid) ? 2 : 1; // staff면 2, 나머지는 1
+}
+
+// 길드 레벨업(코인 결제) - 길드장/운영진만
+const upgradeGuildLevel = onCall({ region: 'us-central1' }, async (req) => {
+  const uid = req.auth?.uid || null;
+  const { guildId, payFromGuild=false } = req.data || {};
+  if(!uid || !guildId) throw new HttpsError('invalid-argument', 'uid/guildId 필요');
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const gSnap = await tx.get(gRef);
+    if(!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
+    const g = gSnap.data();
+
+    if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '운영진만 가능');
+
+    const curLv = Number(g.level || 1);
+    const cost = levelUpCost(curLv);
+
+    let coinsLeft = 0;
+    if (payFromGuild) {
+      const gc = Math.floor(Number(g.coins || 0));
+      if (gc < cost) throw new HttpsError('failed-precondition', '길드 금고 코인 부족');
+      coinsLeft = gc - cost;
+      tx.update(gRef, { coins: coinsLeft });
+    } else {
+      const uRef = db.doc(`users/${uid}`);
+      const uSnap = await tx.get(uRef);
+      if (!uSnap.exists) throw new HttpsError('failed-precondition', '유저 지갑 없음');
+      const u = uSnap.data() || {};
+      const uc = Math.floor(Number(u.coins || 0));
+      if (uc < cost) throw new HttpsError('failed-precondition', '유저 코인 부족');
+      tx.update(uRef, { coins: uc - cost, updatedAt: nowMs() });
+    }
+
+    const nextLv = curLv + 1;
+    const sp = Math.floor(Number(g.stat_points || 0)) + 1;
+    const now = nowMs();
+
+    tx.update(gRef, {
+      level: nextLv,
+      stat_points: sp,
+      updatedAt: now
+    });
+
+    return { ok: true, guildId, levelAfter: nextLv, statPointsAfter: sp, cost, payFromGuild };
+  });
+});
+
+// 길드 스탯 투자 - 길드장/운영진만
+// path: 'stamina' | 'exp'
+const investGuildStat = onCall({ region: 'us-central1' }, async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, path } = req.data || {};
+  if(!uid || !guildId || !path) throw new HttpsError('invalid-argument', 'guildId/path 필요');
+
+  const key = String(path).toLowerCase();
+  if (!['stamina','exp'].includes(key)) throw new HttpsError('invalid-argument', 'path는 stamina/exp 중 하나');
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const gSnap = await tx.get(gRef);
+    if(!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
+    const g = gSnap.data();
+
+    if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '운영진만 가능');
+
+    const sp = Math.floor(Number(g.stat_points || 0));
+    if (sp <= 0) throw new HttpsError('failed-precondition', '남은 투자 포인트가 없어');
+
+    const inv = Object(g.investments || {});
+    if (key === 'stamina') inv.stamina_lv = Math.floor(Number(inv.stamina_lv || 0)) + 1;
+    if (key === 'exp')     inv.exp_lv     = Math.floor(Number(inv.exp_lv || 0)) + 1;
+
+    tx.update(gRef, {
+      stat_points: sp - 1,
+      investments: inv,
+      updatedAt: nowMs()
+    });
+
+    return { ok: true, guildId, investments: inv, statPointsAfter: sp - 1 };
+  });
+});
+
+// 캐릭터 기준 길드 버프 조회(스태미나/EXP 배율)
+const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { charId } = req.data || {};
+  if (!uid || !charId) throw new HttpsError('invalid-argument', 'uid/charId 필요');
+
+  const cRef = db.doc(`chars/${charId}`);
+  const cSnap = await cRef.get();
+  if (!cSnap.exists) throw new HttpsError('not-found', '캐릭 없음');
+  const c = cSnap.data() || {};
+  if (c.owner_uid !== uid) throw new HttpsError('permission-denied', '내 캐릭이 아님');
+
+  const guildId = c.guildId || null;
+  let out = { stamina_bonus: 0, exp_multiplier: 1.0 };
+  if (!guildId) return { ok: true, ...out, guildId: null };
+
+  const gRef = db.doc(`guilds/${guildId}`);
+  const gSnap = await gRef.get();
+  if (!gSnap.exists) return { ok: true, ...out, guildId: null };
+
+  const g = gSnap.data() || {};
+  const inv = Object(g.investments || {});
+  const staminaLv = Math.max(0, Math.floor(Number(inv.stamina_lv || 0)));
+  const expLv     = Math.max(0, Math.floor(Number(inv.exp_lv || 0)));
+
+  const rf = roleFactor(c.guild_role || 'member', c.owner_uid, g);
+  out.stamina_bonus  = staminaLv * rf;
+  out.exp_multiplier = 1 + (expLv * 0.01);
+
+  return { ok: true, guildId, ...out };
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
   // 길드 생성 (이름 중복 방지 + 1000코인 차감 + 리더 등록)
   const createGuild = onCall({ region: 'us-central1' }, async (req) => {
     const uid = req.auth?.uid || req.auth?.token?.uid;
