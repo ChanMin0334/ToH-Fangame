@@ -4,6 +4,9 @@ import { fetchWorlds, App } from './api/store.js';
 import { ensureUserDoc } from './api/user.js';
 import { routeOnce, highlightTab } from './router.js';
 import { showToast } from './ui/toast.js';
+import { ensureAdmin } from './api/admin.js';
+
+
 
 // firebase-auth 모듈을 미리 import 합니다.
 import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, GoogleAuthProvider, getRedirectResult } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
@@ -31,6 +34,13 @@ async function boot() {
       // ❌ 사용자가 로그아웃했거나, 로그인하지 않은 상태
       console.log('❌ No user is signed in.');
     }
+      const ok = await ensureAdmin();
+      ['nav-logs','nav-mail','nav-manage'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = ok ? '' : 'none';
+    });
+
+
 
     // 3. ✅ 인증 상태가 확정된 후에만 라우팅을 시작합니다.
     // 이것이 모든 권한 문제의 핵심 해결책입니다.
