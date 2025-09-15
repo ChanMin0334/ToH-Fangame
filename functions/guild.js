@@ -129,7 +129,7 @@ const upgradeGuildLevel = onCall({ region: 'us-central1' }, async (req) => {
     if(!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
     const g = gSnap.data();
 
-    if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '운영진만 가능');
+    if (!isOwner(uid, g)) throw new HttpsError('permission-denied', '길드장만 가능');
 
     const curLv = Number(g.level || 1);
     const cost = levelUpCost(curLv);
