@@ -1,6 +1,11 @@
 // /public/js/api/firebase.js (최종 수정본: serverTimestamp 직접 export 추가)
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js';
-import { getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit, serverTimestamp, writeBatch, arrayUnion, runTransaction, increment } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
+import {
+  getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
+  collection, query, where, orderBy, limit, serverTimestamp, writeBatch,
+  arrayUnion, runTransaction, increment, onSnapshot
+} from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
+
 import { getAuth } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-storage.js';
 import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
@@ -82,9 +87,10 @@ if (typeof window !== 'undefined') {
 // 편의를 위한 네임스페이스 export
 export const fx = {
   doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
-  collection, query, where, orderBy, limit, serverTimestamp, writeBatch, 
-  arrayUnion, runTransaction, increment
+  collection, query, where, orderBy, limit, serverTimestamp, writeBatch,
+  arrayUnion, runTransaction, increment, onSnapshot
 };
+
 export const sx = { ref: sRef, uploadBytes, getDownloadURL };
 export * as ax from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
 
