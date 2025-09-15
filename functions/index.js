@@ -643,9 +643,4 @@ const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
 Object.assign(exports, guildFns);
 exports.kickGuildMember = guildFns.kickFromGuild;
 
-const guild = require('./guild')(admin, { onCall, HttpsError, logger });
-exports.upgradeGuildLevel   = guild.upgradeGuildLevel;
-exports.investGuildStat     = guild.investGuildStat;
-exports.getGuildBuffsForChar = guild.getGuildBuffsForChar;
-
 
