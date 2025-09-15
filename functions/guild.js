@@ -13,6 +13,18 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   const GUILD_JOIN_COOL_MS = 60 * 1000;
 
 
+  function levelUpCost(currentLevel){
+    const L = Math.max(1, Number(currentLevel || 1));
+    return Math.max(200, Math.floor(200 * Math.pow(L, 1.3)));
+  }
+  function roleFactor(role, uid, g){
+    if (String(role||'') === 'leader') return 3;
+    const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
+    return staff.includes(uid) ? 2 : 1;
+  }
+
+
+
   // 이름 예약 키(중복 방지). 한글/영문/숫자만 남기고 소문자/공백제거.
   function normalizeGuildName(name) {
     return String(name || '')
@@ -85,17 +97,6 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
 
 
 // ===== Guild Progression & Investments =====
-function levelUpCost(currentLevel){
-  const L = Math.max(1, Number(currentLevel || 1));
-  return Math.max(200, Math.floor(200 * Math.pow(L, 1.3)));
-}
-
-function roleFactor(role, uid, g){
-  if (String(role||'') === 'leader') return 3;
-  const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
-  return staff.includes(uid) ? 2 : 1; // staff면 2, 나머지는 1
-}
-
 // 길드 레벨업(코인 결제) - 길드장/운영진만
 const upgradeGuildLevel = onCall({ region: 'us-central1' }, async (req) => {
   const uid = req.auth?.uid || null;
@@ -765,5 +766,9 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
     setGuildRole,
     transferGuildOwner,
     setGuildStaff,
+    upgradeGuildLevel,
+    investGuildStat,
+    getGuildBuffsForChar,
+
   };
 };
