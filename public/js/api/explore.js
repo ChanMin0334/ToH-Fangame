@@ -1,5 +1,8 @@
 // /public/js/api/explore.js (탐험 전용 모듈)
 import { db, auth, fx } from './firebase.js';
+import { logInfo } from './logs.js';
+
+
 import { EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS, apply as applyCooldown } from './cooldown.js';
 
 const STAMINA_BASE = 10;
@@ -135,6 +138,13 @@ export async function createRun({ world, site, char }){
   try {
     // 순차적 쓰기 (writeBatch 대안)
     runRef = await fx.addDoc(fx.collection(db, 'explore_runs'), payload);
+    await logInfo('explore', '탐험 시작', {
+    code: 'explore_start',
+    world: world.name || world.id,
+    site:  site.name  || site.id,
+    charId: char.id
+  }, `explore_runs/${runRef.id}`);
+
     const charRef = fx.doc(db, 'chars', char.id);
     await fx.updateDoc(charRef, { last_explore_startedAt: fx.serverTimestamp() });
   } catch (e) {
@@ -150,6 +160,17 @@ export async function createRun({ world, site, char }){
 
 // (이하 endRun, rollStep 등 나머지 함수들은 변경사항 없음)
 export async function endRun({ runId, reason='ended' }){
+  try {
+    await logInfo('explore', `탐험 종료: ${reason}`, {
+      code: 'explore_end',
+      runId,
+      world: r.world_name || r.world_id,
+      site:  r.site_name  || r.site_id
+    }, `explore_runs/${runId}`);
+  } catch (e) {
+    console.warn('[explore] end log skipped', e);
+  }
+
   const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
   const ref = fx.doc(db,'explore_runs', runId);
   const s = await fx.getDoc(ref);
