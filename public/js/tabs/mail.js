@@ -109,11 +109,16 @@ export default async function mountMailTab(viewEl) {
   // 초기 로드
   refresh();
 
-  // --- 호환용 내보내기: showMail / showmail ---
-export async function showMail() {
-  const view = document.getElementById('view');
-  return mountMailTab(view);
 }
+
+
+// --- 라우터 호환용: showMailbox (이 파일의 기본 함수 호출) ---
+export async function showMailbox() {
+  const view = document.getElementById('view');
+  return (await (typeof mountMailTab === 'function' ? mountMailTab(view) : null));
+}
+
+// 혹시 다른 코드에서 showMail을 찾을 수도 있으니 별칭도 제공(선택)
+export const showMail = showMailbox;
 export const showmail = showMailbox;
 
-}
