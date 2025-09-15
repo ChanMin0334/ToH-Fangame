@@ -155,19 +155,18 @@ export async function logInfo(kind, title, extra = {}, refPath = null) {
   });
 
   // 5) 조기 시작이면 서버에 우편 알림 요청
-  if (diffMs != null) {
-    const threshold = code === 'battle_start' ? BATTLE_ALERT_MS : EXPLORE_ALERT_MS;
-    if (diffMs >= 0 && diffMs <= threshold) {
-      await requestEarlyMail({
-        kind, where, diffMs,
-        context: {
-          log_ref: `logs/${day}/rows/${logId}`,
-          title,
-          refPath
-        }
-      });
-    }
+  // 5) 시작 로그면 서버에 알림 요청 (판정은 전부 서버 시계로)
+  if (code === 'battle_start' || code === 'explore_start') {
+    await requestEarlyMail({
+      kind, where,
+      context: {
+        log_ref: `logs/${day}/rows/${logId}`,
+        title,
+        refPath
+      }
+    });
   }
+ 
 
   return logId;
 }
