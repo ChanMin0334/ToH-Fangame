@@ -29,17 +29,21 @@ function parseRunId(){
   return m ? m[1] : null;
 }
 
-const sNow   = (run.stamina ?? run.staminaNow ?? 0);
-const sStart = (run.stamina_start ?? run.staminaStart ?? 1);
+function getStamina(run){
+  const now   = (run.stamina ?? run.staminaNow ?? 0);
+  const start = (run.stamina_start ?? run.staminaStart ?? 1);
+  return { now, start };
+}
 
 function renderHeader(box, run){
+  const worldLabel = run.world_name || run.world_id || run.worldId || '(세계관)';
+  const siteLabel  = run.site_name  || run.site_id  || run.siteId  || '(명소)';
+  const { now: sNow, start: sStart } = getStamina(run);
+
   box.innerHTML = `
     <div class="row" style="gap:8px;align-items:center">
       <button class="btn ghost" id="btnBack">← 탐험 선택으로</button>
-      <div style="font-weight:900">const worldLabel = run.world_name || run.world_id || run.worldId || '(세계관)';
-const siteLabel  = run.site_name  || run.site_id  || run.siteId  || '(명소)';
-${esc(worldLabel)} / ${esc(siteLabel)}
-</div>
+      <div style="font-weight:900">${esc(worldLabel)} / ${esc(siteLabel)}</div>
     </div>
     <div class="kv-card" style="margin-top:8px">
       <div class="row" style="gap:10px;align-items:center">
@@ -190,8 +194,11 @@ export async function showExploreRun() {
       const lastEvent = runState.events?.slice(-1)[0];
       narrativeBox.innerHTML = rt(lastEvent?.note || `당신은 ${site.name} 에서의 탐험을 시작했습니다...`);
       // [수정] 전투 대기 상태일 경우 '전투 시작' 버튼 표시
-      if (runState.battle_pending) {
+      const pend = runState.battle_pending || runState.pending_battle;
+      if (pend) {
         choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn" id="btnStartBattle">⚔️ 전투 시작</button></div>`;
+      }
+
       } else if (runState.status === 'ended') {
         choiceBox.innerHTML = `<div class="text-dim">탐험이 종료되었습니다.</div>`;
       } else {
@@ -211,9 +218,10 @@ export async function showExploreRun() {
       btnStartBattle.onclick = async () => {
         showLoading(true, '전투 준비 중...');
         await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-          pending_battle: runState.battle_pending,
+          pending_battle: runState.battle_pending || runState.pending_battle,
           battle_pending: null,
         });
+
         location.hash = `#/explore-battle/${state.id}`;
       };
       return; // 전투 대기 중에는 다른 버튼(탐험 계속 등)은 비활성화
@@ -226,7 +234,9 @@ export async function showExploreRun() {
     } else {
       const btnMove = root.querySelector('#btnMove');
       if (btnMove) {
-        btnMove.disabled = runState.stamina <= STAMINA_MIN;
+        const { now: sNowMove } = getStamina(runState);
+        btnMove.disabled = sNowMove <= STAMINA_MIN;
+
         btnMove.onclick = prepareNextTurn;
       }
       const btnGiveUp = root.querySelector('#btnGiveUp');
@@ -285,20 +295,6 @@ export async function showExploreRun() {
     const chosenDice = pendingTurn.diceResults[index];
     const chosenOutcome = pendingTurn.choice_outcomes[index];
     
-    // 1. 전투 발생 시 Firestore에 저장 후 이동 (새로고침 문제 해결)
-    if (chosenOutcome.event_type === 'combat') {
-      const battleInfo = {
-        enemy: chosenOutcome.enemy,
-        narrative: `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`
-      };
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-        pending_battle: battleInfo,
-        pending_choices: null, // 선택지 상태는 초기화
-        prerolls: state.prerolls // preroll 상태도 함께 저장
-      });
-      location.hash = `#/explore-battle/${state.id}`;
-      return; // 로딩은 전투 화면에서 해제
-    }
 
     const narrativeLog = `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`;
 
