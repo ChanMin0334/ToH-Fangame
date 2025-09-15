@@ -495,34 +495,69 @@ async function pickAdminUid() {
   return null;
 }
 
-// POST /notifyEarlyStart
-export const notifyEarlyStart = functions.https.onRequest(async (req, res) => {
-  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method Not Allowed' });
+// ===== [메일: 조기 시작 알림] 서버가 관리자 우편함에 1건 작성 =====
+// 관리자 UID는 Firestore configs/admins 문서의 allow[0]에서 뽑음. 없으면 아무 것도 안 함.
+async function _pickAdminUid() {
+  try {
+    const snap = await admin.firestore().doc('configs/admins').get();
+    const d = snap.exists ? snap.data() : {};
+    if (Array.isArray(d?.allow) && d.allow.length) return String(d.allow[0]);
+  } catch (_) {}
+  return null;
+}
 
-  // (선택) ID 토큰 검증: Authorization: Bearer <token>
-  const authz = req.get('Authorization') || '';
+// HTTP: POST /notifyEarlyStart
+// body: { actor_uid?, kind, where, diffMs, context? }
+// Authorization: Bearer <ID_TOKEN> (선택; 있으면 서버에서 검증)
+exports.notifyEarlyStart = onRequest({ region: 'us-central1' }, async (req, res) => {
+  // --- CORS (허용 출처만 열기) ---
+  const origin = req.get('origin');
+  const allow = new Set([
+    'https://tale-of-heros---fangame.firebaseapp.com',
+    'https://tale-of-heros---fangame.web.app',
+    'http://localhost:5000',
+    'http://localhost:5173'
+  ]);
+  if (origin && allow.has(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Vary', 'Origin');
+    res.set('Access-Control-Allow-Credentials', 'true');
+  }
+  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).send('');
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok:false, error:'Method Not Allowed' });
+  }
+
+  // --- (선택) ID 토큰 검증 ---
   let actorUid = null;
+  const authz = req.get('Authorization') || '';
   if (authz.startsWith('Bearer ')) {
-    const idToken = authz.slice(7);
     try {
-      const decoded = await admin.auth().verifyIdToken(idToken);
+      const decoded = await admin.auth().verifyIdToken(authz.slice(7));
       actorUid = decoded.uid;
-    } catch (e) {
-      // 토큰 없거나 검증 실패해도 그냥 진행 (원하면 막아도 됨)
-    }
+    } catch (_) {}
   }
 
   const { actor_uid, kind, where, diffMs, context } = req.body || {};
   const who = actorUid || actor_uid || 'unknown';
 
   try {
-    const adminUid = await pickAdminUid();
-    if (!adminUid) return res.status(200).json({ ok:true, note:'no admin configured' });
+    const adminUid = await _pickAdminUid();
+    if (!adminUid) {
+      // 관리자 미설정이면 그냥 통과(실패 아님)
+      return res.status(200).json({ ok:true, note:'no-admin-configured' });
+    }
 
-    const mm = Math.floor((+diffMs || 0) / 60000);
-    const ss = Math.floor(((+diffMs || 0) % 60000)/1000);
+    const ms = Math.max(0, Number(diffMs)||0);
+    const mm = Math.floor(ms/60000);
+    const ss = Math.floor((ms%60000)/1000);
 
-    const title = `[조기 시작 감지] ${where === 'battle#start' ? '배틀' : (where === 'explore#start' ? '탐험' : kind)} 시작`;
+    const title =
+      `[조기 시작 감지] ${where === 'battle#start' ? '배틀' : (where === 'explore#start' ? '탐험' : kind)} 시작`;
+
     const lines = [
       `이전 시작 로그 이후 ${mm}분 ${ss}초 만에 새 시작 로그가 생성됨`,
       `사용자: ${who}`,
@@ -539,13 +574,13 @@ export const notifyEarlyStart = functions.https.onRequest(async (req, res) => {
         body: lines.join('\n'),
         sentAt: admin.firestore.FieldValue.serverTimestamp(),
         read: false,
-        extra: { kind, where, diffMs: +diffMs || 0, who, context: context || null }
+        payload: { kind, where, diffMs: ms, who, context: context || null }
       });
 
     return res.json({ ok:true });
   } catch (e) {
     console.error('[notifyEarlyStart] failed', e);
-    return res.status(500).json({ ok:false, error:String(e?.message || e) });
+    return res.status(500).json({ ok:false, error: String(e?.message || e) });
   }
 });
 
