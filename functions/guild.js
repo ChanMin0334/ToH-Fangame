@@ -180,6 +180,7 @@ const investGuildStat = onCall({ region: 'us-central1' }, async (req)=>{
 });
 
 // 캐릭터 기준 길드 버프 조회(스태미나/EXP 배율)
+// 캐릭 기준 길드 버프(스태미나/EXP) 조회 — 길드 미가입이면 기본치(0, 1.0) 반환
 const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
   const uid = req.auth?.uid || null;
   const { charId } = req.data || {};
@@ -192,24 +193,28 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
   if (c.owner_uid !== uid) throw new HttpsError('permission-denied', '내 캐릭이 아님');
 
   const guildId = c.guildId || null;
-  let out = { stamina_bonus: 0, exp_multiplier: 1.0 };
-  if (!guildId) return { ok: true, ...out, guildId: null };
+  let out = { stamina_bonus: 0, exp_multiplier: 1.0, guildId: null };
+  if (!guildId) return { ok: true, ...out }; // 미가입: 기본치
 
-  const gRef = db.doc(`guilds/${guildId}`);
-  const gSnap = await gRef.get();
-  if (!gSnap.exists) return { ok: true, ...out, guildId: null };
+  const gSnap = await db.doc(`guilds/${guildId}`).get();
+  if (!gSnap.exists) return { ok: true, ...out }; // 길드 문서가 없어도 기본치
 
   const g = gSnap.data() || {};
   const inv = Object(g.investments || {});
   const staminaLv = Math.max(0, Math.floor(Number(inv.stamina_lv || 0)));
   const expLv     = Math.max(0, Math.floor(Number(inv.exp_lv || 0)));
+  const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
+  const role  = String(c.guild_role || 'member');
+  const rf    = role === 'leader' ? 3 : (staff.includes(c.owner_uid) ? 2 : 1);
 
-  const rf = roleFactor(c.guild_role || 'member', c.owner_uid, g);
-  out.stamina_bonus  = staminaLv * rf;
-  out.exp_multiplier = 1 + (expLv * 0.01);
-
-  return { ok: true, guildId, ...out };
+  return {
+    ok: true,
+    guildId,
+    stamina_bonus: staminaLv * rf,
+    exp_multiplier: 1 + (0.01 * expLv),
+  };
 });
+
 
 
 
