@@ -142,3 +142,10 @@ export default async function mountLogsTab(viewEl) {
   // 최초 실행
   run();
 }
+
+// --- 호환용 내보내기: 라우터가 showLogs / showlogs 를 찾는 경우 대비 ---
+export async function showLogs() {
+  const view = document.getElementById('view');
+  return mountLogsTab(view);
+}
+export const showlogs = showLogs;
