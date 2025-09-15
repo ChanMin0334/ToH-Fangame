@@ -1,33 +1,36 @@
 <!DOCTYPE html>
 <html lang="ko">
-  <head>
-  <script>
-    window.onerror = function(message, source, lineno, colno, error) {
-      alert(
-        '오류가 발생했습니다!\n\n' +
-        '메시지: ' + message + '\n' +
-        '파일: ' + source.split('/').pop() + '\n' +
-        '라인: ' + lineno
-      );
-      return true;
-    };
-  </script>
-
-  <meta charset="UTF-8">
-  <title>My App</title>
-  </head>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <title>ToH · Encounter</title>
   <link rel="stylesheet" href="/css/style.css" />
+
+  <script>
+    // 전역 오류 알림 (원하면 지워도 돼)
+    window.onerror = function(message, source, lineno, colno, error) {
+      alert(
+        '오류가 발생했습니다!\n\n' +
+        '메시지: ' + message + '\n' +
+        '파일: ' + (source ? source.split('/').pop() : '-') + '\n' +
+        '라인: ' + lineno
+      );
+      return true;
+    };
+  </script>
 </head>
 <body>
   <div id="app" class="wrap">
     <header class="topbar">
-      <div class="l"><b>ToH · Encounter</b> <span id="worldChip" class="chip">세계관: -</span></div>
+      <div class="l">
+        <b>ToH · Encounter</b>
+        <span id="worldChip" class="chip">세계관: -</span>
+        <!-- 어드민 전용 뱃지: JS에서 어드민이면 표시 -->
+        <span id="adminChip" class="chip" style="display:none;background:#222;color:#fff">관리자</span>
+      </div>
       <div class="r"><button id="btnAuth">구글 로그인</button></div>
     </header>
+
     <main id="view" class="view"></main>
   </div>
 
@@ -38,16 +41,16 @@
     <a href="#/plaza" data-tab="plaza">🏛️<span>광장</span></a>
     <a href="#/friends" data-tab="friends">👥<span>친구</span></a>
     <a href="#/me" data-tab="me">🙋‍♀️<span>내정보</span></a>
+
+    <!-- 어드민 전용 탭: 기본 숨김, JS에서 어드민이면 표시 -->
+    <a href="#/logs" id="nav-logs" data-tab="logs" style="display:none">📜<span>로그</span></a>
+    <a href="#/mail" id="nav-mail" data-tab="mail" style="display:none">📬<span>우편함</span></a>
+    <a href="#/manage" id="nav-manage" data-tab="manage" style="display:none">🛠️<span>관리</span></a>
   </nav>
 
   <div id="toast" class="toast" style="z-index:9999"></div>
 
-<!-- 🔧 /sellItems 로 가는 직접 요청을 전부 onCall로 우회 (fetch + XHR), 엔트리보다 먼저 실행 -->
-
-<!-- ✅ 엔트리(항상 최신 강제) -->
-<script type="module" src="/js/app.js?v=2025-09-14-d"></script>
-
-
-
+  <!-- 엔트리 -->
+  <script type="module" src="/js/app.js?v=2025-09-14-d"></script>
 </body>
 </html>
