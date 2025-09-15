@@ -32,9 +32,12 @@ async function writeLogRow({ kind, where, msg, extra, ref }) {
 
   const day = dayStamp();
   const col = fx.collection(fx.doc(db, 'logs', day), 'rows');
+  const whoName  = (u.displayName || '').trim();
+  const whoEmail = (u.email || '').trim();
 
   const data = {
-    who: u.uid,                    // ★ 규칙: who == request.auth.uid
+    
+    who: u.uid,                   // ★ 규칙: who == request.auth.uid
     when: fx.serverTimestamp(),    // ★ 규칙: 서버시간 토큰
     kind: String(kind || ''),      // 'battle' | 'explore' | ...
     where: String(where || ''),    // 예: 'battle#start'
