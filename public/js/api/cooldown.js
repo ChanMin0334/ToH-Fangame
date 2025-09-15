@@ -9,7 +9,7 @@ function now(){ return Date.now(); }
 export function getRemain(key){
   const until = +localStorage.getItem(key) || 0;
   return Math.max(0, until - now());
-
+}
 
 export function apply(key, ms = DEFAULT_MS){
   localStorage.setItem(key, String(now() + ms));
