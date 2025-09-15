@@ -81,8 +81,9 @@ export async function findMyActiveRun(){
   const q = fx.query(
     fx.collection(db,'explore_runs'),
     fx.where('owner_uid','==', u.uid),
-    fx.where('status','==','ongoing'),
-    fx.orderBy('startedAt','desc'),
+    fx.where('status','==','running'),
+    fx.orderBy('createdAt','desc'),
+
     fx.limit(1)
   );
   const s = await fx.getDocs(q);
@@ -97,7 +98,7 @@ export async function hasActiveRunForChar(charId){
     fx.collection(db,'explore_runs'),
     fx.where('owner_uid','==', u.uid),
     fx.where('charRef','==', `chars/${charId}`),
-    fx.where('status','==','ongoing'),
+    fx.where('status','==','running'),
     fx.limit(1)
   );
   const s = await fx.getDocs(q);
@@ -144,8 +145,9 @@ export async function createRun({ world, site, char }){
       fx.collection(db, 'explore_runs'),
       fx.where('owner_uid', '==', u.uid),
       fx.where('charRef', '==', `chars/${char.id}`),
-      fx.where('status', '==', 'ongoing'),
-      fx.orderBy('startedAt','desc'),
+      fx.where('status','==','running'),
+      fx.orderBy('createdAt','desc'),
+
       fx.limit(1)
     );
     const s = await fx.getDocs(q);
