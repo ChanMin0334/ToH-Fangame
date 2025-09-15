@@ -138,15 +138,22 @@ export async function createRun({ world, site, char }){
   try {
     // 순차적 쓰기 (writeBatch 대안)
     runRef = await fx.addDoc(fx.collection(db, 'explore_runs'), payload);
-    await logInfo('explore', '탐험 시작', {
-    code: 'explore_start',
-    world: world.name || world.id,
-    site:  site.name  || site.id,
-    charId: char.id
-  }, `explore_runs/${runRef.id}`);
 
     const charRef = fx.doc(db, 'chars', char.id);
     await fx.updateDoc(charRef, { last_explore_startedAt: fx.serverTimestamp() });
+
+// 로그는 실패해도 진행되도록 별도 try
+    try {
+      await logInfo('explore', '탐험 시작', {
+        code: 'explore_start',
+        world: world.name || world.id,
+        site:  site.name  || site.id,
+        charId: char.id
+      }, `explore_runs/${runRef.id}`);
+    } catch (e) {
+      console.warn('[explore] start log skipped', e);
+    }
+
   } catch (e) {
     console.error('[explore] A critical error occurred during sequential write:', e);
     throw new Error('탐험 시작에 실패했습니다. 잠시 후 다시 시도해주세요.');
@@ -160,6 +167,13 @@ export async function createRun({ world, site, char }){
 
 // (이하 endRun, rollStep 등 나머지 함수들은 변경사항 없음)
 export async function endRun({ runId, reason='ended' }){
+  
+
+  const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
+  const ref = fx.doc(db,'explore_runs', runId);
+  const s = await fx.getDoc(ref);
+  if(!s.exists()) throw new Error('런이 없어');
+  const r = s.data();
   try {
     await logInfo('explore', `탐험 종료: ${reason}`, {
       code: 'explore_end',
@@ -171,11 +185,7 @@ export async function endRun({ runId, reason='ended' }){
     console.warn('[explore] end log skipped', e);
   }
 
-  const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
-  const ref = fx.doc(db,'explore_runs', runId);
-  const s = await fx.getDoc(ref);
-  if(!s.exists()) throw new Error('런이 없어');
-  const r = s.data();
+  
   if(r.owner_uid !== u.uid) throw new Error('소유자가 아니야');
   if(r.status !== 'ongoing') return true;
 
