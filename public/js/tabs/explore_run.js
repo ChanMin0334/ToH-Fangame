@@ -36,7 +36,10 @@ function renderHeader(box, run){
   box.innerHTML = `
     <div class="row" style="gap:8px;align-items:center">
       <button class="btn ghost" id="btnBack">← 탐험 선택으로</button>
-      <div style="font-weight:900">${esc(run.world_name||run.world_id)} / ${esc(run.site_name||run.site_id)}</div>
+      <div style="font-weight:900">const worldLabel = run.world_name || run.world_id || run.worldId || '(세계관)';
+const siteLabel  = run.site_name  || run.site_id  || run.siteId  || '(명소)';
+${esc(worldLabel)} / ${esc(siteLabel)}
+</div>
     </div>
     <div class="kv-card" style="margin-top:8px">
       <div class="row" style="gap:10px;align-items:center">
