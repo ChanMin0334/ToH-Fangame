@@ -11,6 +11,8 @@ import { showEncounter } from './tabs/encounter.js';
 import showExploreRun from './tabs/explore_run.js';
 import { showExploreBattle } from './tabs/explore_battle.js';
 import { showBattleLog } from './tabs/battlelog.js';
+import { showLogs } from './tabs/logs.js';
+import { showMailbox } from './tabs/mail.js';
 
 
 
@@ -35,6 +37,8 @@ export const routes = {
   '#/explorelog': () => import('./tabs/explorelog.js').then(m => (m.default ?? m.showExploreLog)?.()),
   '#/plaza': () => import('./tabs/plaza.js').then(m => (m.default ?? m.showPlaza)?.()),
   '#/guild': () => import('./tabs/guild.js').then(m => (m.default ?? m.showGuild)?.()),
+  '#/logs': showLogs,
+  '#/mail': showMailbox,
 
 
   
