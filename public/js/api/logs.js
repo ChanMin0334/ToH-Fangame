@@ -17,7 +17,9 @@ const BATTLE_ALERT_MS  = 4  * 60 * 1000;   // 4분
 const EXPLORE_ALERT_MS = 59 * 60 * 1000;   // 59분
 
 // 서버(Cloud Functions) HTTP 엔드포인트 — 아래 주소를 배포 후 바꿔줘
-const NOTIFY_EARLY_START_URL = 'https://notifyearlystart-o2jibolisq-uc.a.run.app'; // 예: https://<region>-<project>.cloudfunctions.net/notifyEarlyStart
+const NOTIFY_EARLY_START_URL =
+  `https://us-central1-${db.app.options.projectId}.cloudfunctions.net/notifyEarlyStart`;
+
 
 /* ================= 로그 쓰기 (규칙 호환) ================= */
 /**
