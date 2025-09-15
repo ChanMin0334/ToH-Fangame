@@ -496,16 +496,19 @@ async function _pickAdminUid() {
 // HTTP: POST /notifyEarlyStart
 // body: { actor_uid?, kind, where, diffMs, context? }
 // Authorization: Bearer <ID_TOKEN> (선택; 있으면 서버에서 검증)
-exports.notifyEarlyStart = onRequest({ region: 'us-central1' }, async (req, res) => {
-  // --- CORS (허용 출처만 열기) ---
+exports.notifyEarlyStart = onRequest({ region:'us-central1' }, async (req, res) => {
+  // --- CORS (허용 출처) ---
   const origin = req.get('origin');
   const allow = new Set([
     'https://tale-of-heros---fangame.firebaseapp.com',
     'https://tale-of-heros---fangame.web.app',
-    'http://localhost:5000',
-    'http://localhost:5173'
+    'https://tale-of-heros-staging.firebaseapp.com',
+    'https://tale-of-heros-staging.web.app',
+    'http://localhost:5000','http://127.0.0.1:5000',
+    'http://localhost:5173','http://127.0.0.1:5173'
   ]);
-  if (origin && allow.has(origin)) {
+  const okOrigin = origin && (allow.has(origin) || origin.includes('--pr-'));
+  if (okOrigin) {
     res.set('Access-Control-Allow-Origin', origin);
     res.set('Vary', 'Origin');
     res.set('Access-Control-Allow-Credentials', 'true');
@@ -513,12 +516,9 @@ exports.notifyEarlyStart = onRequest({ region: 'us-central1' }, async (req, res)
   res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   if (req.method === 'OPTIONS') return res.status(204).send('');
+  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method Not Allowed' });
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok:false, error:'Method Not Allowed' });
-  }
-
-  // --- (선택) ID 토큰 검증 ---
+  // --- 인증(있으면 신뢰) ---
   let actorUid = null;
   const authz = req.get('Authorization') || '';
   if (authz.startsWith('Bearer ')) {
@@ -527,31 +527,73 @@ exports.notifyEarlyStart = onRequest({ region: 'us-central1' }, async (req, res)
       actorUid = decoded.uid;
     } catch (_) {}
   }
+  const { actor_uid, kind, where, context } = req.body || {};
+  const uid = actorUid || actor_uid || null;
+  if (!uid || !where) return res.status(200).json({ ok:true, note:'missing-uid-or-where' });
 
-  const { actor_uid, kind, where, diffMs, context } = req.body || {};
-  const who = actorUid || actor_uid || 'unknown';
+  // --- 서버에서 diff 계산 (collectionGroup 으로 전일/과거까지 포함) ---
+  const now = admin.firestore.Timestamp.now();
+  // 최신 2건 가져와서 "바로 직전"을 prev로 사용
+  const cg = admin.firestore().collectionGroup('rows')
+    .where('who', '==', uid)
+    .where('where', '==', String(where))
+    .orderBy('when', 'desc')
+    .limit(2);
+  const ss = await cg.get();
 
-  try {
-    const adminUid = await _pickAdminUid();
-    if (!adminUid) {
-      // 관리자 미설정이면 그냥 통과(실패 아님)
-      return res.status(200).json({ ok:true, note:'no-admin-configured' });
+  let prevAt = null;
+  if (!ss.empty) {
+    const docs = ss.docs;
+    // 가장 최신(0번)이 방금 생성된 현재 로그일 가능성이 높음 → 그 다음(1번)을 prev로 본다.
+    // 만약 1번이 없다면 과거 로그가 없는 첫 시작이므로 prevAt=null
+    if (docs.length >= 2) {
+      prevAt = docs[1].get('when') || null;
+    } else {
+      // 1건만 있을 때: 그 1건이 지금 이 호출 이전에 있던 로그인지 판별
+      const firstWhen = docs[0].get('when');
+      if (firstWhen && firstWhen.toMillis() < now.toMillis() - 10 * 1000) {
+        // 10초보다 더 이전이면 그걸 prev로 인정
+        prevAt = firstWhen;
+      }
     }
+  }
 
-    const ms = Math.max(0, Number(diffMs)||0);
-    const mm = Math.floor(ms/60000);
-    const ss = Math.floor((ms%60000)/1000);
+  if (!prevAt) {
+    // 첫 시작이거나 과거 로그 못 찾음 → 알림 보낼 필요 없음
+    return res.json({ ok:true, note:'no-prev' });
+  }
 
-    const title =
-      `[조기 시작 감지] ${where === 'battle#start' ? '배틀' : (where === 'explore#start' ? '탐험' : kind)} 시작`;
+  const diffMs = now.toMillis() - prevAt.toMillis();
+  const THRESHOLDS = {
+    'battle#start': 4 * 60 * 1000,     // 4분
+    'explore#start': 59 * 60 * 1000    // 59분
+  };
+  const threshold = THRESHOLDS[String(where)] || null;
+  if (!threshold) return res.json({ ok:true, note:'unknown-where' });
 
+  // 임계 이내면 메일 발송
+  if (diffMs >= 0 && diffMs <= threshold) {
+    // 관리자 선택
+    let adminUid = null;
+    try {
+      const snap = await admin.firestore().doc('configs/admins').get();
+      const d = snap.exists ? snap.data() : {};
+      if (Array.isArray(d?.allow) && d.allow.length) adminUid = String(d.allow[0]);
+    } catch (_) {}
+    if (!adminUid) return res.status(200).json({ ok:true, note:'no-admin-configured' });
+
+    const mm = Math.floor(diffMs / 60000);
+    const ss2 = Math.floor((diffMs % 60000) / 1000);
+
+    const title = `[조기 시작 감지] ${where === 'battle#start' ? '배틀' : '탐험'} 시작`;
     const lines = [
-      `이전 시작 로그 이후 ${mm}분 ${ss}초 만에 새 시작 로그가 생성됨`,
-      `사용자: ${who}`,
-      `종류: ${kind}`,
+      `이전 시작 로그 이후 ${mm}분 ${ss2}초 만에 새 시작 로그가 생성됨`,
+      `사용자: ${uid}`,
+      `종류: ${kind || ''}`,
       `where: ${where}`,
       context?.title ? `제목: ${context.title}` : '',
       context?.log_ref ? `ref: ${context.log_ref}` : '',
+      `서버기준 diffMs: ${diffMs}`
     ].filter(Boolean);
 
     await admin.firestore()
@@ -561,15 +603,15 @@ exports.notifyEarlyStart = onRequest({ region: 'us-central1' }, async (req, res)
         body: lines.join('\n'),
         sentAt: admin.firestore.FieldValue.serverTimestamp(),
         read: false,
-        payload: { kind, where, diffMs: ms, who, context: context || null }
+        extra: { kind, where, diffMs, uid, context: context || null, prevAt: prevAt.toMillis(), now: now.toMillis() }
       });
 
-    return res.json({ ok:true });
-  } catch (e) {
-    console.error('[notifyEarlyStart] failed', e);
-    return res.status(500).json({ ok:false, error: String(e?.message || e) });
+    return res.json({ ok:true, mailed:true, diffMs });
   }
+
+  return res.json({ ok:true, mailed:false, diffMs, note:'over-threshold' });
 });
+
 
 
 const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
