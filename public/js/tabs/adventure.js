@@ -81,7 +81,6 @@ function ensureModalCss(){
 
 // ===== 공용 유틸 =====
 const STAMINA_BASE  = 10;
-const cooldownRemain = ()=> getCdRemain(EXPLORE_COOLDOWN_KEY);
 const diffColor = (d)=>{
   const v = String(d||'').toLowerCase();
   if(['easy','이지','normal','노말'].includes(v)) return '#4aa3ff';
