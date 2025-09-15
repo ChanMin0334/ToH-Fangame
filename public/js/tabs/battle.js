@@ -1,6 +1,7 @@
 // /public/js/tabs/battle.js
 import { auth, db, fx } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
+import { logInfo } from '../api/logs.js';
 import { autoMatch } from '../api/match_client.js';
 // ai.js에서 새로운 함수들을 가져오도록 수정
 import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateFinalBattleLog } from '../api/ai.js'; 
@@ -316,6 +317,17 @@ export async function showBattle(){
         if (getCooldownRemainMs() > 0) return;
         btnStart.disabled = true;
         applyGlobalCooldown(300);
+      try {
+        await logInfo('battle', '배틀 시작', {
+          code: 'battle_start',
+          mode,
+          myCharId: myCharData?.id || null,
+          opponentId: opponentCharData?.id || null
+        }, null);
+      } catch (e) {
+        console.warn('[battle] start log skipped', e);
+      }
+
         await startBattleProcess(myCharData, opponentCharData);
     };
 
