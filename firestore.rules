@@ -2,101 +2,193 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ===== 헬퍼 함수 =====
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    function isOwner(docData) {
-      return isSignedIn() && docData.owner_uid == request.auth.uid;
-    }
-    // [최종 수정] increment() 업데이트를 정확히 감지하는 규칙
+    // ===== helper =====
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(doc) { return isSignedIn() && doc.owner_uid == request.auth.uid; }
+
+    // 좋아요 전용 업데이트 검증
     function isLiking() {
-      // 오직 이 3개 필드만 바뀌어야 함
       let d = request.resource.data.diff(resource.data);
-      return d.changedKeys().hasOnly(['likes_total', 'likes_weekly', 'updatedAt'])
-        // 결과값이 정확히 +1 되었는지 확인
-        && request.resource.data.likes_total  == resource.data.likes_total  + 1
-        && request.resource.data.likes_weekly == resource.data.likes_weekly + 1;
-        // updatedAt은 서버시간으로 바뀌는 것만 요구하면 충분 (값 비교는 생략)
+      return d.changedKeys().hasOnly(['likes_total', 'likes_weekly', 'updatedAt']) &&
+             request.resource.data.likes_total  == resource.data.likes_total  + 1 &&
+             request.resource.data.likes_weekly == resource.data.likes_weekly + 1;
     }
 
-    // ===== 컬렉션 규칙 =====
+    // ===== admin (configs/admins 문서 기반) =====
+    // admins 문서: { allow: [uid...], allowEmails: [email...] }
+    function isAdmin() {
+      return isSignedIn() && (
+        (
+          get(/databases/$(database)/documents/configs/admins).data.allow is list &&
+          request.auth.uid in get(/databases/$(database)/documents/configs/admins).data.allow
+        ) ||
+        (
+          request.auth.token.email != null &&
+          get(/databases/$(database)/documents/configs/admins).data.allowEmails is list &&
+          request.auth.token.email in get(/databases/$(database)/documents/configs/admins).data.allowEmails
+        )
+      );
+    }
+
+    // ===== chars =====
     match /chars/{charId} {
       allow read: if true;
       allow create: if isOwner(request.resource.data);
-      // [최종 수정] 소유자이거나, '좋아요'를 누르는 경우 업데이트를 허용합니다.
       allow update: if isOwner(resource.data) || (isSignedIn() && isLiking());
       allow delete: if isOwner(resource.data);
-      
+
       match /images/{imageDoc} {
         allow read: if true;
         allow write: if isOwner(get(/databases/$(database)/documents/chars/$(charId)).data);
       }
     }
-    
 
-
-    
-    // ===== 관계 (relations) — DEV_SUPER_LOOSE =====
-    match /relations/{relationId} {
-        allow read: if true;
-
-        // 생성/수정/삭제: 로그인만 되면 전부 허용 (개발용)
-        allow create: if isSignedIn();
-        allow update: if isSignedIn();
-        allow delete: if isSignedIn();
-
-        // 하위 문서: /relations/{relationId}/meta/note
-        match /meta/note {
-            allow read: if true;
-            // 메모 작성/수정/삭제도 전부 허용 (로그인만)
-            allow create: if isSignedIn();
-            allow update: if isSignedIn();
-            allow delete: if isSignedIn();
-        }
+    // ===== guild helpers =====
+    function isGuildStaff(gid) {
+      return isSignedIn() && (
+        get(/databases/$(database)/documents/guilds/$(gid)).data.owner_uid == request.auth.uid ||
+        (
+          get(/databases/$(database)/documents/guilds/$(gid)).data.staff_uids is list &&
+          request.auth.uid in get(/databases/$(database)/documents/guilds/$(gid)).data.staff_uids
+        )
+      );
     }
 
-    
-    
+    // ===== guilds =====
+    match /guilds/{guildId} {
+      allow read: if true;
+      allow create, delete: if false;
 
-    // (이하 다른 규칙은 기존과 동일하게 유지)
+      allow update: if isSignedIn() &&
+        request.auth.uid == resource.data.owner_uid &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(
+          ['badge_url', 'settings', 'desc', 'updatedAt']
+        );
+
+      match /images/{imageId} {
+        allow read: if true;
+        allow write: if isSignedIn() &&
+          request.auth.uid == get(/databases/$(database)/documents/guilds/$(guildId)).data.owner_uid;
+      }
+    }
+
+    // ===== guild_members =====
+    match /guild_members/{memId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ===== guild_requests =====
+    match /guild_requests/{rid} {
+      allow read: if isSignedIn() && (
+        resource.data.owner_uid == request.auth.uid ||
+        isGuildStaff(resource.data.guildId)
+      );
+      allow write: if false;
+    }
+
+    // ===== relations (dev loose) =====
+    match /relations/{relationId} {
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
+
+      match /meta/note {
+        allow read: if true;
+        allow create, update, delete: if isSignedIn();
+      }
+    }
+
+    // ===== users =====
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create, update: if request.auth.uid == userId;
-      allow create, update: if request.auth.uid == userId;
     }
+
+    // ===== explore_runs =====
     match /explore_runs/{runId} {
       allow read: if true;
       allow create: if isOwner(request.resource.data);
       allow update: if isOwner(resource.data);
       allow delete: if false;
     }
+
+    // ===== battle_logs =====
     match /battle_logs/{logId} {
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.attacker_uid == request.auth.uid;
+      allow create: if isSignedIn() &&
+        request.resource.data.attacker_uid == request.auth.uid;
       allow update, delete: if false;
     }
+
+    // ===== friends =====
     match /friendRequests/{reqId} {
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
-      allow create: if isSignedIn() && request.auth.uid == request.resource.data.from;
-      allow update: if isSignedIn() && request.auth.uid == resource.data.to;
-      allow delete: if isSignedIn() && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow read: if isSignedIn() &&
+        (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow create: if isSignedIn() &&
+        request.auth.uid == request.resource.data.from;
+      allow update: if isSignedIn() &&
+        request.auth.uid == resource.data.to;
+      allow delete: if isSignedIn() &&
+        (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
     }
     match /friendships/{pairId} {
-      allow read, delete: if isSignedIn() && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
-      allow create: if isSignedIn() && (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
+      allow read, delete: if isSignedIn() &&
+        (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
+      allow create: if isSignedIn() &&
+        (request.auth.uid == request.resource.data.a || request.auth.uid == request.resource.data.b);
     }
+
+    // ===== matchSessions =====
     match /matchSessions/{sid} {
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.a_owner || request.auth.uid == resource.data.b_owner);
+      allow read: if isSignedIn() &&
+        (request.auth.uid == resource.data.a_owner || request.auth.uid == resource.data.b_owner);
+      allow write: if false;
+    }
+
+    // ===== configs (읽기: 로그인 필요, 쓰기 금지) =====
+    match /configs/{docId} {
+      allow read: if isSignedIn();
       allow write: if false;
     }
     match /configs/{docId}/{subpath=**} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow write: if false;
     }
+
+    // ===== rankings =====
     match /rankings/{docId} {
       allow read: if true;
       allow write: if false;
+    }
+
+    // ===== logs (YYYY-MM-DD 파티션) =====
+    // 예: logs/2025-09-15/{autoId}
+    // 필수 필드: when(서버시간 토큰), who(uid), kind(string), where(string), msg(string)
+    // 선택: ref, extra, who_name, who_name_lc, who_email ...
+    match /logs/{day}/{id} {
+    // 조회: 로그인만 되면 가능
+      allow read: if isSignedIn();
+      // 생성: 내가 내 로그만 씀. serverTimestamp() 허용 (when 존재만 확인)
+      allow create: if isSignedIn()
+        && request.resource.data.who == request.auth.uid
+        && request.resource.data.kind is string
+        && request.resource.data.where is string
+        && request.resource.data.msg  is string
+        && request.resource.data.keys().hasAll(['when']); // when 필드만 필수
+      // 수정/삭제 금지
+     allow update, delete: if false;
+    }
+
+    // ===== mail =====
+    // mail/{uid}/msgs/{id} : { title, body, sentAt, read, payload? }
+    match /mail/{uid}/msgs/{id} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create: if false; // 서버에서만 발송
+      allow update: if isSignedIn() &&
+        request.auth.uid == uid &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['read']) &&
+        request.resource.data.read is bool;
+      allow delete: if false;
     }
   }
 }
