@@ -1,5 +1,7 @@
 // /public/js/api/ai.js (v4 - 관계, 아이템, 경험치 반영 및 AI 자동 선택)
 import { db, fx } from './firebase.js';
+import { logInfo, logError } from './logs.js';
+
 
 // 사용할 모델 목록 (RPM이 높은 순서대로 정렬)
 const MODEL_POOL = [
@@ -115,17 +117,29 @@ export async function generateRelationNote({ battleLog, attacker, defender, exis
   `;
 
   const { primary, fallback } = pickModels();
+  const t0 = performance.now();
   let raw = '';
+
   try {
     raw = await callGemini(primary, systemPrompt, userPrompt, 0.8);
-  } catch (e) {
-    console.warn('[AI] 관계 생성 실패, 폴백 시도', e);
-    raw = await callGemini(fallback, systemPrompt, userPrompt, 0.8);
+    await logInfo('ai#relation', '관계 생성 성공', { ms: Math.round(performance.now()-t0), model: primary });
+  } catch (e1) {
+    console.warn('[AI] 관계 생성 실패, 폴백 시도', e1);
+    await logError('ai#relation', '관계 생성 1차 실패', { err: String(e1?.message||e1) });
+
+    try {
+      raw = await callGemini(fallback, systemPrompt, userPrompt, 0.8);
+      await logInfo('ai#relation', '관계 생성 폴백 성공', { ms: Math.round(performance.now()-t0), model: fallback });
+    } catch (e2) {
+      await logError('ai#relation', '관계 생성 폴백 실패', { err: String(e2?.message||e2) });
+      throw e2;
+    }
   }
-  
+
   const parsed = tryParseJson(raw);
   return parsed?.note || "AI가 관계를 생성하는 데 실패했습니다.";
 }
+
 
 
 
@@ -177,11 +191,18 @@ export async function generateBattleSketches(battleData) {
 
  let raw = '';
   const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
+  const t0 = performance.now();
   try {
     raw = await callGemini(primary, systemPrompt, userPrompt, 1.0); // <-- 모델 이름 변경
+    const ms = Math.round(performance.now() - t0);
+    await logInfo('ai#battle/sketches', '1단계 스케치 성공', { ms, model: primary });
+
   } catch (e1) {
     dbg('1단계 생성 실패, 폴백 시도', e1);
     raw = await callGemini(fallback, systemPrompt, userPrompt, 1.0); // <-- 모델 이름 변경
+    const ms2 = Math.round(performance.now() - t0);
+    await logInfo('ai#battle/sketches', '1단계 폴백 성공', { ms: ms2, model: fallback, err: String(e1?.message||e1) });
+
   }
 
 
@@ -190,6 +211,7 @@ export async function generateBattleSketches(battleData) {
 
   const parsed = tryParseJson(raw);
   if (!Array.isArray(parsed) || parsed.length < 3) {
+      await logError('ai#battle/sketches', '1단계 파싱 실패', { raw_head: String(raw||'').slice(0,400) });
       throw new Error('AI가 3개의 유효한 시나리오를 반환하지 않았습니다.');
   }
   return parsed;
@@ -201,15 +223,19 @@ export async function chooseBestSketch(sketches) {
     const userPrompt = `<INPUT>${JSON.stringify(sketches, null, 2)}</INPUT>`;
 
     const { primary, fallback } = pickModels(); // [추가] 이 함수 안에서도 모델을 선택하도록 추가합니다.
+    const t0 = performance.now();
+
 
     let raw = '';
     try {
         raw = await callGemini(primary, systemPrompt, userPrompt, 0.7);
+        await logInfo('ai#battle/choose', '1.5단계 선택 성공', { ms: Math.round(performance.now()-t0), model: primary });
     } catch (e) {
         dbg('최고 스케치 선택 실패, 폴백 시도', e);
         // [수정] 폴백 시에도 모델을 지정해줍니다.
         try {
             raw = await callGemini(fallback, systemPrompt, userPrompt, 0.7);
+            await logInfo('ai#battle/choose', '1.5단계 폴백 성공', { ms: Math.round(performance.now()-t0), model: fallback });
         } catch (e2) {
             dbg('폴백도 실패, 랜덤 선택으로 대체', e2);
             return { best_sketch_index: Math.floor(Math.random() * 3) };
@@ -225,6 +251,7 @@ export async function chooseBestSketch(sketches) {
 
     if (typeof index !== 'number' || index < 0 || index > 2) {
         console.warn('AI가 유효한 인덱스를 반환하지 않아 랜덤 선택합니다.');
+        await logError('ai#battle/choose', '1.5단계 완전 실패, 랜덤 대체', {});
         return { best_sketch_index: Math.floor(Math.random() * 3) };
     }
     return { best_sketch_index: index };
@@ -233,9 +260,9 @@ export async function chooseBestSketch(sketches) {
 
 // 2단계: 선택된 시나리오로 최종 배틀로그 생성
 export async function generateFinalBattleLog(chosenSketch, battleData) {
-    const systemPrompt = await fetchPromptDoc('battle_final_system');
+  const systemPrompt = await fetchPromptDoc('battle_final_system');
 
-    const userPrompt = `
+  const userPrompt = `
     <CONTEXT>
       ## 선택된 전투 시나리오 (이 내용을 반드시 따라야 합니다)
       - **승자 인덱스**: ${chosenSketch.winner_index} (${chosenSketch.winner_index === 0 ? battleData.attacker.name : battleData.defender.name}의 승리)
@@ -249,32 +276,41 @@ export async function generateFinalBattleLog(chosenSketch, battleData) {
       - 캐릭터 2 (index 1, ${battleData.defender.name}): ${JSON.stringify(battleData.defender, null, 2)}
     </CONTEXT>
   `;
-    
+
   let raw = '';
-  const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
+  const { primary, fallback } = pickModels();
+  const t0 = performance.now();
+
   try {
-    raw = await callGemini(primary, systemPrompt, userPrompt, 0.85); // <-- 모델 이름 변경
+    raw = await callGemini(primary, systemPrompt, userPrompt, 0.85);
+    await logInfo('ai#battle/final', '2단계 최종 생성 성공', { ms: Math.round(performance.now()-t0), model: primary, winner: chosenSketch.winner_index });
   } catch (e1) {
     dbg('2단계 생성 실패, 폴백 시도', e1);
-    raw = await callGemini(fallback, systemPrompt, userPrompt, 0.85); // <-- 모델 이름 변경
+    try {
+      raw = await callGemini(fallback, systemPrompt, userPrompt, 0.85);
+      await logInfo('ai#battle/final', '2단계 폴백 성공', { ms: Math.round(performance.now()-t0), model: fallback, winner: chosenSketch.winner_index, err: String(e1?.message||e1) });
+    } catch (e2) {
+      await logError('ai#battle/final', '2단계 폴백 실패', { err: String(e2?.message||e2) });
+      throw e2;
+    }
   }
-
 
   console.log("--- 2단계: AI 최종 로그 응답 (Raw) ---");
   console.log(raw);
 
   const parsed = tryParseJson(raw);
-  
+
   return {
-      title: parsed?.title || "치열한 결투",
-      content: parsed?.content || "결과를 생성하는 데 실패했습니다.",
-      winner: chosenSketch.winner_index,
-      exp_char0: chosenSketch.exp_char0 || 10,
-      exp_char1: chosenSketch.exp_char1 || 10,
-      items_used_by_char0: chosenSketch.items_used_by_char0 || [],
-      items_used_by_char1: chosenSketch.items_used_by_char1 || [],
+    title: parsed?.title || "치열한 결투",
+    content: parsed?.content || "결과를 생성하는 데 실패했습니다.",
+    winner: chosenSketch.winner_index,
+    exp_char0: chosenSketch.exp_char0 || 10,
+    exp_char1: chosenSketch.exp_char1 || 10,
+    items_used_by_char0: chosenSketch.items_used_by_char0 || [],
+    items_used_by_char1: chosenSketch.items_used_by_char1 || [],
   };
 }
+
 
 /* ================= 생성 엔드포인트 ================= */
 /* ================= 생성 엔드포인트 ================= */
@@ -349,7 +385,7 @@ function normalizeOutput(parsed, userInput=''){
  * 주사위로 이미 결정된 값(eventKind, deltaStamina 등)을 넘기면
  * AI는 '서술 + 선택지 2~3개 + 3문장 요약'만 만들어준다.
  */
-export async function requestAdventureNarrative({
+export async function requestAdventureNarrive({
   character,
   world,
   site,
@@ -387,12 +423,21 @@ export async function requestAdventureNarrative({
     dicePrompts,
   ].filter(Boolean).join('\n');
 
-  let raw='';
-  const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
-  try{
-    raw = await callGemini(primary, systemText, userText, 0.85); // <-- 모델 이름 변경
-  }catch(e){
-    raw = await callGemini(fallback, systemText, userText, 0.85); // <-- 모델 이름 변경
+  let raw = '';
+  const { primary, fallback } = pickModels();
+  const t0 = performance.now();
+
+  try {
+    raw = await callGemini(primary, systemText, userText, 0.85);
+    await logInfo('ai#adventure', '어드벤처 응답 성공', { ms: Math.round(performance.now()-t0), model: primary });
+  } catch (e1) {
+    try{
+      raw = await callGemini(fallback, systemText, userText, 0.85);
+      await logInfo('ai#adventure', '어드벤처 폴백 성공', { ms: Math.round(performance.now()-t0), model: fallback, err: String(e1?.message||e1) });
+    }catch(e2){
+      await logError('ai#adventure', '어드벤처 폴백 실패', { err: String(e2?.message||e2) });
+      throw e2;
+    }
   }
 
   const parsed = tryParseJson(raw) || {};
