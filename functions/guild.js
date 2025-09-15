@@ -17,11 +17,31 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     const L = Math.max(1, Number(currentLevel || 1));
     return Math.max(200, Math.floor(200 * Math.pow(L, 1.3)));
   }
+
+
+// 길드 레벨에 따라 명예 등급 슬롯 자동 증가
+function gradeCapsForLevel(L){
+  const lv = Math.max(1, Number(L||1));
+  return {
+    max_honorary_leaders: Math.floor(lv / 10), // Lv10마다 명예-길마 1명
+    max_honorary_vices:   Math.floor(lv / 5),  // Lv5마다  명예-부길마 1명
+  };
+}
+
+
+
+  
   function roleFactor(role, uid, g){
-    if (String(role||'') === 'leader') return 3;
-    const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
-    return staff.includes(uid) ? 2 : 1;
-  }
+  const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
+  const hL = Array.isArray(g?.honorary_leader_uids) ? g.honorary_leader_uids : [];
+  const hV = Array.isArray(g?.honorary_vice_uids) ? g.honorary_vice_uids : [];
+  if (String(role||'') === 'leader' || hL.includes(uid)) return 3;     // 길마 또는 명예-길마 혜택
+  if (staff.includes(uid) || hV.includes(uid)) return 2;               // 스태프 또는 명예-부길마 혜택
+  return 1;                                                             // 일반 멤버
+}
+
+  
+
 
 
 
@@ -179,6 +199,94 @@ const investGuildStat = onCall({ region: 'us-central1' }, async (req)=>{
   });
 });
 
+// 길드 코인 기여(도네이트) — 모든 길드원 가능(멤버십 검증용 charId 필요)
+const donateGuildCoins = onCall({ region: 'us-central1' }, async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, amount, charId } = req.data || {};
+  const a = Math.floor(Number(amount || 0));
+  if (!uid || !guildId || !charId || a <= 0) {
+    throw new HttpsError('invalid-argument', 'guildId/charId/amount 필요(양수)');
+  }
+
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const uRef = db.doc(`users/${uid}`);
+    const mRef = db.doc(`guild_members/${guildId}__${charId}`);
+
+    const [gSnap, uSnap, mSnap] = await Promise.all([tx.get(gRef), tx.get(uRef), tx.get(mRef)]);
+    if (!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
+    if (!uSnap.exists) throw new HttpsError('failed-precondition', '유저 지갑 없음');
+    if (!mSnap.exists || mSnap.data()?.leftAt) throw new HttpsError('permission-denied', '길드 멤버 아님');
+
+    const user = uSnap.data() || {};
+    const guild = gSnap.data() || {};
+    const uc = Math.floor(Number(user.coins || 0));
+    const gc = Math.floor(Number(guild.coins || 0));
+    if (uc < a) throw new HttpsError('failed-precondition', '코인 부족');
+
+    tx.update(uRef, { coins: uc - a, updatedAt: nowMs() });
+    tx.update(gRef, { coins: gc + a, updatedAt: nowMs() });
+    return { ok: true, coinsAfter: uc - a, guildCoinsAfter: gc + a };
+  });
+});
+
+
+// 명예 등급 부여/회수 — 길마만 가능(권한 없음, 혜택만 존재)
+const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, type, targetUid } = req.data || {};
+  if (!uid || !guildId || !targetUid || !['hleader','hvice'].includes(String(type))) {
+    throw new HttpsError('invalid-argument', 'guildId/targetUid/type(hleader|hvice) 필요');
+  }
+  return await db.runTransaction(async (tx)=>{
+    const gRef = db.doc(`guilds/${guildId}`);
+    const gSnap = await tx.get(gRef);
+    if (!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
+    const g = gSnap.data();
+    if (!isOwner(uid, g)) throw new HttpsError('permission-denied', '길드장만 가능');
+
+    const caps = gradeCapsForLevel(Number(g.level||1));
+    const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
+    const hV = new Set(Array.isArray(g.honorary_vice_uids)   ? g.honorary_vice_uids   : []);
+    if (type === 'hleader') {
+      if (hL.has(targetUid)) return { ok:true, honorary_leader_uids:[...hL] };
+      if (hL.size >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
+      hL.add(targetUid);
+      tx.update(gRef, { honorary_leader_uids: [...hL], updatedAt: nowMs() });
+      return { ok:true, honorary_leader_uids:[...hL] };
+    } else {
+      if (hV.has(targetUid)) return { ok:true, honorary_vice_uids:[...hV] };
+      if (hV.size >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
+      hV.add(targetUid);
+      tx.update(gRef, { honorary_vice_uids: [...hV], updatedAt: nowMs() });
+      return { ok:true, honorary_vice_uids:[...hV] };
+    }
+  });
+});
+
+const unassignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
+  const uid = req.auth?.uid || null;
+  const { guildId, type, targetUid } = req.data || {};
+  if (!uid || !guildId || !targetUid || !['hleader','hvice'].includes(String(type))) {
+    throw new HttpsError('invalid-argument', 'guildId/targetUid/type(hleader|hvice) 필요');
+  }
+  const gRef = db.doc(`guilds/${guildId}`);
+  const gSnap = await gRef.get();
+  if (!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
+  const g = gSnap.data();
+  if (!isOwner(uid, g)) throw new HttpsError('permission-denied', '길드장만 가능');
+
+  const key = (type === 'hleader') ? 'honorary_leader_uids' : 'honorary_vice_uids';
+  const cur = new Set(Array.isArray(g[key]) ? g[key] : []);
+  cur.delete(targetUid);
+  await gRef.update({ [key]: [...cur], updatedAt: nowMs() });
+  return { ok:true, [key]: [...cur] };
+});
+
+  
+
+  
+
 // 캐릭터 기준 길드 버프 조회(스태미나/EXP 배율)
 // 캐릭 기준 길드 버프(스태미나/EXP) 조회 — 길드 미가입이면 기본치(0, 1.0) 반환
 const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
@@ -204,8 +312,12 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
   const staminaLv = Math.max(0, Math.floor(Number(inv.stamina_lv || 0)));
   const expLv     = Math.max(0, Math.floor(Number(inv.exp_lv || 0)));
   const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
+  const hL = Array.isArray(g?.honorary_leader_uids) ? g.honorary_leader_uids : [];
+  const hV = Array.isArray(g?.honorary_vice_uids) ? g.honorary_vice_uids : [];
   const role  = String(c.guild_role || 'member');
-  const rf    = role === 'leader' ? 3 : (staff.includes(c.owner_uid) ? 2 : 1);
+  const uid0 = c.owner_uid;
+  const rf = (role === 'leader' || hL.includes(uid0)) ? 3 : ((staff.includes(uid0) || hV.includes(uid0)) ? 2 : 1);
+
 
   return {
     ok: true,
@@ -774,6 +886,10 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
     upgradeGuildLevel,
     investGuildStat,
     getGuildBuffsForChar,
+    donateGuildCoins,
+    assignHonoraryRank,
+    unassignHonoraryRank,
+
 
   };
 };
