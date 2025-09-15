@@ -1,8 +1,6 @@
 // /public/js/api/explore.js (탐험 전용 모듈)
 import { db, auth, fx } from './firebase.js';
-import { formatRemain } from './cooldown.js';
-import { callFn } from './firebase.js';
-
+import { EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS, apply as applyCooldown } from './cooldown.js';
 
 const STAMINA_BASE = 10;
 
@@ -81,9 +79,8 @@ export async function findMyActiveRun(){
   const q = fx.query(
     fx.collection(db,'explore_runs'),
     fx.where('owner_uid','==', u.uid),
-    fx.where('status','==','running'),
-    fx.orderBy('createdAt','desc'),
-
+    fx.where('status','==','ongoing'),
+    fx.orderBy('startedAt','desc'),
     fx.limit(1)
   );
   const s = await fx.getDocs(q);
@@ -98,7 +95,7 @@ export async function hasActiveRunForChar(charId){
     fx.collection(db,'explore_runs'),
     fx.where('owner_uid','==', u.uid),
     fx.where('charRef','==', `chars/${charId}`),
-    fx.where('status','==','running'),
+    fx.where('status','==','ongoing'),
     fx.limit(1)
   );
   const s = await fx.getDocs(q);
@@ -112,79 +109,43 @@ export async function createRun({ world, site, char }){
     throw new Error('인증 정보가 없습니다. 다시 로그인해주세요.');
   }
 
-  // 기존 동작 그대로 유지: 캐릭터에 활성 런이 있으면 시작 막기
-  if (await hasActiveRunForChar(char.id)) {
+  // 이제 이 함수는 정상적으로 호출됩니다.
+  if(await hasActiveRunForChar(char.id)){
     throw new Error('이미 진행 중인 탐험이 있어');
   }
 
-  // 서버가 최종 판정 + 생성 담당 (중복 방지 번호 포함)
-  const requestId = (crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2));
-  const res = await callFn('startExplore', {
-    charId: char.id,
-    worldId: world.id,
-    siteId: site.id,
+  const payload = {
+    charRef: `chars/${char.id}`,
+    owner_uid: u.uid,
+    world_id: world.id, world_name: world.name,
+    site_id: site.id,   site_name: site.name,
     difficulty: site.difficulty || 'normal',
-    requestId
-  });
+    startedAt: fx.serverTimestamp(),
+    stamina_start: STAMINA_BASE,
+    stamina: STAMINA_BASE,
+    turn: 0,
+    status: 'ongoing',
+    summary3: '',
+    prerolls: makePrerolls(50, 1000),
+    events: [],
+    rewards: []
+  };
 
-  // 서버가 쿨타임이라고 하면 그대로 안내하고 종료
-  if (res?.ok === false && res?.reason === 'cooldown') {
-    const remainMs = Math.max(0, (+res.until || 0) - Date.now());
-    throw new Error(`쿨타임이 남아있어 (${Math.ceil(remainMs/1000)}초)`);
-  }
-  if (res?.ok !== true && !res?.reused) {
-    throw new Error(res?.message || '탐험 시작에 실패했어');
-  }
-
-  // runId 확보: 서버가 돌려준 값 우선
-  let runId = res?.runId;
-
-  // 혹시 runId가 비어 있으면, 방금 생성된 내 런을 찾아서 보정 (호환용)
-  if (!runId) {
-    const q = fx.query(
-      fx.collection(db, 'explore_runs'),
-      fx.where('owner_uid', '==', u.uid),
-      fx.where('charRef', '==', `chars/${char.id}`),
-      fx.where('status','==','running'),
-      fx.orderBy('createdAt','desc'),
-
-      fx.limit(1)
-    );
-    const s = await fx.getDocs(q);
-    if (!s.empty) runId = s.docs[0].id;
-  }
-
-  if (!runId) throw new Error('런 ID를 찾지 못했어');
-
-  // (호환 보정) 스태미나 필드가 비어 있으면 기본값만 채워줌 — 네 원래 필드명 그대로!
+  let runRef;
   try {
-    const rr = fx.doc(db, 'explore_runs', runId);
-    const snap = await fx.getDoc(rr);
-    if (snap.exists()) {
-      const r = snap.data();
-      const fix = {};
-      if (r.stamina_start == null) fix.stamina_start = STAMINA_BASE;
-      if (r.stamina == null)       fix.stamina       = STAMINA_BASE;
-      if (Object.keys(fix).length) await fx.updateDoc(rr, fix);
-    }
-  } catch (e) {
-    console.warn('[explore] stamina sync warn:', e);
-  }
-
-  // 너 원래 하던 사이드이펙트 유지(필요 시): 최근 시작 시간 기록
-  try {
+    // 순차적 쓰기 (writeBatch 대안)
+    runRef = await fx.addDoc(fx.collection(db, 'explore_runs'), payload);
     const charRef = fx.doc(db, 'chars', char.id);
     await fx.updateDoc(charRef, { last_explore_startedAt: fx.serverTimestamp() });
   } catch (e) {
-    console.warn('[explore] last_explore_startedAt warn:', e);
+    console.error('[explore] A critical error occurred during sequential write:', e);
+    throw new Error('탐험 시작에 실패했습니다. 잠시 후 다시 시도해주세요.');
   }
 
-  // ⛔️ 로컬 쿨타임 적용은 더 이상 하지 않음 (서버가 최종 판정)
-  // applyCooldown(EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS);
+  applyCooldown(EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS);
 
-  return runId;
+  return runRef.id;
 }
-
 
 
 // (이하 endRun, rollStep 등 나머지 함수들은 변경사항 없음)
