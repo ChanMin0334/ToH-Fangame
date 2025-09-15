@@ -108,4 +108,12 @@ export default async function mountMailTab(viewEl) {
 
   // 초기 로드
   refresh();
+
+  // --- 호환용 내보내기: showMail / showmail ---
+export async function showMail() {
+  const view = document.getElementById('view');
+  return mountMailTab(view);
+}
+export const showmail = showMailbox;
+
 }
