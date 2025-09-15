@@ -481,19 +481,6 @@ exports.sellItemsHttp = onRequest({ region: 'us-central1' }, async (req, res) =>
 
 // Cloud Functions for Firebase (Gen1/Gen2 상관없음 — HTTP 함수)
 // package.json: "firebase-admin", "firebase-functions" 필요
-import * as admin from 'firebase-admin';
-import * as functions from 'firebase-functions';
-
-admin.initializeApp();
-
-async function pickAdminUid() {
-  try {
-    const snap = await admin.firestore().doc('configs/admins').get();
-    const d = snap.exists ? snap.data() : {};
-    if (Array.isArray(d?.allow) && d.allow.length) return d.allow[0];
-  } catch (_) {}
-  return null;
-}
 
 // ===== [메일: 조기 시작 알림] 서버가 관리자 우편함에 1건 작성 =====
 // 관리자 UID는 Firestore configs/admins 문서의 allow[0]에서 뽑음. 없으면 아무 것도 안 함.
