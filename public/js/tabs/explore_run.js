@@ -29,29 +29,19 @@ function parseRunId(){
   return m ? m[1] : null;
 }
 
-function getStamina(run){
-  const now   = (run.stamina ?? run.staminaNow ?? 0);
-  const start = (run.stamina_start ?? run.staminaStart ?? 1);
-  return { now, start };
-}
-
 function renderHeader(box, run){
-  const worldLabel = run.world_name || run.world_id || run.worldId || '(세계관)';
-  const siteLabel  = run.site_name  || run.site_id  || run.siteId  || '(명소)';
-  const { now: sNow, start: sStart } = getStamina(run);
-
   box.innerHTML = `
     <div class="row" style="gap:8px;align-items:center">
       <button class="btn ghost" id="btnBack">← 탐험 선택으로</button>
-      <div style="font-weight:900">${esc(worldLabel)} / ${esc(siteLabel)}</div>
+      <div style="font-weight:900">${esc(run.world_name||run.world_id)} / ${esc(run.site_name||run.site_id)}</div>
     </div>
     <div class="kv-card" style="margin-top:8px">
       <div class="row" style="gap:10px;align-items:center">
         <div style="flex:1">체력</div>
-        <div class="text-dim" style="font-size:12px">${sNow}/${sStart}</div>
+        <div class="text-dim" style="font-size:12px">${run.stamina}/${run.stamina_start}</div>
       </div>
       <div style="height:10px;border:1px solid #273247;border-radius:999px;overflow:hidden;background:#0d1420;margin-top:6px">
-        <div style="height:100%;width:${Math.max(0, Math.min(100, (sNow / sStart) * 100))}%;
+        <div style="height:100%;width:${Math.max(0, Math.min(100, (run.stamina/run.stamina_start)*100))}%;
                     background:linear-gradient(90deg,#4ac1ff,#7a9bff,#c2b5ff)"></div>
       </div>
     </div>
@@ -194,33 +184,28 @@ export async function showExploreRun() {
       const lastEvent = runState.events?.slice(-1)[0];
       narrativeBox.innerHTML = rt(lastEvent?.note || `당신은 ${site.name} 에서의 탐험을 시작했습니다...`);
       // [수정] 전투 대기 상태일 경우 '전투 시작' 버튼 표시
-      const pend = runState.battle_pending || runState.pending_battle;
-if (pend) {
-  choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn" id="btnStartBattle">⚔️ 전투 시작</button></div>`;
-} else if (runState.status === 'ended') {
-  choiceBox.innerHTML = `<div class="text-dim">탐험이 종료되었습니다.</div>`;
-} else {
-  choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn ghost" id="btnGiveUp">탐험 포기</button><button class="btn" id="btnMove">계속 탐험</button></div>`;
-}
-
+      if (runState.battle_pending) {
+        choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn" id="btnStartBattle">⚔️ 전투 시작</button></div>`;
+      } else if (runState.status === 'ended') {
+        choiceBox.innerHTML = `<div class="text-dim">탐험이 종료되었습니다.</div>`;
+      } else {
+        choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn ghost" id="btnGiveUp">탐험 포기</button><button class="btn" id="btnMove">계속 탐험</button></div>`;
+      }
     }
     bindButtons(runState);
   };
 
   const bindButtons = (runState) => {
-    const isLive = (runState.status === 'ongoing' || runState.status === 'running');
-    if (!isLive) return;
-
+    if (runState.status !== 'ongoing') return;
     
     const btnStartBattle = root.querySelector('#btnStartBattle');
     if (btnStartBattle) {
       btnStartBattle.onclick = async () => {
         showLoading(true, '전투 준비 중...');
         await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-          pending_battle: runState.battle_pending || runState.pending_battle,
+          pending_battle: runState.battle_pending,
           battle_pending: null,
         });
-
         location.hash = `#/explore-battle/${state.id}`;
       };
       return; // 전투 대기 중에는 다른 버튼(탐험 계속 등)은 비활성화
@@ -233,9 +218,7 @@ if (pend) {
     } else {
       const btnMove = root.querySelector('#btnMove');
       if (btnMove) {
-        const { now: sNowMove } = getStamina(runState);
-        btnMove.disabled = sNowMove <= STAMINA_MIN;
-
+        btnMove.disabled = runState.stamina <= STAMINA_MIN;
         btnMove.onclick = prepareNextTurn;
       }
       const btnGiveUp = root.querySelector('#btnGiveUp');
@@ -294,6 +277,20 @@ if (pend) {
     const chosenDice = pendingTurn.diceResults[index];
     const chosenOutcome = pendingTurn.choice_outcomes[index];
     
+    // 1. 전투 발생 시 Firestore에 저장 후 이동 (새로고침 문제 해결)
+    if (chosenOutcome.event_type === 'combat') {
+      const battleInfo = {
+        enemy: chosenOutcome.enemy,
+        narrative: `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`
+      };
+      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
+        pending_battle: battleInfo,
+        pending_choices: null, // 선택지 상태는 초기화
+        prerolls: state.prerolls // preroll 상태도 함께 저장
+      });
+      location.hash = `#/explore-battle/${state.id}`;
+      return; // 로딩은 전투 화면에서 해제
+    }
 
     const narrativeLog = `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`;
 
@@ -357,9 +354,7 @@ if (pend) {
   };
 
   const endRun = async (reason) => {
-    const isLive = (state.status === 'ongoing' || state.status === 'running');
-    if (!isLive) return;
-
+    if (state.status !== 'ongoing') return;
     showLoading(true, '탐험 종료 중...');
     const baseExp = calcRunExp(state);
     const cid = String(state.charRef || '').replace(/^chars\//, '');
