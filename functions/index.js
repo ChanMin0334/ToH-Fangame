@@ -479,6 +479,77 @@ exports.sellItemsHttp = onRequest({ region: 'us-central1' }, async (req, res) =>
   }
 });
 
+// Cloud Functions for Firebase (Gen1/Gen2 상관없음 — HTTP 함수)
+// package.json: "firebase-admin", "firebase-functions" 필요
+import * as admin from 'firebase-admin';
+import * as functions from 'firebase-functions';
+
+admin.initializeApp();
+
+async function pickAdminUid() {
+  try {
+    const snap = await admin.firestore().doc('configs/admins').get();
+    const d = snap.exists ? snap.data() : {};
+    if (Array.isArray(d?.allow) && d.allow.length) return d.allow[0];
+  } catch (_) {}
+  return null;
+}
+
+// POST /notifyEarlyStart
+export const notifyEarlyStart = functions.https.onRequest(async (req, res) => {
+  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method Not Allowed' });
+
+  // (선택) ID 토큰 검증: Authorization: Bearer <token>
+  const authz = req.get('Authorization') || '';
+  let actorUid = null;
+  if (authz.startsWith('Bearer ')) {
+    const idToken = authz.slice(7);
+    try {
+      const decoded = await admin.auth().verifyIdToken(idToken);
+      actorUid = decoded.uid;
+    } catch (e) {
+      // 토큰 없거나 검증 실패해도 그냥 진행 (원하면 막아도 됨)
+    }
+  }
+
+  const { actor_uid, kind, where, diffMs, context } = req.body || {};
+  const who = actorUid || actor_uid || 'unknown';
+
+  try {
+    const adminUid = await pickAdminUid();
+    if (!adminUid) return res.status(200).json({ ok:true, note:'no admin configured' });
+
+    const mm = Math.floor((+diffMs || 0) / 60000);
+    const ss = Math.floor(((+diffMs || 0) % 60000)/1000);
+
+    const title = `[조기 시작 감지] ${where === 'battle#start' ? '배틀' : (where === 'explore#start' ? '탐험' : kind)} 시작`;
+    const lines = [
+      `이전 시작 로그 이후 ${mm}분 ${ss}초 만에 새 시작 로그가 생성됨`,
+      `사용자: ${who}`,
+      `종류: ${kind}`,
+      `where: ${where}`,
+      context?.title ? `제목: ${context.title}` : '',
+      context?.log_ref ? `ref: ${context.log_ref}` : '',
+    ].filter(Boolean);
+
+    await admin.firestore()
+      .collection('mail').doc(adminUid).collection('msgs')
+      .add({
+        title,
+        body: lines.join('\n'),
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        read: false,
+        extra: { kind, where, diffMs: +diffMs || 0, who, context: context || null }
+      });
+
+    return res.json({ ok:true });
+  } catch (e) {
+    console.error('[notifyEarlyStart] failed', e);
+    return res.status(500).json({ ok:false, error:String(e?.message || e) });
+  }
+});
+
+
 const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
 Object.assign(exports, guildFns);
 exports.kickGuildMember = guildFns.kickFromGuild;
