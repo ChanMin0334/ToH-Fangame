@@ -19,7 +19,7 @@ function showLoadingOverlay(messages = []) {
   const overlay = document.createElement('div');
   overlay.id = 'toh-loading-overlay';
   overlay.style.cssText = `
-    position: fixed; inset: 0; z-index: 10000;
+    position: fixed; inset: 0; z-index: 9000;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     background: rgba(0,0,0,0.75); color: white; text-align: center;
     backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
