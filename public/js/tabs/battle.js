@@ -320,7 +320,7 @@ export async function showBattle(){
       try {
         await logInfo('battle', '배틀 시작', {
           code: 'battle_start',
-          mode,
+          mode: 'battle',
           myCharId: myCharData?.id || null,
           opponentId: opponentCharData?.id || null
         }, null);
