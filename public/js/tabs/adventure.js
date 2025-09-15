@@ -3,6 +3,9 @@ import { db, auth, fx } from '../api/firebase.js';
 import { fetchWorlds } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
 import { EXPLORE_COOLDOWN_KEY, getRemain as getCdRemain } from '../api/cooldown.js';
+// 화면에서 쓰는 쿨타임 남은시간(밀리초) 도우미
+const cooldownRemain = () => getCdRemain(EXPLORE_COOLDOWN_KEY);
+
 import { createRun } from '../api/explore.js';
 import { findMyActiveRun } from '../api/explore.js';
 import { formatRemain } from '../api/cooldown.js';
@@ -626,6 +629,9 @@ function viewPrep(root, world, site, char){
     } catch (e) {
       console.error('[explore] create run fail', e);
       showToast(e?.message || '탐험 시작에 실패했습니다. 잠시 후 다시 시도해주세요.');
+        // 실패했으면 여기서 흐름을 멈춰 (아래의 이동 코드로 내려가지 않게)
+      return;
+
       
       // 실패 시 로딩 UI 제거 및 버튼 복구
       loader.remove();
@@ -638,9 +644,12 @@ function viewPrep(root, world, site, char){
     setExploreIntent({ charId: char.id, runId, world: world.id, site: site.id, ts: Date.now() });
     
     // 로딩 완료 메시지를 잠시 보여준 후 이동
-    setTimeout(() => {
-        location.hash = `#/explore-run/${runId}`;
-    }, 500);
+    if (runId && typeof runId === 'string') {
+      setTimeout(() => { location.hash = `#/explore-run/${runId}`; }, 500);
+    } else {
+      showToast('런 생성에 실패했어. 잠시 후 다시 시도해줘');
+    }
+
   });
 
 }
