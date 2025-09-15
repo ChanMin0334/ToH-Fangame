@@ -376,7 +376,7 @@ async function sellItemsCore(uid, data) {
       const currentItems = userData.items_all || [];
       let totalGold = 0;
 
-      // 판매 가격 정책 (네 기존 코드 그대로 유지)
+      // 판매 가격 정책
       const prices = {
         consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100 },
         non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200 }
@@ -397,11 +397,10 @@ async function sellItemsCore(uid, data) {
         tx.update(doc.ref, { items_equipped: newEquipped });
       });
 
-   
-
       for (const item of currentItems) {
         if (soldItemIds.has(item.id)) {
-          const isConsumable = item.isConsumable || item.consumable;
+          // 'consume' 속성도 확인하도록 수정된 부분입니다.
+          const isConsumable = item.isConsumable || item.consumable || item.consume;
           const priceTier = isConsumable ? prices.consumable : prices.non_consumable;
           const price = priceTier[item.rarity] || 0;
           totalGold += price;
