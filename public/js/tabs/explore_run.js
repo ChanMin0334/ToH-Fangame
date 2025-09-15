@@ -195,15 +195,14 @@ export async function showExploreRun() {
       narrativeBox.innerHTML = rt(lastEvent?.note || `당신은 ${site.name} 에서의 탐험을 시작했습니다...`);
       // [수정] 전투 대기 상태일 경우 '전투 시작' 버튼 표시
       const pend = runState.battle_pending || runState.pending_battle;
-      if (pend) {
-        choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn" id="btnStartBattle">⚔️ 전투 시작</button></div>`;
-      }
+if (pend) {
+  choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn" id="btnStartBattle">⚔️ 전투 시작</button></div>`;
+} else if (runState.status === 'ended') {
+  choiceBox.innerHTML = `<div class="text-dim">탐험이 종료되었습니다.</div>`;
+} else {
+  choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn ghost" id="btnGiveUp">탐험 포기</button><button class="btn" id="btnMove">계속 탐험</button></div>`;
+}
 
-      } else if (runState.status === 'ended') {
-        choiceBox.innerHTML = `<div class="text-dim">탐험이 종료되었습니다.</div>`;
-      } else {
-        choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn ghost" id="btnGiveUp">탐험 포기</button><button class="btn" id="btnMove">계속 탐험</button></div>`;
-      }
     }
     bindButtons(runState);
   };
