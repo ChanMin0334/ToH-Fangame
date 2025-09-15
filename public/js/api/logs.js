@@ -47,7 +47,9 @@ async function writeLog(kind, where, msg, extra = null, ref = null) {
 
   // 규칙: /logs/{YYYY-MM-DD}/{autoId}
   // SDK: collection(db, 'logs', day) 으로 바로 가능 (콘솔 경로: logs > 날짜)
-  await fx.addDoc(fx.collection(db, 'logs', day), data);
+  const dayCol = fx.collection(fx.doc(db, 'logs', day), 'rows');
+  await fx.addDoc(dayCol, data);
+
   return true;
 }
 
@@ -76,7 +78,7 @@ export async function logError(where, msg, extra = null, ref = null) {
 export async function fetchLogs({ day, uid, name, limit = 200 } = {}) {
   if (!day) throw new Error('day(YYYY-MM-DD)는 필수야');
 
-  const col = fx.collection(db, 'logs', day);
+  const col = fx.collection(fx.doc(db, 'logs', day), 'rows');
   let q;
 
   if (name && name.trim()) {
@@ -115,7 +117,8 @@ export async function fetchLogs({ day, uid, name, limit = 200 } = {}) {
 export function watchLogs({ day, uid, name, limit = 200 } = {}, cb) {
   if (!day) throw new Error('day(YYYY-MM-DD)는 필수야');
 
-  const col = fx.collection(db, 'logs', day);
+  const col = fx.collection(fx.doc(db, 'logs', day), 'rows');
+
   let q;
 
   if (name && name.trim()) {
