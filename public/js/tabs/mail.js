@@ -87,11 +87,13 @@ export default async function mountMailTab(viewEl) {
     if (t.dataset.act !== 'read') return;
 
     const id = t.dataset.id;
+    t.disabled = true; // (개선 1) 중복 클릭 방지를 위해 버튼 비활성화
     try {
       const ref = fx.doc(db, 'mail', u.uid, 'msgs', id);
       // 규칙: read 필드만 변경 가능
       await fx.updateDoc(ref, { read: true });
       // UI 즉시 반영(색상/버튼 제거)
+      // onSnapshot이 자동으로 뷰를 갱신하지만, 사용자 경험을 위해 즉시 변경합니다.
       const card = t.closest('.mail-card');
       if (card) {
         card.style.background = '#fff';
@@ -101,6 +103,7 @@ export default async function mountMailTab(viewEl) {
     } catch (e) {
       console.warn('[mail] mark read failed', e);
       alert('읽음 처리 실패: ' + (e?.message || e));
+      t.disabled = false; // (개선 2) 실패 시 버튼을 다시 활성화하여 재시도 유도
     }
   });
 
@@ -108,7 +111,6 @@ export default async function mountMailTab(viewEl) {
 
   // 초기 로드
   refresh();
-
 }
 
 
@@ -121,4 +123,3 @@ export async function showMailbox() {
 // 혹시 다른 코드에서 showMail을 찾을 수도 있으니 별칭도 제공(선택)
 export const showMail = showMailbox;
 export const showmail = showMailbox;
-
