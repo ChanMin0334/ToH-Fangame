@@ -1,828 +1,363 @@
-// /public/js/tabs/adventure.js
-import { db, auth, fx } from '../api/firebase.js';
-import { fetchWorlds } from '../api/store.js';
-import { showToast } from '../ui/toast.js';
-import { EXPLORE_COOLDOWN_KEY, getRemain as getCdRemain } from '../api/cooldown.js';
-// 화면에서 쓰는 쿨타임 남은시간(밀리초) 도우미
-const cooldownRemain = () => getCdRemain(EXPLORE_COOLDOWN_KEY);
+// /public/js/api/ai.js (v4 - 관계, 아이템, 경험치 반영 및 AI 자동 선택)
+import { db, fx } from './firebase.js';
 
-import { createRun } from '../api/explore.js';
-import { findMyActiveRun } from '../api/explore.js';
-import { formatRemain } from '../api/cooldown.js';
-import { getUserInventory } from '../api/user.js'; // ◀◀◀ 이 줄을 추가하세요.
+// 사용할 모델 목록 (RPM이 높은 순서대로 정렬)
+const MODEL_POOL = [
+  'gemini-2.0-flash-lite', // RPM 30 (가장 높음)
+  'gemini-2.5-flash-lite', // RPM 15
+  'gemini-2.0-flash',      // RPM 15
+  'gemini-2.5-flash',      // RPM 10
+];
 
+// MODEL_POOL에서 랜덤으로 기본 모델과 폴백(대체) 모델을 선택하는 함수
+function pickModels() {
+  // 2개의 모델을 랜덤으로 섞어서 뽑음
+  const shuffled = [...MODEL_POOL].sort(() => 0.5 - Math.random());
+  const primary = shuffled[0];
+  // 만약 모델이 하나뿐이면 폴백도 같은 모델을 사용
+  const fallback = shuffled[1] || shuffled[0]; 
 
-// adventure.js 파일 상단, import 바로 아래에 추가
-
-// ===== 로딩 오버레이 유틸리티 =====
-function showLoadingOverlay(messages = []) {
-  const overlay = document.createElement('div');
-  overlay.id = 'toh-loading-overlay';
-  overlay.style.cssText = `
-    position: fixed; inset: 0; z-index: 9000;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.75); color: white; text-align: center;
-    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-    transition: opacity 0.3s;
-  `;
-
-  overlay.innerHTML = `
-    <div style="font-weight: 900; font-size: 20px;">🧭 모험 준비 중...</div>
-    <div id="loading-bar" style="width: 250px; height: 8px; background: #273247; border-radius: 4px; margin-top: 16px; overflow: hidden;">
-      <div id="loading-bar-inner" style="width: 0%; height: 100%; background: #4aa3ff; transition: width 0.5s;"></div>
-    </div>
-    <div id="loading-text" style="margin-top: 12px; font-size: 14px; color: #c8d0dc;">
-      모험을 떠나기 위한 준비 중입니다...
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  const bar = overlay.querySelector('#loading-bar-inner');
-  const text = overlay.querySelector('#loading-text');
-  let msgIndex = 0;
-
-  const intervalId = setInterval(() => {
-    if (msgIndex < messages.length) {
-      text.textContent = messages[msgIndex];
-      bar.style.width = `${((msgIndex + 1) / (messages.length + 1)) * 100}%`;
-      msgIndex++;
-    }
-  }, 900);
-
-  return {
-    finish: () => {
-      clearInterval(intervalId);
-      bar.style.width = '100%';
-      text.textContent = '모험 시작!';
-    },
-    remove: () => {
-      clearInterval(intervalId);
-      overlay.style.opacity = '0';
-      setTimeout(() => overlay.remove(), 300);
-    }
-  };
+  console.log(`[AI] 모델 선택: Primary=${primary}, Fallback=${fallback}`);
+  return { primary, fallback };
 }
 
 
+const DEBUG = !!localStorage.getItem('toh_debug_ai');
+function dbg(...args){ if(DEBUG) console.log('[AI]', ...args); }
 
-// ===== modal css (adventure 전용) =====
-function ensureModalCss(){
-  if (document.getElementById('toh-modal-css')) return;
-  const st = document.createElement('style');
-  st.id = 'toh-modal-css';
-  st.textContent = `
-    .modal-back{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
-                background:rgba(0,0,0,.45)}
-    .modal-card{background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:720px;width:92vw;
-                max-height:80vh;overflow:auto}
-  `;
-  document.head.appendChild(st);
+/* =================== 유틸 =================== */
+function stripFences(text){
+  if(!text) return '';
+  return String(text).trim().replace(/^```(?:json)?\s*/, '').replace(/```$/, '').trim();
 }
-
-// ===== 공용 유틸 =====
-const STAMINA_BASE  = 10;
-const diffColor = (d)=>{
-  const v = String(d||'').toLowerCase();
-  if(['easy','이지','normal','노말'].includes(v)) return '#4aa3ff';
-  if(['hard','하드','expert','익스퍼트','rare'].includes(v)) return '#f3c34f';
-  return '#ff5b66';
-};
-const esc = (s)=> String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-function setExploreIntent(into){ sessionStorage.setItem('toh.explore.intent', JSON.stringify(into)); }
-function getExploreIntent(){ try{ return JSON.parse(sessionStorage.getItem('toh.explore.intent')||'null'); }catch{ return null; } }
-
-
-function injectResumeBanner(root, run){
-  const host = root.querySelector('.bookview') || root; // 세계관 카드들이 들어가는 상자
-  const box = document.createElement('div');
-  box.className = 'kv-card';
-  box.style = 'margin-bottom:10px;border-left:3px solid #4aa3ff;padding-left:10px';
-  box.innerHTML = `
-    <div class="row" style="justify-content:space-between;align-items:center;gap:8px">
-      <div>
-        <div style="font-weight:900">이어서 탐험하기</div>
-        <div class="text-dim" style="font-size:12px">
-          ${esc(run.world_name||run.world_id)} / ${esc(run.site_name||run.site_id)}
-        </div>
-      </div>
-      <button class="btn" id="btnResumeRun">이어하기</button>
-    </div>
-  `;
-  // 세계관 리스트가 그려진 뒤 제일 위에 끼워넣기
-  if (host.firstElementChild) host.firstElementChild.insertAdjacentElement('beforebegin', box);
-  else host.appendChild(box);
-  box.querySelector('#btnResumeRun').onclick = ()=> location.hash = '#/explore-run/' + run.id;
-}
-
-
-
-
-
-
-
-// ===== 1단계: 세계관 선택 =====
-async function viewWorldPick(root){
-  const worlds = await fetchWorlds().catch(()=>({ worlds: [] }));
-  const list = Array.isArray(worlds?.worlds) ? worlds.worlds : [];
-
-  root.innerHTML = `
-    <section class="container narrow">
-      <div class="book-card">
-        <div class="bookmarks">
-          <button class="bookmark active" disabled>탐험</button>
-          <button class="bookmark ghost" disabled>레이드(준비중)</button>
-          <button class="bookmark ghost" id="btnInventory">가방</button>
-        </div>
-        <div class="bookview p12" id="viewW">
-          <div class="kv-label">세계관 선택</div>
-          <div class="col" style="gap:10px">
-            ${list.map(w=>`
-              <button class="kv-card wpick" data-w="${esc(w.id)}" style="display:flex;gap:10px;align-items:center;text-align:left;cursor:pointer">
-                <img src="${w?.img ? esc('/assets/'+w.img) : ''}"
-                     onerror="this.remove()"
-                     style="width:72px;height:72px;border-radius:10px;object-fit:cover;background:#0b0f15">
-
-                <div>
-                  <div style="font-weight:900">${esc(w.name||w.id)}</div>
-                  <div class="text-dim" style="font-size:12px">${esc(w.intro||'')}</div>
-                </div>
-              </button>
-            `).join('')}
-          </div>
-        </div>
-      </div>
-    </section>
-  `;
-
-  root.querySelector('#btnInventory').addEventListener('click', () => {
-    showSharedInventory(root); 
-  });
-
-  root.querySelectorAll('.wpick').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const wid = btn.getAttribute('data-w');
-      const w = list.find(x=>x.id===wid);
-      if(!w) return;
-      viewSitePick(root, w);
-    });
-  });
-}
-
-// ===== 2단계: 명소(사이트) 선택 =====
-function viewSitePick(root, world){
-  const sites = Array.isArray(world?.detail?.sites) ? world.detail.sites : [];
-
-  root.innerHTML = `
-    <section class="container narrow">
-      <div class="card p16">
-        <div class="row" style="gap:8px;align-items:center">
-          <button class="btn ghost" id="btnBackWorld">← 세계관 선택으로</button>
-          <div style="font-weight:900;font-size:16px">${esc(world.name||world.id)}</div>
-        </div>
-        <div class="kv-label mt8">탐험 가능 명소</div>
-        <div class="col" style="gap:10px">
-          ${sites.map(s=>{
-            const diff = s.difficulty || 'normal';
-            return `
-              <button class="kv-card spick" data-s="${esc(s.id)}" style="text-align:left;cursor:pointer">
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                  <div style="font-weight:900">${esc(s.name)}</div>
-                  <span class="chip" style="background:${diffColor(diff)};color:#121316;font-weight:800">${esc(String(diff).toUpperCase())}</span>
-                </div>
-                <div class="text-dim" style="font-size:12px;margin-top:4px">${esc(s.description||'')}</div>
-                ${s.img? `<div style="margin-top:8px"><img src="${esc('/assets/'+s.img)}"
-                     onerror="this.parentNode.remove()"
-                     style="width:100%;max-height:180px;object-fit:cover;border-radius:10px;border:1px solid #273247;background:#0b0f15"></div>`:''}
-
-              </button>`;
-          }).join('')}
-        </div>
-      </div>
-    </section>
-  `;
-
-  root.querySelector('#btnBackWorld')?.addEventListener('click', ()=> viewWorldPick(root));
-  root.querySelectorAll('.spick').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const sid = btn.getAttribute('data-s');
-      const site = sites.find(x=>x.id===sid);
-      if(!site) return;
-      openCharPicker(root, world, site);
-    });
-  });
-}
-
-// ===== 3단계: 캐릭터 선택(모달) =====
-async function openCharPicker(root, world, site){
-  const u = auth.currentUser;
-  ensureModalCss();
-
-  if(!u){ showToast('로그인이 필요해'); return; }
-
-  const qs = await fx.getDocs(fx.query(
-    fx.collection(db,'chars'),
-    fx.where('owner_uid','==', u.uid),
-    fx.limit(50)
-  ));
-
-  const chars=[]; qs.forEach(d=>chars.push({ id:d.id, ...d.data() }));
-
-  chars.sort((a,b)=>{
-    const ta = a?.createdAt?.toMillis?.() ?? 0;
-    const tb = b?.createdAt?.toMillis?.() ?? 0;
-    return tb - ta;
-  });
-
-
-  const back = document.createElement('div');
-  back.className = 'modal-back';
-  back.innerHTML = `
-    <div class="modal-card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div style="font-weight:900">탐험할 캐릭터 선택</div>
-        <button class="btn ghost" id="mClose">닫기</button>
-      </div>
-      <div class="col" style="gap:8px">
-        ${chars.map(c=>`
-          <button class="kv-card cpick" data-c="${c.id}" style="display:flex;gap:10px;align-items:center;text-align:left;cursor:pointer">
-            <img src="${esc(c.thumb_url||c.image_url||'')}" onerror="this.src='';this.classList.add('noimg')"
-                 style="width:56px;height:56px;border-radius:10px;object-fit:cover;border:1px solid #273247;background:#0b0f15">
-            <div>
-              <div style="font-weight:900">${esc(c.name||'(이름 없음)')}</div>
-              <div class="text-dim" style="font-size:12px">Elo ${esc((c.elo??1000).toString())}</div>
-            </div>
-          </button>
-        `).join('')}
-      </div>
-    </div>
-  `;
-  back.addEventListener('click', (e)=>{ if(e.target===back) back.remove(); });
-  back.querySelector('#mClose').onclick = ()=> back.remove();
-  document.body.appendChild(back);
-
-  back.querySelectorAll('.cpick').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const cid = btn.getAttribute('data-c');
-      back.remove();
-      viewPrep(root, world, site, chars.find(x=>x.id===cid));
-    });
-  });
-}
-
-// /public/js/tabs/adventure.js 에 추가
-
-// ===== 아이템 등급별 스타일 =====
-function rarityStyle(r) {
-  const map = {
-    normal: { bg: '#2a2f3a', border: '#5f6673', text: '#c8d0dc', label: '일반' },
-    rare:   { bg: '#0f2742', border: '#3b78cf', text: '#cfe4ff', label: '레어' },
-    epic:   { bg: '#20163a', border: '#7e5cff', text: '#e6dcff', label: '유니크' },
-    legend: { bg: '#2b220b', border: '#f3c34f', text: '#ffe9ad', label: '레전드' },
-    myth:   { bg: '#3a0f14', border: '#ff5b66', text: '#ffc9ce', label: '신화' },
-  };
-  return map[(r || '').toLowerCase()] || map.normal;
-}
-
-
-// ===== 소모품/사용횟수 표기 유틸 =====
-function isConsumableItem(it){
-  return !!(it?.consumable || it?.isConsumable);
-}
-function getUsesLeft(it){
-  if (typeof it?.uses === 'number') return it.uses;
-  if (typeof it?.remainingUses === 'number') return it.remainingUses;
-  return null; // 모르면 null
-}
-function useBadgeHtml(it){
-  if (!isConsumableItem(it)) return '';
-  const left = getUsesLeft(it);
-  const label = (left === null) ? '소모품' : `남은 ${left}회`;
-  return `<span class="chip" style="margin-left:auto;font-size:11px;padding:2px 6px">${esc(label)}</span>`;
-}
-
-
-
-// ===== 아이템 모달용 CSS 및 반짝이는 효과 =====
-function ensureItemCss() {
-  if (document.getElementById('toh-item-css')) return;
-  const st = document.createElement('style');
-  st.id = 'toh-item-css';
-  st.textContent = `
-  .shine-effect {
-    position: relative;
-    overflow: hidden;
+function tryParseJson(t){
+  if(!t) return null;
+  const s = stripFences(t);
+  try {
+    const parsed = JSON.parse(s);
+    console.log("✅ JSON.parse 성공!", parsed);
+    return parsed;
+  } catch (e) {
+    console.error("❌ JSON.parse 실패!", e);
+    console.error("파싱에 실패한 텍스트:", s);
+    return null;
   }
-  .shine-effect::after {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
-    transform: rotate(30deg);
-    animation: shine 3s infinite ease-in-out;
-    pointer-events: none;
-  }
-  @keyframes shine {
-    0% { transform: translateX(-75%) translateY(-25%) rotate(30deg); }
-    100% { transform: translateX(75%) translateY(25%) rotate(30deg); }
-  }
-
-  /* 카드 공통 개선 */
-  .item-card {
-    transition: box-shadow .18s ease, transform .18s ease, filter .18s ease;
-    will-change: transform, box-shadow;
-    outline: none;
-  }
-  .item-card:hover,
-  .item-card:focus-visible {
-    transform: translateY(-2px);           /* 확대 대신 살짝 띄우기 */
-    box-shadow: 0 6px 18px rgba(0,0,0,.35);
-    filter: brightness(1.05);
-  }
-`;
-
-  document.head.appendChild(st);
+}
+function getMaxTokens(){
+  const v = parseInt(localStorage.getItem('toh_ai_max_tokens')||'',10);
+  return Number.isFinite(v)&&v>0 ? v : 8192;
 }
 
-// ===== 아이템 상세 정보 모달 표시 =====
-function showItemDetailModal(item) {
-  ensureModalCss();
-  const style = rarityStyle(item.rarity);
-
-  // 설명/효과 안전 추출
-  const getItemDesc = (it)=>{
-    // 우선순위: desc_long > desc_soft > desc > description
-    const raw = it?.desc_long || it?.desc_soft || it?.desc || it?.description || '';
-    return String(raw || '').replace(/\n/g, '<br>');
-  };
-
-  const getEffectsHtml = (it)=>{
-    const eff = it?.effects;
-    if (!eff) return '';
-    // 배열이면 불릿 목록, 문자열이면 그대로, 객체면 key: value 목록
-    if (Array.isArray(eff)) {
-      return `<ul style="margin:6px 0 0 16px; padding:0;">
-        ${eff.map(x=>`<li>${esc(String(x||''))}</li>`).join('')}
-      </ul>`;
-    } else if (typeof eff === 'object') {
-      return `<ul style="margin:6px 0 0 16px; padding:0;">
-        ${Object.entries(eff).map(([k,v])=>`<li><b>${esc(k)}</b>: ${esc(String(v??''))}</li>`).join('')}
-      </ul>`;
-    }
-    return `<div>${esc(String(eff))}</div>`;
-  };
-
-  const back = document.createElement('div');
-  back.className = 'modal-back';
-  back.style.zIndex = '10000';
-
-  back.innerHTML = `
-    <div class="modal-card">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
-        <div>
-  <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">
-    <div style="font-weight:900; font-size:18px;">${esc(item.name)}</div>
-    <span class="chip" style="background:${style.border}; color:${style.bg}; font-weight:800;">${esc(style.label)}</span>
-    ${useBadgeHtml(item)}
-  </div>
-</div>
-
-        <button class="btn ghost" id="mCloseDetail">닫기</button>
-      </div>
-      <div class="kv-card" style="padding:12px;">
-        <div style="font-size:14px; line-height:1.6;">${getItemDesc(item) || '상세 설명이 없습니다.'}</div>
-        ${item.effects ? `<hr style="margin:12px 0; border-color:#273247;">
-          <div class="kv-label">효과</div>
-          <div style="font-size:13px;">${getEffectsHtml(item)}</div>` : ''}
-      </div>
-    </div>
-  `;
-
-  const closeModal = () => back.remove();
-  back.addEventListener('click', e => { if(e.target === back) closeModal(); });
-  back.querySelector('#mCloseDetail').onclick = closeModal;
-  document.body.appendChild(back);
+/* ============ 프롬프트 로드 ============ */
+export async function fetchPromptDoc(id){
+  const ref = fx.doc(db,'configs','prompts');
+  const snap = await fx.getDoc(ref);
+  if(!snap.exists()) throw new Error('프롬프트 저장소(configs/prompts)가 없어');
+  const all = snap.data() || {};
+  const raw = all[id];
+  if (raw === undefined || raw === null) throw new Error(`프롬프트 ${id} 가 없어`);
+  let content = (typeof raw === 'object' ? (raw.content ?? raw.text ?? raw.value ?? '') : String(raw ?? '')).trim();
+  if(!content) throw new Error(`프롬프트 ${id} 내용이 비어 있어`);
+  return content;
 }
 
+/* ================= Gemini 호출 ================= */
+export async function callGemini(model, systemText, userText, temperature=0.9){
+  const payload = { model, systemText, userText, temperature, maxOutputTokens: getMaxTokens() };
+  const proxyUrl = 'https://toh-ai-proxy.pokemonrgby.workers.dev/api/ai/generate';
+  const res = await fetch(proxyUrl, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  if(!res.ok){
+    const txt = await res.text().catch(()=> '');
+    throw new Error(`AI 프록시 실패: ${res.status} ${txt}`);
+  }
+  const j = await res.json().catch(()=>null);
+  const outText = j?.text ?? '';
+  if(!outText) throw new Error('AI 프록시 응답이 비어 있어');
+  return outText;
+}
 
-// ===== 4단계: 준비 화면(스킬/아이템 요약 + 시작 버튼) =====
-// /public/js/tabs/adventure.js의 viewPrep 함수를 아래 코드로 교체
+/* ================= 배틀 로직 ================= */
 
-function viewPrep(root, world, site, char){
-  const remain = cooldownRemain();
-  const diff = site.difficulty || 'normal';
+export async function fetchBattlePrompts() {
+  const ref = fx.doc(db, 'configs', 'prompts');
+  const snap = await fx.getDoc(ref);
+  if (!snap.exists()) return [];
+  const allPrompts = snap.data() || {};
+  return Object.keys(allPrompts)
+    .filter(k => k.startsWith('battle_logic_'))
+    .map(k => allPrompts[k])
+    .filter(Boolean);
+}
 
-  root.innerHTML = `
-    <section class="container narrow">
-      <div class="card p16">
-        <div class="row" style="gap:8px;align-items:center">
-          <button class="btn ghost" id="btnBackSites">← 명소 선택으로</button>
-          <div style="font-weight:900;font-size:16px">${esc(world.name)} / ${esc(site.name)}</div>
-          <span class="chip" style="margin-left:auto;background:${diffColor(diff)};color:#121316;font-weight:800">${esc(String(diff).toUpperCase())}</span>
-        </div>
-
-        <div class="kv-label mt8">캐릭터</div>
-        <div class="kv-card" style="display:flex;gap:10px;align-items:center">
-          <img src="${esc(char.thumb_url||char.image_url||'')}" onerror="this.src='';this.classList.add('noimg')"
-               style="width:56px;height:56px;border-radius:10px;object-fit:cover;border:1px solid #273247;background:#0b0f15">
-          <div>
-            <div style="font-weight:900">${esc(char.name||'(이름 없음)')}</div>
-            <div class="text-dim" style="font-size:12px">Elo ${esc((char.elo??1000).toString())}</div>
-          </div>
-        </div>
-
-        <div class="kv-label mt12">스킬 선택 (정확히 2개)</div>
-        <div id="skillBox">
-          ${
-            Array.isArray(char.abilities_all) && char.abilities_all.length
-            ? `<div class="grid2 mt8" id="skillGrid" style="gap:8px">
-                ${char.abilities_all.map((ab,i)=>`
-                  <label class="kv-card" style="display:flex;gap:8px;align-items:flex-start;padding:10px;cursor:pointer">
-                    <input type="checkbox" data-i="${i}" ${(Array.isArray(char.abilities_equipped)&&char.abilities_equipped.includes(i))?'checked':''}
-                           style="margin-top:3px">
-                    <div>
-                      <div style="font-weight:700">${esc(ab?.name || ('스킬 ' + (i+1)))}</div>
-                      <div class="text-dim" style="font-size:12px">${esc(ab?.desc_soft || '')}</div>
-                    </div>
-                  </label>
-                `).join('')}
-              </div>`
-            : `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
-          }
-        </div>
-
-        <div class="kv-label mt12">아이템</div>
-        {/* [수정] 아이템 요약 부분을 id를 가진 버튼으로 변경 */}
-        <button class="kv-card" id="btnManageItems" style="text-align:left; width:100%; cursor:pointer;">
-          <div class="row" style="justify-content:space-between; align-items:center;">
-            <span>슬롯 3개 — ${
-              Array.isArray(char.items_equipped) && char.items_equipped.length
-              ? `${char.items_equipped.length}개 장착`
-              : '비어 있음'
-            }</span>
-            <span class="text-dim" style="font-size:12px;">관리하기 →</span>
-          </div>
-        </button>
-
-        <div class="row" style="gap:8px;justify-content:flex-end;margin-top:12px">
-          <button class="btn" id="btnStart"${remain>0?' disabled':''}>탐험 시작</button>
-        </div>
-        <div class="text-dim" id="cdNote" style="font-size:12px;margin-top:6px"></div>
-      </div>
-    </section>
-  `;
-
-  // [수정] querySelector로 버튼을 찾아서 이벤트를 연결합니다.
-  root.querySelector('#btnManageItems').onclick = () => openItemPicker(char);
-
-  // ... 이하 기존 viewPrep 함수의 나머지 코드는 동일 ...
-  const btnStart = root.querySelector('#btnStart');
-  const skillInputs = root.querySelectorAll('#skillGrid input[type=checkbox][data-i]');
-  // (이하 생략)
-
+// 1단계: 3개의 전투 시나리오 초안 생성
+export async function generateBattleSketches(battleData) {
+  const systemPrompt = await fetchPromptDoc('battle_sketch_system');
   
-  const updateStartEnabled = ()=>{
-    if (!btnStart) return;
-    const on = Array.from(skillInputs).filter(x=>x.checked).map(x=>+x.dataset.i);
-    const hasNoSkills = !Array.isArray(char.abilities_all) || char.abilities_all.length === 0;
-    const cooldownOk = cooldownRemain() <= 0;
-    const skillsOk = on.length === 2 || hasNoSkills;
-    btnStart.disabled = !(cooldownOk && skillsOk);
-  };
-
-  (function bindSkillSelection(){
-    const abilities = Array.isArray(char.abilities_all) ? char.abilities_all : [];
-    if (!abilities.length) return;
-
-    // 초기 상태 업데이트
-    updateStartEnabled();
-
-    skillInputs.forEach(inp=>{
-      inp.addEventListener('change', async ()=>{
-        const on = Array.from(skillInputs).filter(x=>x.checked).map(x=>+x.dataset.i);
-        if (on.length > 2){
-          inp.checked = false;
-          showToast('스킬은 정확히 2개만 선택 가능해');
-          return;
-        }
-        if (on.length === 2){
-          if (!char || !char.id) {
-              console.error('[adventure] Invalid character data for saving skills.', char);
-              showToast('캐릭터 정보가 올바르지 않아 저장할 수 없어.');
-              return;
-          }
-          try{
-            const charRef = fx.doc(db, 'chars', char.id);
-            await fx.updateDoc(charRef, { abilities_equipped: on });
-            char.abilities_equipped = on;
-            showToast('스킬 선택 저장 완료');
-          }catch(e){
-            console.error('[adventure] abilities_equipped update fail', e);
-            showToast('저장 실패: ' + e.message);
-          }
-        }
-        // 변경 시마다 버튼 상태 업데이트
-        updateStartEnabled();
-      });
-    });
-  })();
-  
-  root.querySelector('#btnBackSites')?.addEventListener('click', ()=> viewSitePick(root, world));
-
-  const cdNote = root.querySelector('#cdNote');
-  // const btnStart = root.querySelector('#btnStart'); // 위에서 이미 선언됨
-  
-  // (btnResumeChar 관련 코드는 변경 없음)
-  const btnRow = btnStart?.parentNode;
-  if (btnRow){
-    const btnResume = document.createElement('button');
-    btnResume.className = 'btn ghost';
-    btnResume.id = 'btnResumeChar';
-    btnResume.textContent = '이어하기';
-    btnResume.style.display = 'none';
-    btnRow.insertBefore(btnResume, btnStart);
-
-    (async ()=>{
-      try{
-        const q = fx.query(
-          fx.collection(db,'explore_runs'),
-          fx.where('owner_uid','==', auth.currentUser.uid),
-          fx.where('charRef','==', `chars/${char.id}`),
-          fx.where('status','==','ongoing'),
-          fx.limit(1)
-        );
-        const s = await fx.getDocs(q);
-        if (!s.empty){
-          const d = s.docs[0];
-          btnResume.style.display = '';
-          btnResume.onclick = ()=> location.hash = '#/explore-run/' + d.id;
-        }
-      }catch(e){ /* 조용히 무시 */ }
-    })();
-  }
-
-  let intervalId = null;
-  const tick = ()=>{
-      const r = cooldownRemain();
-      if(cdNote) cdNote.textContent = r > 0 ? `탐험 쿨타임: ${formatRemain(r)}` : '탐험 가능!';
+  const userPrompt = `
+    <INPUT>
+      ## 전투 컨셉 (랜덤 3종)
+      ${battleData.prompts.join('\n\n')}
       
-      // 이제 updateStartEnabled가 정상적으로 호출됨
-      updateStartEnabled();
+      ## 캐릭터 관계
+      - ${battleData.relation || '없음'}
 
-      if (r <= 0 && intervalId) {
-          clearInterval(intervalId);
-          intervalId = null;
-      }
-  };
-  intervalId = setInterval(tick, 500);
-  tick();
+      ## 캐릭터 1 (index 0) 정보
+      - 이름: ${battleData.attacker.name}
+      - 출신: ${battleData.attacker.origin}
+      - 최근 서사: ${battleData.attacker.narrative_long}
+      - 이전 서사 요약: ${battleData.attacker.narrative_short_summary}
+      - 스킬: ${battleData.attacker.skills}
+      - 아이템: ${battleData.attacker.items}
 
-// ANCHOR: btnStart?.addEventListener('click', async ()=>{
+      ## 캐릭터 2 (index 1) 정보
+      - 이름: ${battleData.defender.name}
+      - 출신: ${battleData.defender.origin}
+      - 최근 서사: ${battleData.defender.narrative_long}
+      - 이전 서사 요약: ${battleData.defender.narrative_short_summary}
+      - 스킬: ${battleData.defender.skills}
+      - 아이템: ${battleData.defender.items}
+    </INPUT>
+  `;
 
-  btnStart?.addEventListener('click', async ()=>{
-    if (btnStart.disabled) return;
+ let raw = '';
+  const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
+  try {
+    raw = await callGemini(primary, systemPrompt, userPrompt, 1.0); // <-- 모델 이름 변경
+  } catch (e1) {
+    dbg('1단계 생성 실패, 폴백 시도', e1);
+    raw = await callGemini(fallback, systemPrompt, userPrompt, 1.0); // <-- 모델 이름 변경
+  }
 
-    if (Array.isArray(char.abilities_all) && char.abilities_all.length){
-      const eq = Array.isArray(char.abilities_equipped) ? char.abilities_equipped : [];
-      if (eq.length !== 2){
-        showToast('스킬을 딱 2개 선택해줘!');
-        return;
-      }
-    }
 
-    if(cooldownRemain()>0) return showToast('쿨타임이 끝나면 시작할 수 있어!');
+  console.log("--- 1단계: AI 스케치 응답 (Raw) ---");
+  console.log(raw);
 
-    btnStart.disabled = true;
-    
-    // 1. 로딩 UI 표시 및 메시지 목록 정의
-    const loadingMessages = [
-      "운명의 주사위를 굴립니다...",
-      "캐릭터의 서사를 확인하는 중...",
-      "모험 장소로 이동 중입니다...",
-    ];
-    const loader = showLoadingOverlay(loadingMessages);
+  const parsed = tryParseJson(raw);
+  if (!Array.isArray(parsed) || parsed.length < 3) {
+      throw new Error('AI가 3개의 유효한 시나리오를 반환하지 않았습니다.');
+  }
+  return parsed;
+}
 
-    // 기존 탐험 확인 로직 (에러 발생 시 로딩창 닫고 버튼 활성화)
+// 1.5단계: AI가 3개 중 최고의 시나리오를 선택
+export async function chooseBestSketch(sketches) {
+    const systemPrompt = await fetchPromptDoc('battle_choice_system');
+    const userPrompt = `<INPUT>${JSON.stringify(sketches, null, 2)}</INPUT>`;
+
+    const { primary, fallback } = pickModels(); // [추가] 이 함수 안에서도 모델을 선택하도록 추가합니다.
+
+    let raw = '';
     try {
-      const q = fx.query(
-        fx.collection(db, 'explore_runs'),
-        fx.where('charRef', '==', `chars/${char.id}`),
-        fx.where('status', '==', 'ongoing'),
-        fx.limit(1)
-      );
-      const s = await fx.getDocs(q);
-      if (!s.empty) {
-        const doc = s.docs[0];
-        loader.finish();
-        setTimeout(() => location.hash = `#/explore-run/${doc.id}`, 300);
-        return;
-      }
-    } catch (_) { /* 권한/인덱스 이슈는 무시하고 새로 생성으로 진행 */ }
-
-    // 2. 런 생성 (createRun)
-    let runId = '';
-    try {
-      runId = await createRun({ world, site, char });
+        raw = await callGemini(primary, systemPrompt, userPrompt, 0.7);
     } catch (e) {
-      console.error('[explore] create run fail', e);
-      showToast(e?.message || '탐험 시작에 실패했습니다. 잠시 후 다시 시도해주세요.');
-        // 실패했으면 여기서 흐름을 멈춰 (아래의 이동 코드로 내려가지 않게)
-      return;
-
-      
-      // 실패 시 로딩 UI 제거 및 버튼 복구
-      loader.remove();
-      btnStart.disabled = false;
-      return;
+        dbg('최고 스케치 선택 실패, 폴백 시도', e);
+        // [수정] 폴백 시에도 모델을 지정해줍니다.
+        try {
+            raw = await callGemini(fallback, systemPrompt, userPrompt, 0.7);
+        } catch (e2) {
+            dbg('폴백도 실패, 랜덤 선택으로 대체', e2);
+            return { best_sketch_index: Math.floor(Math.random() * 3) };
+        }
     }
 
-    // 3. 성공 시 로딩 UI 완료 처리 후 페이지 이동
-    loader.finish();
-    setExploreIntent({ charId: char.id, runId, world: world.id, site: site.id, ts: Date.now() });
     
-    // 로딩 완료 메시지를 잠시 보여준 후 이동
-    if (runId && typeof runId === 'string') {
-      setTimeout(() => { location.hash = `#/explore-run/${runId}`; }, 500);
-    } else {
-      showToast('런 생성에 실패했어. 잠시 후 다시 시도해줘');
+    console.log("--- 1.5단계: AI 선택 응답 (Raw) ---");
+    console.log(raw);
+    
+    const parsed = tryParseJson(raw);
+    const index = parsed?.best_sketch_index;
+
+    if (typeof index !== 'number' || index < 0 || index > 2) {
+        console.warn('AI가 유효한 인덱스를 반환하지 않아 랜덤 선택합니다.');
+        return { best_sketch_index: Math.floor(Math.random() * 3) };
     }
-
-  });
-
+    return { best_sketch_index: index };
 }
 
 
-// /public/js/tabs/adventure.js 의 기존 openItemPicker 함수를 교체
+// 2단계: 선택된 시나리오로 최종 배틀로그 생성
+export async function generateFinalBattleLog(chosenSketch, battleData) {
+    const systemPrompt = await fetchPromptDoc('battle_final_system');
 
-// ===== 아이템 목록 및 상세 정보 표시 =====
-async function openItemPicker(char) {
-  const allItems = await getUserInventory(); // ◀◀◀ 이 줄을 수정하세요.
-  
-  // 필요한 CSS 주입
-  ensureModalCss();
-  ensureItemCss();
+    const userPrompt = `
+    <CONTEXT>
+      ## 선택된 전투 시나리오 (이 내용을 반드시 따라야 합니다)
+      - **승자 인덱스**: ${chosenSketch.winner_index} (${chosenSketch.winner_index === 0 ? battleData.attacker.name : battleData.defender.name}의 승리)
+      - **획득 EXP**: 캐릭터1(${battleData.attacker.name}) ${chosenSketch.exp_char0}, 캐릭터2(${battleData.defender.name}) ${chosenSketch.exp_char1}
+      - **사용된 아이템**: ${JSON.stringify({char0: chosenSketch.items_used_by_char0, char1: chosenSketch.items_used_by_char1})}
+      - **전투 개요**: ${chosenSketch.sketch_text}
 
-  const back = document.createElement('div');
-  back.className = 'modal-back';
-  back.innerHTML = `
-    <div class="modal-card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div style="font-weight:900">보유 아이템</div>
-        <button class="btn ghost" id="mClose">닫기</button>
-      </div>
-      <div id="inventoryItems" class="grid3" style="gap:12px; max-height:450px; overflow-y:auto; padding:8px 4px 4px 0;"></div>
-
-    </div>
+      ## 캐릭터 정보
+      - 관계: ${battleData.relation || '없음'}
+      - 캐릭터 1 (index 0, ${battleData.attacker.name}): ${JSON.stringify(battleData.attacker, null, 2)}
+      - 캐릭터 2 (index 1, ${battleData.defender.name}): ${JSON.stringify(battleData.defender, null, 2)}
+    </CONTEXT>
   `;
-  document.body.appendChild(back);
-
-  const inventoryItemsBox = back.querySelector('#inventoryItems');
-  
-  if (allItems.length > 0) {
-    inventoryItemsBox.innerHTML = '';
-    allItems.forEach(item => {
-      const style = rarityStyle(item.rarity);
-      const isShiny = ['epic', 'legend', 'myth'].includes((item.rarity || '').toLowerCase());
-
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = `kv-card item-card ${isShiny ? 'shine-effect' : ''}`;
-      card.style.cssText = `
-        padding: 8px;
-        cursor: pointer;
-        border: 1px solid ${style.border};
-        background: ${style.bg};
-        color: ${style.text};
-        transition: transform 0.2s;
-        width: 100%;
-        text-align: left;
-      `;
-      card.innerHTML = `
-        <div class="row" style="align-items:center;gap:8px">
-          <div style="font-weight:700;line-height:1.2">${esc(item.name)}</div>
-          ${useBadgeHtml(item)}
-        </div>
-        <div style="font-size:12px;opacity:.85;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
-          ${esc(item.desc_soft || item.desc || item.description || (item.desc_long ? String(item.desc_long).split('\n')[0] : ''))}
-        </div>
-      `;
-
-      card.addEventListener('click', () => showItemDetailModal(item));
-      inventoryItemsBox.appendChild(card);
-    });
-  } else {
-    inventoryItemsBox.innerHTML = `<div class="text-dim">보유한 아이템이 없습니다.</div>`;
+    
+  let raw = '';
+  const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
+  try {
+    raw = await callGemini(primary, systemPrompt, userPrompt, 0.85); // <-- 모델 이름 변경
+  } catch (e1) {
+    dbg('2단계 생성 실패, 폴백 시도', e1);
+    raw = await callGemini(fallback, systemPrompt, userPrompt, 0.85); // <-- 모델 이름 변경
   }
 
+
+  console.log("--- 2단계: AI 최종 로그 응답 (Raw) ---");
+  console.log(raw);
+
+  const parsed = tryParseJson(raw);
   
-  const closeModal = () => back.remove();
-  back.addEventListener('click', (e) => { if(e.target === back) closeModal(); });
-  back.querySelector('#mClose').onclick = closeModal;
+  return {
+      title: parsed?.title || "치열한 결투",
+      content: parsed?.content || "결과를 생성하는 데 실패했습니다.",
+      winner: chosenSketch.winner_index,
+      exp_char0: chosenSketch.exp_char0 || 10,
+      exp_char1: chosenSketch.exp_char1 || 10,
+      items_used_by_char0: chosenSketch.items_used_by_char0 || [],
+      items_used_by_char1: chosenSketch.items_used_by_char1 || [],
+  };
 }
 
+/* ================= 생성 엔드포인트 ================= */
+/* ================= 생성 엔드포인트 ================= */
+export async function genCharacterFlash2({ world, userInput }){
+  // [수정] 존재하지 않는 loadCreatePrompts 대신 fetchPromptDoc을 직접 사용합니다.
+  // create.js에 정의된 PROMPT_DOC_ID ('char_create')를 사용합니다.
+  const systemPrompt = await fetchPromptDoc('char_create_system');
 
-// ===== 엔트리 =====
-export async function showAdventure(){
-  const root = document.getElementById('view');
-  if(!auth.currentUser){
-    root.innerHTML = `<section class="container narrow"><div class="kv-card">로그인이 필요해.</div></section>`;
-    return;
-  }
-  await viewWorldPick(root);
+  // [수정] 존재하지 않는 fillVars 대신, 간단한 replace 함수로 프롬프트 내용을 채웁니다.
+  const systemFilled = systemPrompt
+      .replace(/{world_summary}/g, world?.summary ?? '')
+      .replace(/{world_detail}/g, world?.detail ?? '')
+      .replace(/{world_json}/g, JSON.stringify(world?.rawJson ?? world ?? {}))
+      .replace(/{user_input}/g, userInput ?? '');
+
+  const userCombined = userInput || '';
+
+  let raw='', parsed=null;
+  const { primary, fallback } = pickModels();
   try{
-    const r = await findMyActiveRun();
-    if (r) injectResumeBanner(root, r);
-  }catch(e){
-    console.warn('[adventure] resume check fail', e);
+    raw    = await callGemini(primary, systemFilled, userCombined, 0.85);
+    parsed = tryParseJson(raw);
+  }catch(e1){
+    dbg('flash2 실패, 폴백 시도', e1);
+    try{
+      raw    = await callGemini(fallback, systemFilled, userCombined, 0.8);
+      parsed = tryParseJson(raw);
+    }catch(e2){
+      throw e1; // 최초 에러를 전달
+    }
   }
 
+  if(DEBUG){
+    window.__ai_debug = window.__ai_debug || {};
+    window.__ai_debug.raw_len   = (raw||'').length;
+    window.__ai_debug.raw_head  = String(raw||'').slice(0, 2000);
+    window.__ai_debug.parsed_ok = !!parsed;
+  }
+
+  const norm = normalizeOutput(parsed, userInput||'');
+  return norm;
 }
 
-export default showAdventure;
+// [추가] AI 응답을 안전하게 정규화하는 함수
+function normalizeOutput(parsed, userInput=''){
+  const p = parsed || {};
+  const name = String(p.name || '').trim();
+  const intro = String(p.intro || p.summary || '').trim();
+  
+  // [수정] AI가 보내준 narratives 배열을 직접 사용하도록 변경
+  const narratives = (Array.isArray(p.narratives) ? p.narratives : [])
+    .slice(0, 1) // 우선 첫 번째 서사만 사용
+    .map(n => ({
+        title: String(n?.title || '서사').slice(0, 60),
+        long: String(n?.long || '').slice(0, 2000),
+        short: String(n?.short || '').slice(0, 200),
+    }));
 
-// /public/js/tabs/adventure.js 파일 맨 아래에 추가
+  const skills = (Array.isArray(p.skills) ? p.skills : [])
+    .slice(0, 4)
+    .map(s => ({
+      name: String(s?.name || '').slice(0, 24),
+      effect: String(s?.effect || s?.desc || '').slice(0, 160)
+    }));
+  
+  // [수정] narratives 배열을 그대로 반환
+  return { name, intro, narratives, skills };
+}
 
-// ===== 공유 인벤토리 화면 =====
-async function showSharedInventory(root) {
-  const u = auth.currentUser;
-  if (!u) {
-    showToast('로그인이 필요합니다.');
-    return;
+
+/* ================= ADVENTURE: requestNarrative =================
+ * 주사위로 이미 결정된 값(eventKind, deltaStamina 등)을 넘기면
+ * AI는 '서술 + 선택지 2~3개 + 3문장 요약'만 만들어준다.
+ */
+export async function requestAdventureNarrative({
+  character,
+  world,
+  site,
+  run,
+  dices,
+  equippedItems,
+  prevTurnLog
+}){
+  const systemText = await fetchPromptDoc('adventure_narrative_system');
+
+  const dicePrompts = (dices || []).map((d, i) => {
+    let result = `종류=${d.eventKind}, 스태미나변화=${d.deltaStamina}`;
+    if (d.item) {
+      result += `, 아이템(등급:${d.item.rarity}, 소모성:${d.item.isConsumable}, 사용횟수:${d.item.uses})`;
+    }
+    if (d.combat) {
+      result += `, 전투(적 등급:${d.combat.enemyTier})`;
+    }
+    return `선택지 ${i + 1} 예상 결과: ${result}`;
+  }).join('\n');
+
+  const userText = [
+    '## 플레이어 캐릭터 컨텍스트',
+    `- 출신 세계관: ${character?.origin_world_info || '알 수 없음'}`,
+    `- 캐릭터 이름: ${character?.name || '-'}`,
+    `- 보유 스킬: ${(character?.skills || []).map(s => `${s.name}(${s.desc || ''})`).join(', ') || '-'}`,
+    `- 장착 아이템: ${equippedItems}`,
+    '',
+    '## 스토리 컨텍스트',
+    `- 현재 탐험 세계관/장소: ${world?.name || '-'}/${site?.name || '-'}`,
+    `- 이전 턴 요약: ${prevTurnLog}`,
+    `- 현재까지의 3문장 요약: ${run?.summary3 || '(없음)'}`,
+    '---',
+    '## 다음 상황을 생성하라:',
+    dicePrompts,
+  ].filter(Boolean).join('\n');
+
+  let raw='';
+  const { primary, fallback } = pickModels(); // <-- 이 줄을 추가하세요
+  try{
+    raw = await callGemini(primary, systemText, userText, 0.85); // <-- 모델 이름 변경
+  }catch(e){
+    raw = await callGemini(fallback, systemText, userText, 0.85); // <-- 모델 이름 변경
   }
 
-  // Firestore의 users 컬렉션에서 현재 유저의 문서를 가져옴
-  const userDocRef = fx.doc(db, 'users', u.uid);
-  const userDocSnap = await fx.getDoc(userDocRef);
-  
-  // 유저 문서에 있는 items_all 배열을 가져옴 (없으면 빈 배열)
-  const sharedItems = userDocSnap.exists() ? (userDocSnap.data().items_all || []) : [];
+  const parsed = tryParseJson(raw) || {};
 
-  // 필요한 CSS 주입
-  ensureItemCss();
+  const narrative_text = String(parsed.narrative_text || '알 수 없는 공간에 도착했다.').slice(0, 2000);
+  const choices = (Array.isArray(parsed.choices) && parsed.choices.length === 3)
+    ? parsed.choices.map(x => String(x))
+    : ['조사한다', '나아간다', '후퇴한다'];
+  const summary3_update = String(parsed.summary3_update || run?.summary3 || '').slice(0, 300);
 
-  root.innerHTML = `
-    <section class="container narrow">
-      <div class="book-card">
-        <div class="bookmarks">
-          <button class="bookmark ghost" id="btnToExplore">탐험</button>
-          <button class="bookmark ghost" disabled>레이드(준비중)</button>
-          <button class="bookmark active" disabled>가방</button>
-        </div>
-        <div class="bookview p12">
-          <div class="kv-label">공유 보관함</div>
-          <div id="inventoryItems" class="grid4" style="gap:12px; max-height:60vh; overflow-y:auto; padding:8px 4px 4px 0;">
+  const choice_outcomes = (Array.isArray(parsed.choice_outcomes) && parsed.choice_outcomes.length === 3)
+    ? parsed.choice_outcomes
+    : [
+        { event_type: 'narrative', result_text: '주변을 둘러보았지만 아무것도 없었다.' },
+        { event_type: 'narrative', result_text: '조심스럽게 앞으로 나아갔다.' },
+        { event_type: 'narrative', result_text: '상황이 좋지 않아 일단 후퇴했다.' }
+      ];
 
-            ${/* 아이템 목록 렌더링 */ ''}
-          </div>
-        </div>
-      </div>
-    </section>
-  `;
-
-  const inventoryItemsBox = root.querySelector('#inventoryItems');
-  
-  if (sharedItems.length > 0) {
-    inventoryItemsBox.innerHTML = '';
-    sharedItems.forEach(item => {
-      const style = rarityStyle(item.rarity);
-      const isShiny = ['epic', 'legend', 'myth'].includes((item.rarity || '').toLowerCase());
-
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = `kv-card item-card ${isShiny ? 'shine-effect' : ''}`;
-      card.style.cssText = `
-        padding: 8px;
-        cursor: pointer;
-        border: 1px solid ${style.border};
-        background: ${style.bg};
-        color: ${style.text};
-        transition: transform 0.2s;
-        width: 100%;
-        text-align: left;
-      `;
-      card.innerHTML = `
-  <div class="row" style="align-items:center;gap:8px">
-    <div style="font-weight:700;line-height:1.2">${esc(item.name)}</div>
-    ${useBadgeHtml(item)}
-  </div>
-  <div style="font-size:12px;opacity:.85;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
-    ${esc(item.desc_soft || item.desc || item.description || '')}
-  </div>
-`;
-
-
-      card.addEventListener('click', () => showItemDetailModal(item));
-      inventoryItemsBox.appendChild(card);
-    });
-  } else {
-    inventoryItemsBox.innerHTML = `<div class="kv-card text-dim" style="grid-column: 1 / -1;">보관함에 아이템이 없습니다.</div>`;
-  }
-
-  
-  // [추가] '탐험' 버튼 클릭 시 viewWorldPick 함수를 호출하여 메인 화면으로 돌아감
-  root.querySelector('#btnToExplore').addEventListener('click', () => {
-    viewWorldPick(root);
-  });
+  return { narrative_text, choices, choice_outcomes, summary3_update };
 }
