@@ -69,32 +69,40 @@ export default async function showGuild(explicit){
   const root = document.getElementById('view');
   root.innerHTML = `<section class="container narrow"><div class="spin-center" style="margin-top:40px;"></div></section>`;
 
+// /public/js/tabs/guild.js
+
+// (기존 내용과 동일)
   const [gRaw, c] = await Promise.all([loadGuild(guildId), loadActiveChar()]);
   const g = gRaw || {};
   const uid = auth.currentUser?.uid || null;
   const isOwner  = !!(g && uid && g.owner_uid === uid);
-  const isStaffClient = !!(g && uid && (g.owner_uid === uid || (Array.isArray(g.staff_uids) && g.staff_uids.includes(uid))));
+  // [MOD] 스태프 여부 판단 시, 활성 캐릭터가 부길드마인지 함께 확인 (호환성 유지)
+  const isStaffByUid = Array.isArray(g.staff_uids) && g.staff_uids.includes(uid);
+  const isStaffByCharId = c?.id && Array.isArray(g.staff_char_ids) && g.staff_char_ids.includes(c.id);
+  const isStaffClient = !!(g && uid && (isOwner || isStaffByUid || isStaffByCharId));
   const cHasGuild = !!(c && c.guildId);
 
   const sub = ['about','members','settings','requests','level'].includes(subIn) ? subIn : 'about';
+// (기존 내용과 동일)
 
   const wrap = document.createElement('section');
   wrap.className = 'container narrow';
   root.innerHTML = '';
   root.appendChild(wrap);
   // [ADD] 작은 버튼 + 모달 기본 스타일
-  const _guildStyle = document.createElement('style');
-  _guildStyle.textContent = `
-    .btn.xs{ padding:4px 8px; font-size:12px; border-radius:10px }
-    .kv-modal{ position:fixed; inset:0; z-index:9999;
-      background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; }
-    .kv-modal .panel{ background:#0b0f16; border:1px solid #273247; border-radius:14px;
-      min-width:280px; max-width:92vw; padding:12px }
-    .kv-modal .head{ display:flex; align-items:center; gap:8px; margin-bottom:8px }
-    .kv-modal .grid{ display:grid; grid-template-columns:1fr 1fr; gap:6px }
-    .kv-modal .rowr{ display:flex; gap:6px; justify-content:flex-end; margin-top:8px }
-  `;
-  document.head.appendChild(_guildStyle);
+const _guildStyle = document.createElement('style');
+_guildStyle.textContent = `
+  .btn.xs{ padding:4px 8px; font-size:12px; border-radius:10px }
+  .kv-modal{ position:fixed; inset:0; z-index:9999;
+    background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; }
+  .kv-modal .panel{ background:#0b0f16; border:1px solid #273247; border-radius:14px;
+    min-width:280px; max-width:92vw; padding:12px }
+  .kv-modal .head{ display:flex; align-items:center; gap:8px; margin-bottom:8px }
+  .kv-modal .grid{ display:grid; grid-template-columns:1fr 1fr; gap:6px }
+  .kv-modal .rowr{ display:flex; gap:6px; justify-content:flex-end; margin-top:8px }
+`;
+document.head.appendChild(_guildStyle);
+
 
   if(!gRaw){
     wrap.innerHTML = `
@@ -149,8 +157,9 @@ export default async function showGuild(explicit){
   const body = wrap.querySelector('#tabbody');
 
   // ───────────────────────────────────────────────────
-  // 소개 탭
+  // 소개 탭 (기여도 표시 + 도네이트 → 즉시 반영)
   if (sub === 'about') {
+    // 서버에서 비용/금고 코인 가져오기 (길드 레벨업 자동 반영)
     let levelNow   = Number(g.level||1);
     let nextCost   = 0;
     let guildCoins = Number(g.coins||0);
@@ -275,11 +284,11 @@ export default async function showGuild(explicit){
           `다음 레벨업 목표치: <b>Lv${levelNow2} → Lv${levelNow2+1}</b> · 필요 <b>${nextCost2.toLocaleString()} 코인</b>`;
         levelNow = levelNow2; nextCost = nextCost2;
 
-        // 내 기여도 즉시 갱신 (서버 응답 사용 가능 시 반영)
-        if (typeof out.myWeeklyAfter === 'number') myWeekly = Number(out.myWeeklyAfter);
-        if (typeof out.myTotalAfter  === 'number') myTotal  = Number(out.myTotalAfter);
-        hero.querySelector('#my-contrib').innerHTML =
-          `내 기여: 주간 <b>${myWeekly.toLocaleString()}</b> · 누적 <b>${myTotal.toLocaleString()}</b>`;
+        // 내 기여도 즉시 갱신 (서버 응답 사용)
+if (typeof out.myWeeklyAfter === 'number') myWeekly = Number(out.myWeeklyAfter);
+if (typeof out.myTotalAfter  === 'number') myTotal  = Number(out.myTotalAfter);
+hero.querySelector('#my-contrib').innerHTML =
+  `내 기여: 주간 <b>${myWeekly.toLocaleString()}</b> · 누적 <b>${myTotal.toLocaleString()}</b>`;
 
         showToast('기여 완료!');
       }catch(e){
@@ -290,7 +299,7 @@ export default async function showGuild(explicit){
   }
 
   // ───────────────────────────────────────────────────
-  // 멤버 탭
+  // 멤버 탭 (부길마/명예 등급 토글 모두 여기서 처리 + 기여도 표시)
   if (sub === 'members') {
     const box = document.createElement('div');
     box.className = 'kv-card';
@@ -366,14 +375,14 @@ export default async function showGuild(explicit){
 
       memGrid.innerHTML = arr.map(x=>{
         const chips = [];
-        // 명예 뱃지 (캐릭터 기준)
-        if (hL.has(x.cid)) chips.push(`<span class="chip">명예-길마</span>`);
-        else if (hV.has(x.cid)) chips.push(`<span class="chip">명예-부길마</span>`);
-
+        // 명예 뱃지
+        if (hL.has(x.owner_uid)) chips.push(`<span class="chip">명예-길마</span>`);
+        else if (hV.has(x.owner_uid)) chips.push(`<span class="chip">명예-부길마</span>`);
         const roleText = x.role==='leader'?'길드마스터':x.role==='officer'?'부길드마':'멤버';
 
-        // 액션 버튼(모달에서 처리)
-        const actions = '';
+        // 액션 버튼 (운영진만)
+        const actions = ''; // [REWRITE] 카드 내부의 큰 액션 줄 제거(모달에서 처리)
+
 
         return `
           <div class="kv-card" style="padding:10px">
@@ -406,136 +415,138 @@ export default async function showGuild(explicit){
 
     render();
     sort2.onchange = render;
-
     // [ADD] 멤버 관리 모달
-    function openManageModal(row){
-      const ownerUid = row.owner_uid;
-      const isOwner   = (row.role === 'leader');       // 캐릭터 역할
-      const isOfficer = (row.role === 'officer');      // 캐릭터 역할
-      const isHL      = hL.has(row.cid);               // 명예-길마(캐릭터 기준)
-      const isHV      = hV.has(row.cid);               // 명예-부길마(캐릭터 기준)
+function openManageModal(row){
+  const ownerUid = row.owner_uid;
+  const isOwner   = ownerUid === g.owner_uid;
+  const isOfficer = Array.isArray(g.staff_uids) && g.staff_uids.includes(ownerUid);
+  const isHL      = (hL.has(ownerUid));
+  const isHV      = (hV.has(ownerUid));
 
-      const canHonorLeader = !isOwner && !isOfficer && !isHV;
-      const canHonorVice   = !isOwner && !isOfficer && !isHL;
-      const canOfficer     = row.role !== 'leader';
-      const canKick        = row.role !== 'leader'; // 리더는 강퇴 불가(서버에서도 거절)
+  const canHonorLeader = !isOwner && !isOfficer && !isHV;
+  const canHonorVice   = !isOwner && !isOfficer && !isHL;
+  const canOfficer     = row.role !== 'leader';
+  const canKick        = row.role !== 'leader'; // 리더는 강퇴 불가(서버에서도 거절)
 
-      const wrap = document.createElement('div');
-      wrap.className = 'kv-modal';
-      wrap.innerHTML = `
-        <div class="panel">
-          <div class="head">
-            <img src="${esc(row.thumb)}" onerror="this.style.display='none'"
-                 style="width:40px;height:40px;border-radius:8px;object-fit:cover;background:#111">
-            <div style="min-width:0">
-              <div style="font-weight:800" class="ellipsis">${esc(row.name)}</div>
-              <div class="text-dim" style="font-size:12px">
-                ${row.role==='leader'?'길드장':row.role==='officer'?'부길드마':'멤버'}
-                ${isHL?'· 명예-길마':''}${isHV?'· 명예-부길마':''}
-              </div>
-            </div>
-            <div style="flex:1"></div>
-            <button class="btn ghost xs" data-close>닫기</button>
-          </div>
-
-          <div class="grid">
-            <button class="btn xs" data-act="officer">${isOfficer?'부길마 해제':'부길마 지정'}</button>
-            <button class="btn ghost xs" data-act="transfer" ${row.role==='leader'?'disabled title="이미 길드장이야"':''}>길드장 위임</button>
-
-            <button class="btn xs" data-act="hL"
-              ${canHonorLeader?'':`disabled title="오너/부길마/명예-부길마와 겹칠 수 없어"`}>
-              ${isHL?'명예-길마 해제':'명예-길마 지정'}</button>
-
-            <button class="btn xs" data-act="hV"
-              ${canHonorVice?'':`disabled title="오너/부길마/명예-길마와 겹칠 수 없어"`}>
-              ${isHV?'명예-부길마 해제':'명예-부길마 지정'}</button>
-
-            <button class="btn danger xs" data-act="kick"
-              ${canKick?'':`disabled title="길드장은 강퇴할 수 없어"`}>강퇴</button>
-          </div>
-
-          <div class="rowr">
-            <a class="btn ghost xs" href="#/char/${esc(row.cid)}">캐릭터 보기</a>
+  const wrap = document.createElement('div');
+  wrap.className = 'kv-modal';
+  wrap.innerHTML = `
+    <div class="panel">
+      <div class="head">
+        <img src="${esc(row.thumb)}" onerror="this.style.display='none'"
+             style="width:40px;height:40px;border-radius:8px;object-fit:cover;background:#111">
+        <div style="min-width:0">
+          <div style="font-weight:800" class="ellipsis">${esc(row.name)}</div>
+          <div class="text-dim" style="font-size:12px">
+            ${row.role==='leader'?'길드장':row.role==='officer'?'부길드마':'멤버'}
+            ${isHL?'· 명예-길마':''}${isHV?'· 명예-부길마':''}
           </div>
         </div>
-      `;
-      document.body.appendChild(wrap);
+        <div style="flex:1"></div>
+        <button class="btn ghost xs" data-close>닫기</button>
+      </div>
 
-      const close = ()=> wrap.remove();
+      <div class="grid">
+        <button class="btn xs" data-act="officer">${isOfficer?'부길마 해제':'부길마 지정'}</button>
+        <button class="btn ghost xs" data-act="transfer" ${row.role==='leader'?'disabled title="이미 길드장이야"':''}>길드장 위임</button>
 
-      wrap.addEventListener('click', async (e)=>{
-        if (e.target.matches('[data-close]') || e.target === wrap) { close(); return; }
-        const b = e.target.closest('[data-act]'); if(!b) return;
+        <button class="btn xs" data-act="hL"
+          ${canHonorLeader?'':`disabled title="오너/부길마/명예-부길마와 겹칠 수 없어"`}>
+          ${isHL?'명예-길마 해제':'명예-길마 지정'}</button>
 
-        // 버튼 잠금
-        const old = b.textContent; b.disabled = true; b.textContent = '처리 중…';
-        const finish = ()=>{ b.disabled = false; b.textContent = old; };
+        <button class="btn xs" data-act="hV"
+          ${canHonorVice?'':`disabled title="오너/부길마/명예-길마와 겹칠 수 없어"`}>
+          ${isHV?'명예-부길마 해제':'명예-부길마 지정'}</button>
 
-        try{
-          if (b.dataset.act === 'officer'){
-            const makeOfficer = !isOfficer;
-            await call('setGuildRole')({ guildId: g.id, charId: row.cid, role: makeOfficer?'officer':'member' });
-            showToast(makeOfficer?'부길마로 지정':'부길마 해제');
+        <button class="btn danger xs" data-act="kick"
+          ${canKick?'':`disabled title="길드장은 강퇴할 수 없어"`}>강퇴</button>
+      </div>
 
-          } else if (b.dataset.act === 'transfer'){
-            if (!confirm('정말 길드장을 위임할까?')) { finish(); return; }
-            await call('transferGuildOwner')({ guildId: g.id, toCharId: row.cid });
-            showToast('길드장을 위임했어');
+      <div class="rowr">
+        <a class="btn ghost xs" href="#/char/${esc(row.cid)}">캐릭터 보기</a>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
 
-          } else if (b.dataset.act === 'hL'){
-            if (isHL) await call('unassignHonoraryRank')({ guildId: g.id, type:'hleader', targetCharId: row.cid });
-            else      await call('assignHonoraryRank')({   guildId: g.id, type:'hleader', targetCharId: row.cid });
-            showToast(isHL?'명예-길마 해제':'명예-길마 지정');
+  const close = ()=> wrap.remove();
 
-          } else if (b.dataset.act === 'hV'){
-            if (isHV) await call('unassignHonoraryRank')({ guildId: g.id, type:'hvice', targetCharId: row.cid });
-            else      await call('assignHonoraryRank')({   guildId: g.id, type:'hvice', targetCharId: row.cid });
-            showToast(isHV?'명예-부길마 해제':'명예-부길마 지정');
+  wrap.addEventListener('click', async (e)=>{
+    if (e.target.matches('[data-close]') || e.target === wrap) { close(); return; }
+    const b = e.target.closest('[data-act]'); if(!b) return;
 
-          } else if (b.dataset.act === 'kick'){
-            if (!confirm('정말 강퇴할까?')) { finish(); return; }
-            await call('kickFromGuild')({ guildId: g.id, charId: row.cid });
-            showToast('강퇴 완료');
-          }
+    // 버튼 잠금
+    const old = b.textContent; b.disabled = true; b.textContent = '처리 중…';
+    const finish = ()=>{ b.disabled = false; b.textContent = old; };
 
-          // === 서버 상태 재조회 ===
-          const sSnap = await fx.getDoc(fx.doc(db,'guilds', g.id));
-          const g2 = sSnap.exists()? sSnap.data(): g;
-          g.owner_uid = g2.owner_uid;
-          g.owner_char_id = g2.owner_char_id;
-          g.staff_uids = Array.isArray(g2.staff_uids)? g2.staff_uids: [];
-          g.honorary_leader_uids = Array.isArray(g2.honorary_leader_uids)? g2.honorary_leader_uids: [];
-          g.honorary_vice_uids   = Array.isArray(g2.honorary_vice_uids)?   g2.honorary_vice_uids: [];
+    try{
+      if (b.dataset.act === 'officer'){
+        const makeOfficer = !isOfficer;
+        // [MOD] actingCharId 추가
+        await call('setGuildRole')({ guildId: g.id, charId: row.cid, role: makeOfficer?'officer':'member', actingCharId: activeChar?.id });
+        showToast(makeOfficer?'부길드마로 지정':'부길마 해제');
 
-          hL.clear(); g.honorary_leader_uids.forEach(u=>hL.add(u));
-          hV.clear(); g.honorary_vice_uids.forEach(u=>hV.add(u));
+      } else if (b.dataset.act === 'transfer'){
+        if (!confirm('정말 길드장을 위임할까?')) { finish(); return; }
+        // [MOD] actingCharId 추가
+        await call('transferGuildOwner')({ guildId: g.id, toCharId: row.cid, actingCharId: activeChar?.id });
+        showToast('길드장을 위임했어');
 
-          // === 해당 캐릭터의 role은 멤버십 문서에서 다시 읽어 정확히 반영 ===
-          try{
-            const m2 = await fx.getDoc(fx.doc(db,'guild_members', `${g.id}__${row.cid}`));
-            row.role = m2.exists()? (m2.data()?.role || 'member')
-                                  : (row.cid===g.owner_char_id ? 'leader' : 'member');
-          }catch(_){
-            row.role = (row.cid===g.owner_char_id ? 'leader' : 'member');
-          }
+      } else if (b.dataset.act === 'hL'){
+        // [MOD] actingCharId 추가
+        const params = { guildId: g.id, targetCharId: row.cid, actingCharId: activeChar?.id };
+        if (isHL) await call('unassignHonoraryRank')({ ...params, type:'hleader' });
+        else      await call('assignHonoraryRank')({   ...params, type:'hleader' });
+        showToast(isHL?'명예-길마 해제':'명예-길마 지정');
 
-          close();
-          render(); // 전체 리스트 다시 그려 깔끔 동기화
-        }catch(err){
-          showToast(err?.message||'실패했어');
-          finish();
-        }
-      });
+      } else if (b.dataset.act === 'hV'){
+        // [MOD] actingCharId 추가
+        const params = { guildId: g.id, targetCharId: row.cid, actingCharId: activeChar?.id };
+        if (isHV) await call('unassignHonoraryRank')({ ...params, type:'hvice' });
+        else      await call('assignHonoraryRank')({   ...params, type:'hvice' });
+        showToast(isHV?'명예-부길마 해제':'명예-부길마 지정');
+
+      } else if (b.dataset.act === 'kick'){
+        if (!confirm('정말 강퇴할까?')) { finish(); return; }
+        // [MOD] actingCharId 추가
+        await call('kickFromGuild')({ guildId: g.id, charId: row.cid, actingCharId: activeChar?.id });
+        showToast('강퇴 완료');
+      }
+
+
+      // === 서버 상태 재조회 → 화면/라벨 정합 보장 ===
+      const sSnap = await fx.getDoc(fx.doc(db,'guilds', g.id));
+      const g2 = sSnap.exists()? sSnap.data(): g;
+      g.owner_uid = g2.owner_uid;
+      g.staff_uids = Array.isArray(g2.staff_uids)? g2.staff_uids: [];
+      g.honorary_leader_uids = Array.isArray(g2.honorary_leader_uids)? g2.honorary_leader_uids: [];
+      g.honorary_vice_uids   = Array.isArray(g2.honorary_vice_uids)?   g2.honorary_vice_uids: [];
+
+      hL.clear(); g.honorary_leader_uids.forEach(u=>hL.add(u));
+      hV.clear(); g.honorary_vice_uids.forEach(u=>hV.add(u));
+
+      // row.role 재평가
+      const nowOfficer = g.staff_uids.includes(ownerUid);
+      row.role = (ownerUid===g.owner_uid) ? 'leader' : (nowOfficer ? 'officer' : 'member');
+
+      close();
+      render(); // 전체 리스트 다시 그려 깔끔하게 동기화
+    }catch(err){
+      showToast(err?.message||'실패했어');
+      finish();
     }
+  });
+}
 
-    // 카드 → 모달 열기
+
+    // [REWRITE] 카드 내부 액션 → 모달 열기만 처리
     memGrid.addEventListener('click', (e)=>{
       const m = e.target.closest('[data-manage]');
       if (!m) return;
       const cid = m.dataset.manage;
       const row = rows.find(r=>r.cid===cid);
       if (!row) return;
-      openManageModal(row);
+      openManageModal(row, c); // [MOD] 활성 캐릭터(c) 정보를 모달에 전달
     });
   }
 
@@ -615,38 +626,18 @@ export default async function showGuild(explicit){
 
       upSta.onclick = ()=> lock(upSta, async ()=>{
         try{
-          // 서버 시그니처가 다를 수 있어 path 방식 먼저 시도, 실패 시 key/amount로 폴백
-          try{
-            await call('investGuildStat')({ guildId: g.id, path: 'stamina' });
-          }catch(_e){
-            await call('investGuildStat')({ guildId: g.id, key: 'stamina', amount: 1 });
-          }
-          // 최신값 재조회
-          const s2 = await fx.getDoc(fx.doc(db,'guilds', g.id));
-          if (s2.exists()){
-            const gd = s2.data();
-            const inv2 = Object(gd.investments||{});
-            setSta(inv2.stamina_lv ?? staminaLv+1);
-            setGP(gd.stat_points ?? (gPoints-1));
-          }
+          const { data } = await call('investGuildStat')({ guildId: g.id, path: 'stamina' });
+          setSta(data?.investments?.stamina_lv ?? (staminaLv+1));
+          setGP(data?.statPointsAfter ?? (gPoints-1));
           showToast('스태미나 시설 업그레이드 완료!');
         }catch(e){ showToast(e?.message||'실패했어'); }
       });
 
       upExp.onclick = ()=> lock(upExp, async ()=>{
         try{
-          try{
-            await call('investGuildStat')({ guildId: g.id, path: 'exp' });
-          }catch(_e){
-            await call('investGuildStat')({ guildId: g.id, key: 'exp', amount: 1 });
-          }
-          const s2 = await fx.getDoc(fx.doc(db,'guilds', g.id));
-          if (s2.exists()){
-            const gd = s2.data();
-            const inv2 = Object(gd.investments||{});
-            setExp(inv2.exp_lv ?? (expLv+1));
-            setGP(gd.stat_points ?? (gPoints-1));
-          }
+          const { data } = await call('investGuildStat')({ guildId: g.id, path: 'exp' });
+          setExp(data?.investments?.exp_lv ?? (expLv+1));
+          setGP(data?.statPointsAfter ?? (gPoints-1));
           showToast('전투 EXP 배율 업그레이드 완료!');
         }catch(e){ showToast(e?.message||'실패했어'); }
       });
@@ -862,7 +853,7 @@ function renderJoinBlocks(body, g, c, uid){
 }
 
 // ─────────────────────────────────────────────────────
-// 설정(길드장)
+// 설정(길드장) — (배지/소개/가입방식/조건/삭제) 기본 유지
 function renderSettings(body, g){
   const s = g.settings || {};
   const req = s.requirements || {};
