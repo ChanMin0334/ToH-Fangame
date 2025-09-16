@@ -134,7 +134,11 @@ export async function createRun({ world, site, char }){
     const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
     const isStaffHere = staff.includes(charData.owner_uid);
     const rf = (role === 'leader') ? 3 : (isStaffHere ? 2 : 1);
-    staminaBonus = staminaLv * rf;
+    let staminaBonus = 0;
+    if (staminaLv > 0) {
+      const baseFirst = rf; // 1레벨에만 역할 보너스(3/2/1)
+      staminaBonus = baseFirst + (staminaLv - 1); // 이후부터는 +1씩
+    }
   }
   const staminaStart = Math.max(1, STAMINA_BASE + staminaBonus);
 
