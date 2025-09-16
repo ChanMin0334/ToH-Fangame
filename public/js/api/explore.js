@@ -1,11 +1,13 @@
 // /public/js/api/explore.js (탐험 전용 모듈)
-import { db, auth, fx } from './firebase.js';
+import { db, auth, fx, func } from './firebase.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { logInfo } from './logs.js';
 
 
 import { EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS, apply as applyCooldown } from './cooldown.js';
 
 const STAMINA_BASE = 10;
+const call = (name)=> httpsCallable(func, name);
 
 // (이벤트/아이템 테이블 등은 가독성을 위해 생략)
 const EVENT_TABLE = {
@@ -120,27 +122,15 @@ export async function createRun({ world, site, char }){
 
 
   // --- Guild-based stamina bonus (미가입이면 0) ---
-  const charDocRef = fx.doc(db, 'chars', char.id);
-  const charDocSnap = await fx.getDoc(charDocRef);
-  const charData = charDocSnap.exists() ? charDocSnap.data() : {};
-  const guildId = charData.guildId || null;
-
-  let staminaBonus = 0;
-  if (guildId) {
-    const gSnap = await fx.getDoc(fx.doc(db, 'guilds', guildId));
-    const g = gSnap.exists() ? gSnap.data() : {};
-    const staminaLv = Math.max(0, Math.floor(Number(g?.investments?.stamina_lv || 0)));
-    const role = String(charData.guild_role || 'member');
-    const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
-    const isStaffHere = staff.includes(charData.owner_uid);
-    const rf = (role === 'leader') ? 3 : (isStaffHere ? 2 : 1);
-
-    if (staminaLv > 0) {
-      const baseFirst = rf; // 1레벨에만 역할 보너스(3/2/1)
-      staminaBonus = baseFirst + (staminaLv - 1); // 이후부터는 +1씩
+  // --- 길드 보너스는 서버 계산값 사용(명예직/역할 모두 반영) ---
+  let staminaStart = STAMINA_BASE;
+  try{
+    const { data: gb } = await call('getGuildBuffsForChar')({ charId: char.id });
+    if (gb?.ok) {
+      staminaStart = Math.max(1, STAMINA_BASE + Number(gb.stamina_bonus || 0));
     }
-  }
-  const staminaStart = Math.max(1, STAMINA_BASE + staminaBonus);
+  }catch(_){}
+
 
 
   const payload = {
