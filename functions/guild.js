@@ -373,18 +373,22 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
 
 
     if (type === 'hleader') {
-      if (hV.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-부길마 상태야');
-      if (hL.has(targetUid)) return {
-        ok: true,
-        staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
-        hLeader: Array.from(hL),
-        hVice: Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []
-      };
-
-      if (hL.size  >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
-if (hLc.size >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
-hL.add(targetUid);
-if (targetCharId) hLc.add(targetCharId);
+      // 동일 캐릭 기준으로만 겹침/중복 검사
+   if (targetCharId && hVc.has(targetCharId))
+     throw new HttpsError('failed-precondition', '이미 명예-부길마 상태야');
+   if (targetCharId && hLc.has(targetCharId)) {
+     return {
+       ok: true,
+       staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+       hLeader: Array.from(hL),
+       hVice: Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []
+     };
+   }
+   // 슬롯도 캐릭 기준(cids)으로만
+   if (hLc.size >= caps.max_honorary_leaders)
+     throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
+   if (targetCharId) hLc.add(targetCharId);
+   hL.add(targetUid); // uid 배열은 미러(레거시 호환)
 tx.update(gRef, {
   honorary_leader_uids: [...hL],
   honorary_leader_cids: [...hLc],
@@ -401,18 +405,20 @@ tx.update(gRef, {
 
 
     } else {
-      if (hL.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-길마 상태야');
-      if (hV.has(targetUid)) return {
-        ok: true,
-        staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
-        hLeader: Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : [],
-        hVice: Array.from(hV)
-      };
-
-     if (hV.size  >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
-if (hVc.size >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
-hV.add(targetUid);
-if (targetCharId) hVc.add(targetCharId);
+      if (targetCharId && hLc.has(targetCharId))
+     throw new HttpsError('failed-precondition', '이미 명예-길마 상태야');
+   if (targetCharId && hVc.has(targetCharId)) {
+     return {
+       ok: true,
+       staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+       hLeader: Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : [],
+       hVice: Array.from(hV)
+     };
+   }
+   if (hVc.size >= caps.max_honorary_vices)
+     throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
+   if (targetCharId) hVc.add(targetCharId);
+   hV.add(targetUid);
 tx.update(gRef, {
   honorary_vice_uids: [...hV],
   honorary_vice_cids: [...hVc],
@@ -1039,12 +1045,11 @@ let hV2c = new Set(Array.isArray(g.honorary_vice_cids)   ? g.honorary_vice_cids 
 
 
         if (role === 'officer') {
-          if (!staffSet2.has(c.owner_uid) && staffSet2.size >= MAX_OFFICERS) {
+          if (!staffChar2.has(charId) && staffChar2.size >= MAX_OFFICERS) {
             throw new HttpsError('failed-precondition', '부길드마 정원 초과(최대 2명)');
           }
+          staffChar2.add(charId);        // 좌석은 캐릭 기준
           staffSet2.add(c.owner_uid);
-           // officer가 되면 '이 캐릭'의 명예직만 제거(중복 금지)
-          staffChar2.add(charId);
           hL2c.delete(charId);
           hV2c.delete(charId);
           // (레거시 방어) 혹시 uid 배열에 charId가 잘못 들어간 흔적만 정리
@@ -1123,7 +1128,7 @@ let hV2c = new Set(Array.isArray(g.honorary_vice_cids)   ? g.honorary_vice_cids 
 staffCid.delete(toCharId);
 staffCid.add(oldOwnerCharId);
 
-      if (staffSet.size > MAX_OFFICERS) {
+      if (staffCid.size > MAX_OFFICERS) {
         throw new HttpsError('failed-precondition', '부길드마 정원(2명) 초과 — 먼저 기존 스태프를 조정하세요.');
       }
 
