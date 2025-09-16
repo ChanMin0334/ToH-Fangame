@@ -349,7 +349,13 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
   return {
     ok: true,
     guildId,
-    stamina_bonus: staminaLv * rf,
+    let staminaBonus = 0;
+    if (staminaLv > 0) {
+      const baseFirst = rf;        // 길마3 / 부길마2 / 멤버1 (명예 등급 포함)
+      staminaBonus = baseFirst + (staminaLv - 1);
+    }
+    out.stamina_bonus = staminaBonus;
+
     exp_multiplier: 1 + (0.01 * expLv),
   };
 });
