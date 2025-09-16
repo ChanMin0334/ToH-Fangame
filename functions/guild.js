@@ -13,10 +13,37 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   const GUILD_JOIN_COOL_MS = 60 * 1000;
 
 
-  function levelUpCost(currentLevel){
-    const L = Math.max(1, Number(currentLevel || 1));
-    return Math.max(200, Math.floor(200 * Math.pow(L, 1.3)));
+  // 길드 경제 설정: 표 또는 공식
+const CFG_PATH = 'configs/guild_economy';
+let _guildEcoCache = { at: 0, data: null };
+
+async function loadGuildEconomy(){
+  const now = Date.now();
+  if (_guildEcoCache.data && (now - _guildEcoCache.at) < 5*60*1000) return _guildEcoCache.data; // 5분 캐시
+  const snap = await db.doc(CFG_PATH).get();
+  const data = snap.exists ? (snap.data()||{}) : {};
+  _guildEcoCache = { at: now, data };
+  return data;
+}
+
+async function levelUpCost(currentLevel){
+  const L = Math.max(1, Number(currentLevel || 1));
+  const cfg = await loadGuildEconomy();
+  const mode = String(cfg?.cost_mode || 'formula');
+
+  if (mode === 'table') {
+    const t = cfg?.table || {};
+    const v = Number(t[String(L)] ?? t[L]);
+    if (v > 0) return Math.floor(v);
   }
+  // 기본 공식 (표에 없거나 mode가 formula)
+  const f = cfg?.formula || {};
+  const base = Number(f.base ?? 200);  // 기본 200
+  const exp  = Number(f.exp  ?? 1.3);  // 지수
+  const min  = Number(f.min  ?? 200);  // 하한
+  return Math.max(min, Math.floor(base * Math.pow(L, exp)));
+}
+
 
 
 // 길드 레벨에 따라 명예 등급 슬롯 자동 증가
