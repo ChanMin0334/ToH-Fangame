@@ -327,9 +327,9 @@ hero.querySelector('#my-contrib').innerHTML =
     );
     const qs = await fx.getDocs(q);
 
-    const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
-    const hV = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
-    const roleRank = { leader:0, officer:1, member:2 };
+    const hLc = new Set(Array.isArray(g.honorary_leader_cids) ? g.honorary_leader_cids : []);
+    const hVc = new Set(Array.isArray(g.honorary_vice_cids) ? g.honorary_vice_cids : []);
+    const staffCid = new Set(Array.isArray(g.staff_cids) ? g.staff_cids : []);
 
     const dict = new Map(); // charId -> best row
     for (const d of qs.docs) {
@@ -346,25 +346,18 @@ hero.querySelector('#my-contrib').innerHTML =
       const cs = await fx.getDoc(fx.doc(db,'chars', cid));
       const cd = cs.exists()? cs.data() : {};
       const role = m.role || cd.guild_role || 'member';
-
-      // 명예 여부(UID 기준)
-      const isHL = hL.has(cd.owner_uid);
-      const isHV = hV.has(cd.owner_uid);
-
-      // 화면에 ‘하나만’ 보여줄 라벨(명예가 있으면 명예를 우선 표시)
-      // 리더/부길마가 있으면 항상 그걸 우선 표시(과거 데이터에 명예가 잘못 남아있어도 안정)
+      const isHL = hLc.has(cid);
+      const isHV = hVc.has(cid);
+      const isOfficer = role === 'officer' || staffCid.has(cid);
       const displayRole =
-        (role === 'leader')  ? '길드마스터' :
-        (role === 'officer') ? '부길드마'   :
-        (isHL ? '명예-길마' : (isHV ? '명예-부길마' : '멤버'));
-
-
-      // 정렬 우선순위(숫자 낮을수록 위)
-      // 0: 길마, 1: 부길마/명예-길마, 2: 명예-부길마, 3: 멤버
+        role === 'leader'  ? '길드마스터' :
+        isOfficer          ? '부길드마'   :
+        isHL               ? '명예-길마'  :
+        isHV               ? '명예-부길마': '멤버';
       const displayRank =
-        (role === 'leader') ? 0 :
-        (role === 'officer') ? 1 :
-        (isHL ? 1 : (isHV ? 2 : 3));
+        role === 'leader'  ? 0 :
+        isOfficer || isHL  ? 1 :
+        isHV               ? 2 : 3;
 
       rows.push({
         cid,
@@ -394,8 +387,8 @@ hero.querySelector('#my-contrib').innerHTML =
       });
 
       memGrid.innerHTML = arr.map(x=>{
-        const isHL = hL.has(x.owner_uid);
-        const isHV = hV.has(x.owner_uid);
+        const isHL = hLc.has(x.cid);
+        const isHV = hVc.has(x.cid);
 
 
         // 액션 버튼 (운영진만)
@@ -434,11 +427,11 @@ hero.querySelector('#my-contrib').innerHTML =
     sort2.onchange = render;
     // [ADD] 멤버 관리 모달
 function openManageModal(row){
-  const ownerUid = row.owner_uid;
-  const isOwner   = ownerUid === g.owner_uid;
-  const isOfficer = Array.isArray(g.staff_uids) && g.staff_uids.includes(ownerUid);
-  const isHL      = (hL.has(ownerUid));
-  const isHV      = (hV.has(ownerUid));
+  const ownerUid  = row.owner_uid;
+  const isOwner   = ownerUid === g.owner_uid;                 // 오너 금지 규칙은 uid로 유지
+  const isOfficer = (g.staff_cids||[]).includes(row.cid) || row.role === 'officer';
+  const isHL      = (g.honorary_leader_cids||[]).includes(row.cid);
+  const isHV      = (g.honorary_vice_cids||[]).includes(row.cid);
 
   const canHonorLeader = !isOwner && !isOfficer && !isHV;
   const canHonorVice   = !isOwner && !isOfficer && !isHL;
@@ -508,13 +501,14 @@ function openManageModal(row){
         showToast('길드장을 위임했어');
 
       } else if (b.dataset.act === 'hL'){
-        if (isHL) await call('unassignHonoraryRank')({ guildId: g.id, type:'hleader', targetUid: ownerUid });
-        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hleader', targetUid: ownerUid });
+        if (isHL) await call('unassignHonoraryRank')({ guildId: g.id, type:'hleader', targetCharId: row.cid });
+        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hleader', targetCharId: row.cid });
+
         showToast(isHL?'명예-길마 해제':'명예-길마 지정');
 
       } else if (b.dataset.act === 'hV'){
-        if (isHV) await call('unassignHonoraryRank')({ guildId: g.id, type:'hvice', targetUid: ownerUid });
-        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hvice', targetUid: ownerUid });
+        if (isHV) await call('unassignHonoraryRank')({ guildId: g.id, type:'hvice', targetCharId: row.cid });
+        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hvice', targetCharId: row.cid });
         showToast(isHV?'명예-부길마 해제':'명예-부길마 지정');
 
       } else if (b.dataset.act === 'kick'){
@@ -527,15 +521,16 @@ function openManageModal(row){
       const sSnap = await fx.getDoc(fx.doc(db,'guilds', g.id));
       const g2 = sSnap.exists()? sSnap.data(): g;
       g.owner_uid = g2.owner_uid;
-      g.staff_uids = Array.isArray(g2.staff_uids)? g2.staff_uids: [];
-      g.honorary_leader_uids = Array.isArray(g2.honorary_leader_uids)? g2.honorary_leader_uids: [];
-      g.honorary_vice_uids   = Array.isArray(g2.honorary_vice_uids)?   g2.honorary_vice_uids: [];
+      g.staff_cids = Array.isArray(g2.staff_cids)? g2.staff_cids: [];
+      g.honorary_leader_cids = Array.isArray(g2.honorary_leader_cids)? g2.honorary_leader_cids: [];
+      g.honorary_vice_cids   = Array.isArray(g2.honorary_vice_cids)?   g2.honorary_vice_cids: [];
 
-      hL.clear(); g.honorary_leader_uids.forEach(u=>hL.add(u));
-      hV.clear(); g.honorary_vice_uids.forEach(u=>hV.add(u));
+      const hLc = new Set(g.honorary_leader_cids||[]);
+      const hVc = new Set(g.honorary_vice_cids||[]);
+      const staffCid = new Set(g.staff_cids||[]);
 
       // row.role 재평가
-      const nowOfficer = g.staff_uids.includes(ownerUid);
+      const nowOfficer = row.role === 'officer' || staffCid.has(row.cid);
       row.role = (ownerUid===g.owner_uid) ? 'leader' : (nowOfficer ? 'officer' : 'member');
 
       close();
