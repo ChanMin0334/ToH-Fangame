@@ -348,7 +348,12 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
       if (hV.size >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
       hV.add(targetUid);
       tx.update(gRef, { honorary_vice_uids: [...hV], updatedAt: nowMs() });
-      return { ok:true, honorary_vice_uids:[...hV] };
+      return {
+        ok: true,
+        staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+        hLeader: Array.isArray(hL) ? Array.from(hL) : (Array.isArray(g.honorary_leader_uids)?g.honorary_leader_uids:[]),
+        hVice:   Array.isArray(hV) ? Array.from(hV) : (Array.isArray(g.honorary_vice_uids)?g.honorary_vice_uids:[])
+      };
     }
   });
 });
@@ -945,7 +950,13 @@ return {
         });
 
 
-      return { ok: true, role };
+      return {
+        ok: true,
+        staff: Array.from(staffSet2),
+        hLeader: Array.from(hL2),
+        hVice: Array.from(hV2)
+      };
+
     });
   });
 
@@ -1014,7 +1025,14 @@ return {
         if (nameKey) tx.update(db.doc(`guild_names/${nameKey}`), { owner_uid: target.owner_uid });
       } catch {}
 
-      return { ok: true, newOwnerUid: target.owner_uid, newOwnerCharId: toCharId };
+      return {
+        ok: true,
+        owner_uid: target.owner_uid,
+        staff: Array.from(staffSet),
+        hLeader: Array.from(hL3),
+        hVice:   Array.from(hV3)
+      };
+
     });
   });
 
