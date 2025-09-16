@@ -273,6 +273,16 @@ while (true) {
 }
 
 tx.update(uRef, { coins: coinsAfterUser, updatedAt: now });
+    // [ADD] 멤버 기여도 서버 반영
+const mwBefore = Math.floor(Number((mSnap.data()?.points_weekly || 0)));
+const mtBefore = Math.floor(Number((mSnap.data()?.points_total  || 0)));
+tx.set(mRef, {
+  points_weekly: FieldValue.increment(a),
+  points_total:  FieldValue.increment(a),
+  lastActiveAt:  now,
+  updatedAt:     now
+}, { merge: true });
+
 tx.update(gRef, {
   coins: coinsGuild,
   level: curLv,
@@ -282,11 +292,16 @@ tx.update(gRef, {
 
 return {
   ok: true,
-  coinsAfter: coinsAfterUser,
+  coinsAfter:      coinsAfterUser,
   guildCoinsAfter: coinsGuild,
-  levelAfter: curLv,
-  statPointsAfter: sp
+  levelAfter:      curLv,
+  statPointsAfter: sp,
+  // [ADD] 내 기여 합계(주간/누적)와 최근 활동시간을 함께 내려줌
+  myWeeklyAfter:   mwBefore + a,
+  myTotalAfter:    mtBefore + a,
+  myLastActiveAt:  now
 };
+
 
   });
 });
