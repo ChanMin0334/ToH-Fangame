@@ -322,8 +322,9 @@ hero.querySelector('#my-contrib').innerHTML =
     );
     const qs = await fx.getDocs(q);
 
-    const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
-    const hV = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
+    const hL = new Set(Array.isArray(g.honorary_leader_charIds) ? g.honorary_leader_charIds : []);
+    const hV = new Set(Array.isArray(g.honorary_vice_charIds)   ? g.honorary_vice_charIds   : []);
+
     const roleRank = { leader:0, officer:1, member:2 };
 
     const dict = new Map(); // charId -> best row
@@ -369,8 +370,9 @@ hero.querySelector('#my-contrib').innerHTML =
       memGrid.innerHTML = arr.map(x=>{
         const chips = [];
         // 명예 뱃지
-        if (hL.has(x.owner_uid)) chips.push(`<span class="chip">명예-길마</span>`);
-        else if (hV.has(x.owner_uid)) chips.push(`<span class="chip">명예-부길마</span>`);
+        if (hL.has(x.cid)) chips.push(`<span class="chip">명예-길마</span>`);
+        else if (hV.has(x.cid)) chips.push(`<span class="chip">명예-부길마</span>`);
+
         const roleText = x.role==='leader'?'길드마스터':x.role==='officer'?'부길드마':'멤버';
 
         // 액션 버튼 (운영진만)
@@ -410,11 +412,12 @@ hero.querySelector('#my-contrib').innerHTML =
     sort2.onchange = render;
     // [ADD] 멤버 관리 모달
 function openManageModal(row){
-  const ownerUid = row.owner_uid;
+  const ownerUid = row.owner_uid || '';
   const isOwner   = ownerUid === g.owner_uid;
   const isOfficer = Array.isArray(g.staff_uids) && g.staff_uids.includes(ownerUid);
-  const isHL      = (hL.has(ownerUid));
-  const isHV      = (hV.has(ownerUid));
+  const isHL      = hL.has(row.cid);
+  const isHV      = hV.has(row.cid);
+
 
   const canHonorLeader = !isOwner && !isOfficer && !isHV;
   const canHonorVice   = !isOwner && !isOfficer && !isHL;
@@ -484,13 +487,13 @@ function openManageModal(row){
         showToast('길드장을 위임했어');
 
       } else if (b.dataset.act === 'hL'){
-        if (isHL) await call('unassignHonoraryRank')({ guildId: g.id, type:'hleader', targetUid: ownerUid });
-        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hleader', targetUid: ownerUid });
+        if (isHL) await call('unassignHonoraryRank')({ guildId: g.id, type:'hleader', targetCharId: row.cid });
+        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hleader', targetCharId: row.cid });
         showToast(isHL?'명예-길마 해제':'명예-길마 지정');
 
       } else if (b.dataset.act === 'hV'){
-        if (isHV) await call('unassignHonoraryRank')({ guildId: g.id, type:'hvice', targetUid: ownerUid });
-        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hvice', targetUid: ownerUid });
+        if (isHV) await call('unassignHonoraryRank')({ guildId: g.id, type:'hvice', targetCharId: row.cid });
+        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hvice', targetCharId: row.cid });
         showToast(isHV?'명예-부길마 해제':'명예-부길마 지정');
 
       } else if (b.dataset.act === 'kick'){
@@ -504,15 +507,16 @@ function openManageModal(row){
       const g2 = sSnap.exists()? sSnap.data(): g;
       g.owner_uid = g2.owner_uid;
       g.staff_uids = Array.isArray(g2.staff_uids)? g2.staff_uids: [];
-      g.honorary_leader_uids = Array.isArray(g2.honorary_leader_uids)? g2.honorary_leader_uids: [];
-      g.honorary_vice_uids   = Array.isArray(g2.honorary_vice_uids)?   g2.honorary_vice_uids: [];
+      g.honorary_leader_charIds = Array.isArray(g2.honorary_leader_charIds)? g2.honorary_leader_charIds: [];
+      g.honorary_vice_charIds   = Array.isArray(g2.honorary_vice_charIds)?   g2.honorary_vice_charIds: [];
+      hL.clear(); g.honorary_leader_charIds.forEach(id=>hL.add(id));
+      hV.clear(); g.honorary_vice_charIds.forEach(id=>hV.add(id));
 
-      hL.clear(); g.honorary_leader_uids.forEach(u=>hL.add(u));
-      hV.clear(); g.honorary_vice_uids.forEach(u=>hV.add(u));
 
       // row.role 재평가
-      const nowOfficer = g.staff_uids.includes(ownerUid);
-      row.role = (ownerUid===g.owner_uid) ? 'leader' : (nowOfficer ? 'officer' : 'member');
+      const nowOfficer = g.staff_uids.includes(row.owner_uid || '');
+      row.role = (row.owner_uid === g.owner_uid) ? 'leader' : (nowOfficer ? 'officer' : 'member');
+
 
       close();
       render(); // 전체 리스트 다시 그려 깔끔하게 동기화
