@@ -106,8 +106,22 @@ function gradeCapsForLevel(L){
      return true;
    }
    // 2) 구 포맷(배열)도 계속 지원
-   const conds = requirements;
-   for (const r of conds) { /* ... 기존 비교 로직 ... */ }
+    for (const r of requirements) {
+     const t = String(r?.type || '').toLowerCase(); // 'elo' | 'wins' | 'likes'
+     const op = String(r?.op || '>=');
+     const v  = Number(r?.value);
+      let val = 0;
+     if (t === 'elo')   val = Number(charData?.elo || 0);
+     else if (t === 'wins')  val = Number(charData?.wins || 0);
+     else if (t === 'likes') val = Number(charData?.likes_total || 0);
+     else continue; // 알 수 없는 타입은 무시
+     if (op === '>=' && !(val >= v)) return false;
+     if (op === '>'  && !(val >  v)) return false;
+     if (op === '<=' && !(val <= v)) return false;
+     if (op === '<'  && !(val <  v)) return false;
+     if (op === '==' && !(val == v)) return false;
+     if (op === '!=' && !(val != v)) return false;
+   }
    return true;
   }
 
