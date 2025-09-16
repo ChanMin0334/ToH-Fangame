@@ -159,7 +159,7 @@ const upgradeGuildLevel = onCall({ region: 'us-central1' }, async (req) => {
     if (!isOwner(uid, g)) throw new HttpsError('permission-denied', '길드장만 가능');
 
     const curLv = Number(g.level || 1);
-    const cost = levelUpCost(curLv);
+    const cost = await levelUpCost(curLv);
 
     let coinsLeft = 0;
     if (payFromGuild) {
@@ -895,6 +895,27 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
     return { ok: true, staff_uids: Array.from(set) };
   });
 
+
+
+  const getGuildLevelCost = onCall({ region: 'us-central1' }, async (req)=>{
+  const { guildId } = req.data || {};
+  if (!guildId) throw new HttpsError('invalid-argument', 'guildId 필요');
+
+  const gSnap = await db.doc(`guilds/${guildId}`).get();
+  if (!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
+  const L = Number(gSnap.data()?.level || 1);
+
+  const cost = await levelUpCost(L);
+  const costNext = await levelUpCost(L+1);
+  return { ok:true, level:L, cost, costNext };
+});
+
+
+
+
+
+
+  
   // ------------------------
   // exports
   // ------------------------
@@ -916,6 +937,7 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
     donateGuildCoins,
     assignHonoraryRank,
     unassignHonoraryRank,
+    getGuildLevelCost,
 
 
   };
