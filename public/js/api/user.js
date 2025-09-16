@@ -99,6 +99,7 @@ export async function uploadAvatarBlob(blob){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
 
+  // 1) 원본을 256x256 정사각형으로 크롭·리사이즈
   const bmp = await createImageBitmap(blob);
   const side = Math.min(bmp.width, bmp.height);
   const sx0 = (bmp.width - side) / 2;
@@ -110,35 +111,60 @@ export async function uploadAvatarBlob(blob){
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(bmp, sx0, sy0, side, side, 0, 0, 256, 256);
 
-  const toDataUrl = (quality)=> new Promise((resolve)=>{
-    canvas.toBlob((b)=>{
-      const fr = new FileReader();
-      fr.onload = ()=> resolve(fr.result);
-      fr.readAsDataURL(b);
-    }, 'image/jpeg', quality);
-  });
-
-  let q = 0.9, dataUrl = await toDataUrl(q);
-  while((dataUrl?.length || 0) > 900_000 && q > 0.4){
+  // 2) JPEG로 압축 (900KB 이하로 낮춤)
+  async function toBlobWithQuality(q){
+    return new Promise(resolve => {
+      canvas.toBlob(b => resolve(b), 'image/jpeg', q);
+    });
+  }
+  let q = 0.9;
+  let jpgBlob = await toBlobWithQuality(q);
+  // FileReader 없이 Blob 크기로 판단
+  while (jpgBlob && jpgBlob.size > 900_000 && q > 0.4){
     q -= 0.1;
-    dataUrl = await toDataUrl(q);
+    jpgBlob = await toBlobWithQuality(q);
   }
 
-  await fx.setDoc(userRef(u.uid), { avatar_b64: dataUrl, updatedAt: Date.now() }, { merge:true });
-  return dataUrl;
+  // 3) Storage에 올리기 (파일명 고정: avatars/{uid}.jpg)
+  //    firebase.js에서 넘겨준 storage/sx 사용(ref, uploadBytes, getDownloadURL)
+  const r = sx.ref(storage, `avatars/${u.uid}.jpg`);
+  await sx.uploadBytes(r, jpgBlob, { contentType: 'image/jpeg' });
+
+  // 4) 다운로드 URL + 캐시버스터(?v=ts)
+  const rawUrl = await sx.getDownloadURL(r);
+  const ts = Date.now();
+  const url = `${rawUrl}?v=${ts}`;
+
+  // 5) users/{uid} 문서에 avatarURL 저장 (b64는 비우기)
+  await fx.setDoc(userRef(u.uid), {
+    avatarURL: url,
+    avatarUpdatedAt: ts,
+    avatar_b64: ''  // 과거 호환: 그냥 빈문자열로 정리
+  }, { merge:true });
+
+  // 6) 호출측(me.js)이 바로 <img src>로 쓰게 URL 반환
+  return url;
 }
+
 
 export async function restoreAvatarFromGoogle(){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
-  const url = u.photoURL || '';
+
+  const base = u.photoURL || '';
+  const ts = Date.now();
+  const url = base ? `${base}${base.includes('?') ? '&' : '?'}v=${ts}` : '';
+
   await fx.setDoc(userRef(u.uid), {
     avatarURL: url,
+    avatarUpdatedAt: ts,
     avatar_b64: '',
     updatedAt: Date.now()
   }, { merge:true });
+
   return url;
 }
+
 
 // (수정 후 코드)
 export async function getUserInventory(uid = null) {
