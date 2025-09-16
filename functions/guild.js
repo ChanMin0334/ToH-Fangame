@@ -50,8 +50,8 @@ async function levelUpCost(currentLevel){
 function gradeCapsForLevel(L){
   const lv = Math.max(1, Number(L||1));
   return {
-    max_honorary_leaders: Math.floor(lv / 10), // Lv10마다 명예-길마 1명
-    max_honorary_vices:   Math.floor(lv / 5),  // Lv5마다  명예-부길마 1명
+    max_honorary_leaders: Math.floor(lv / 4), // Lv4 마다 명예-길마 1명
+    max_honorary_vices:   Math.floor(lv / 2),  // Lv2 마다  명예-부길마 1명
   };
 }
 
