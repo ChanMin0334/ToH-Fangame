@@ -263,16 +263,11 @@ export default async function showGuild(explicit){
           `다음 레벨업 목표치: <b>Lv${levelNow2} → Lv${levelNow2+1}</b> · 필요 <b>${nextCost2.toLocaleString()} 코인</b>`;
         levelNow = levelNow2; nextCost = nextCost2;
 
-        // 내 기여도 즉시 갱신 (주간/누적)
-        if (mRefId){
-          const mRef = fx.doc(db,'guild_members', mRefId);
-          try{
-            await safeIncrement(mRef, { points_weekly: amt, points_total: amt, lastActiveAt: 0 }); // lastActiveAt은 아래서 별도로 set
-            await fx.updateDoc(mRef, { lastActiveAt: Date.now() });
-            myWeekly += amt; myTotal += amt;
-            hero.querySelector('#my-contrib').innerHTML = `내 기여: 주간 <b>${myWeekly.toLocaleString()}</b> · 누적 <b>${myTotal.toLocaleString()}</b>`;
-          }catch(_){}
-        }
+        // 내 기여도 즉시 갱신 (서버 응답 사용)
+if (typeof out.myWeeklyAfter === 'number') myWeekly = Number(out.myWeeklyAfter);
+if (typeof out.myTotalAfter  === 'number') myTotal  = Number(out.myTotalAfter);
+hero.querySelector('#my-contrib').innerHTML =
+  `내 기여: 주간 <b>${myWeekly.toLocaleString()}</b> · 누적 <b>${myTotal.toLocaleString()}</b>`;
 
         showToast('기여 완료!');
       }catch(e){
