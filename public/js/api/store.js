@@ -260,11 +260,13 @@ App.rankings = null;
 
 export async function loadRankingsFromServer(topN = 50){
   const col = fx.collection(db,'chars');
-  const take = (field)=> fx.getDocs(fx.query(col, fx.orderBy(field,'desc'), fx.limit(topN)));
-  const [w,t,e] = await Promise.all([ take('likes_weekly'), take('likes_total'), take('elo') ]);
+  const take   = (field)=> fx.getDocs(fx.query(col, fx.orderBy(field,'desc'), fx.limit(topN)));
+  const takeAsc= (field)=> fx.getDocs(fx.query(col, fx.orderBy(field,'asc'),  fx.limit(topN)));
+  const [w,t,e,eLow] = await Promise.all([ take('likes_weekly'), take('likes_total'), take('elo'), takeAsc('elo') ]);
+
 
   const toArr = (snap)=>{ const arr=[]; snap.forEach(d=>arr.push({id:d.id, ...d.data()})); return arr; };
-  App.rankings = { weekly: toArr(w), total: toArr(t), elo: toArr(e), fetchedAt: Date.now() };
+  App.rankings = { weekly: toArr(w), total: toArr(t), elo: toArr(e), elo_low: toArr(eLow), fetchedAt: Date.now() };
   rankingsLoadedAt = App.rankings.fetchedAt;
   try{ localStorage.setItem('toh_rankings', JSON.stringify(App.rankings)); }catch{}
   return App.rankings;
@@ -274,7 +276,13 @@ export function restoreRankingCache(){
   try{
     const raw = localStorage.getItem('toh_rankings'); if(!raw) return null;
     const obj = JSON.parse(raw);
-    if(obj?.weekly && obj?.total && obj?.elo){ App.rankings=obj; rankingsLoadedAt=obj.fetchedAt||0; return obj; }
+    if (obj?.weekly && obj?.total && (obj?.elo || obj?.elo_low)) {
+      if (!obj.elo_low) obj.elo_low = [];
+      App.rankings = obj;
+      rankingsLoadedAt = obj.fetchedAt || 0;
+      return obj;
+    }
+
   }catch{}
   return null;
 }
