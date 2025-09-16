@@ -39,11 +39,11 @@ function tryParseJson(t){
   const s = stripFences(t);
   try {
     const parsed = JSON.parse(s);
-    console.log("✅ JSON.parse 성공!", parsed);
+   // console.log("✅ JSON.parse 성공!", parsed);
     return parsed;
   } catch (e) {
-    console.error("❌ JSON.parse 실패!", e);
-    console.error("파싱에 실패한 텍스트:", s);
+  //  console.error("❌ JSON.parse 실패!", e);
+  //  console.error("파싱에 실패한 텍스트:", s);
     return null;
   }
 }
