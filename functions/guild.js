@@ -311,20 +311,44 @@ return {
 // 명예 등급 부여/회수 — 길마만 가능(권한 없음, 혜택만 존재)
 const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
   const uid = req.auth?.uid || null;
-  const { guildId, type, targetUid } = req.data || {};
-  if (!uid || !guildId || !targetUid || !['hleader','hvice'].includes(String(type))) {
-    throw new HttpsError('invalid-argument', 'guildId/targetUid/type(hleader|hvice) 필요');
+  const { guildId, type, targetCharId, targetUid: legacyUid } = req.data || {};
+  if (!uid || !guildId || !['hleader','hvice'].includes(String(type))) {
+    throw new HttpsError('invalid-argument', 'guildId/type(hleader|hvice) 필요');
   }
+  // charId 우선, (임시) 과거 uid 호출도 허용
+  if (!targetCharId && !legacyUid) {
+    throw new HttpsError('invalid-argument', 'targetCharId 필요(임시로 targetUid 허용)');
+  }
+
   return await db.runTransaction(async (tx)=>{
     const gRef = db.doc(`guilds/${guildId}`);
     const gSnap = await tx.get(gRef);
     if (!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
     const g = gSnap.data();
     if (!isOwner(uid, g)) throw new HttpsError('permission-denied', '길드장만 가능');
+    // 대상 캐릭 → UID 확인 (charId 우선)
+    let targetUid = legacyUid || null;
+    let charIdForCleanup = null;
+    if (targetCharId) {
+      const tRef = db.doc(`chars/${targetCharId}`);
+      const tSnap = await tx.get(tRef);
+      if (!tSnap.exists) throw new HttpsError('not-found', '대상 캐릭 없음');
+      const t = tSnap.data();
+      if (t.guildId !== guildId) throw new HttpsError('failed-precondition', '해당 길드 소속 캐릭이 아냐');
+      targetUid = t.owner_uid;
+      charIdForCleanup = targetCharId;
+    }
+    if (!targetUid) throw new HttpsError('invalid-argument', '대상 UID 확인 실패');
 
     const caps = gradeCapsForLevel(Number(g.level||1));
     const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
     const hV = new Set(Array.isArray(g.honorary_vice_uids)   ? g.honorary_vice_uids   : []);
+        // 과거 잘못 저장된 흔적 정리: charId가 들어가 있었을 수 있으니 미리 제거
+    if (charIdForCleanup) {
+      hL.delete(charIdForCleanup);
+      hV.delete(charIdForCleanup);
+    }
+
     // [ADD] 역할 중복 금지: 오너/스태프/다른 명예직과 겹치면 불가
     if (g.owner_uid === targetUid) {
       throw new HttpsError('failed-precondition', '길드장은 명예직을 가질 수 없어');
@@ -357,7 +381,13 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
 
     } else {
       if (hL.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-길마 상태야');
-      if (hV.has(targetUid)) return { ok:true, honorary_vice_uids:[...hV] };
+      if (hV.has(targetUid)) return {
+        ok: true,
+        staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+        hLeader: Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : [],
+        hVice: Array.from(hV)
+      };
+
       if (hV.size >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
       hV.add(targetUid);
       tx.update(gRef, { honorary_vice_uids: [...hV], updatedAt: nowMs() });
@@ -373,21 +403,48 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
 
 const unassignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
   const uid = req.auth?.uid || null;
-  const { guildId, type, targetUid } = req.data || {};
-  if (!uid || !guildId || !targetUid || !['hleader','hvice'].includes(String(type))) {
-    throw new HttpsError('invalid-argument', 'guildId/targetUid/type(hleader|hvice) 필요');
+  const { guildId, type, targetCharId, targetUid: legacyUid } = req.data || {};
+  if (!uid || !guildId || !['hleader','hvice'].includes(String(type))) {
+    throw new HttpsError('invalid-argument', 'guildId/type(hleader|hvice) 필요');
   }
+  if (!targetCharId && !legacyUid) {
+    throw new HttpsError('invalid-argument', 'targetCharId 필요(임시로 targetUid 허용)');
+  }
+
   const gRef = db.doc(`guilds/${guildId}`);
   const gSnap = await gRef.get();
   if (!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
   const g = gSnap.data();
   if (!isOwner(uid, g)) throw new HttpsError('permission-denied', '길드장만 가능');
+    let targetUid = legacyUid || null;
+  let charIdForCleanup = null;
+  if (targetCharId) {
+    const tSnap = await db.doc(`chars/${targetCharId}`).get();
+    if (!tSnap.exists) throw new HttpsError('not-found', '대상 캐릭 없음');
+    const t = tSnap.data() || {};
+    if (t.guildId !== guildId) throw new HttpsError('failed-precondition', '해당 길드 소속 캐릭이 아냐');
+    targetUid = t.owner_uid;
+    charIdForCleanup = targetCharId;
+  }
+  if (!targetUid) throw new HttpsError('invalid-argument', '대상 UID 확인 실패');
 
-  const key = (type === 'hleader') ? 'honorary_leader_uids' : 'honorary_vice_uids';
+
+    const key = (type === 'hleader') ? 'honorary_leader_uids' : 'honorary_vice_uids';
   const cur = new Set(Array.isArray(g[key]) ? g[key] : []);
   cur.delete(targetUid);
+  if (charIdForCleanup) cur.delete(charIdForCleanup); // 과거에 charId로 들어간 흔적 제거
   await gRef.update({ [key]: [...cur], updatedAt: nowMs() });
-  return { ok:true, [key]: [...cur] };
+
+  // 통일 응답
+  const hL = (key === 'honorary_leader_uids') ? Array.from(cur) : (Array.isArray(g.honorary_leader_uids)? g.honorary_leader_uids : []);
+  const hV = (key === 'honorary_vice_uids')   ? Array.from(cur) : (Array.isArray(g.honorary_vice_uids)?   g.honorary_vice_uids   : []);
+  return {
+    ok: true,
+    staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+    hLeader: hL,
+    hVice:   hV
+  };
+
 });
 
   
@@ -839,6 +896,9 @@ return {
         let changed = false;
         if (hL.delete(c.owner_uid)) changed = true;
         if (hV.delete(c.owner_uid)) changed = true;
+        if (hL.delete(charId)) changed = true;
+        if (hV.delete(charId)) changed = true;
+
         if (changed) {
           tx.update(gRef, {
             honorary_leader_uids: Array.from(hL),
@@ -902,6 +962,9 @@ return {
         let changed = false;
         if (hL.delete(c.owner_uid)) changed = true;
         if (hV.delete(c.owner_uid)) changed = true;
+        if (hL.delete(charId)) changed = true;
+        if (hV.delete(charId)) changed = true;
+
         if (changed) {
           tx.update(gRef, {
             honorary_leader_uids: Array.from(hL),
@@ -951,6 +1014,9 @@ return {
           // officer가 되면 명예직 제거(역할 중복 금지)
           hL2.delete(c.owner_uid);
           hV2.delete(c.owner_uid);
+            // (정리) 과거에 charId가 들어간 흔적도 제거
+          hL2.delete(charId);
+          hV2.delete(charId);
         } else {
           staffSet2.delete(c.owner_uid);
         }
@@ -1023,6 +1089,9 @@ return {
       let hV3 = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
       hL3.delete(target.owner_uid); hV3.delete(target.owner_uid);
       hL3.delete(old.owner_uid);    hV3.delete(old.owner_uid);
+       // (정리) 과거 charId 흔적 제거
+      hL3.delete(toCharId);      hV3.delete(toCharId);
+      hL3.delete(oldOwnerCharId);hV3.delete(oldOwnerCharId);
 
       tx.update(gRef, {
         staff_uids: Array.from(staffSet),
