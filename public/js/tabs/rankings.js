@@ -76,14 +76,6 @@ export async function showRankings(force=false){
     }
   }
 
-  const base = (src.elo||[]).slice();
-  if (State.tab==='elo')      base.sort((a,b)=> (b.elo||0)-(a.elo||0));
-  if (State.tab==='elo_low')  base.sort((a,b)=> (a.elo||0)-(b.elo||0));
-   const list = State.tab==='weekly' ? (src.weekly||[])
-             : State.tab==='total'  ? (src.total||[])
-             : base;
-
-
   const src = App.rankings || {weekly:[], total:[], elo:[]};
   const list = State.tab==='weekly' ? (src.weekly||[])
              : State.tab==='total'  ? (src.total||[])
