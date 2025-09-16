@@ -11,6 +11,7 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
 
   // 테스트용 1분(60초). 실제 런칭 때는 3600*1000 으로 바꾸면 1시간.
   const GUILD_JOIN_COOL_MS = 60 * 1000;
+  const MAX_OFFICERS = 2; // 부길드마(운영진) 최대 2명 (고정)
 
 
   // 길드 경제 설정: 표 또는 공식
@@ -324,13 +325,25 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
     const caps = gradeCapsForLevel(Number(g.level||1));
     const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
     const hV = new Set(Array.isArray(g.honorary_vice_uids)   ? g.honorary_vice_uids   : []);
+    // [ADD] 역할 중복 금지: 오너/스태프/다른 명예직과 겹치면 불가
+    if (g.owner_uid === targetUid) {
+      throw new HttpsError('failed-precondition', '길드장은 명예직을 가질 수 없어');
+    }
+    const staffArr = Array.isArray(g.staff_uids) ? g.staff_uids : [];
+    if (staffArr.includes(targetUid)) {
+      throw new HttpsError('failed-precondition', '부길드마(운영진)와 명예직은 겹칠 수 없어');
+    }
+
+
     if (type === 'hleader') {
+      if (hV.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-부길마 상태야');
       if (hL.has(targetUid)) return { ok:true, honorary_leader_uids:[...hL] };
       if (hL.size >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
       hL.add(targetUid);
       tx.update(gRef, { honorary_leader_uids: [...hL], updatedAt: nowMs() });
       return { ok:true, honorary_leader_uids:[...hL] };
     } else {
+      if (hL.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-길마 상태야');
       if (hV.has(targetUid)) return { ok:true, honorary_vice_uids:[...hV] };
       if (hV.size >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
       hV.add(targetUid);
@@ -801,6 +814,23 @@ return {
         staffSet.delete(c.owner_uid);
         tx.update(gRef, { staff_uids: Array.from(staffSet), updatedAt: nowMs() });
       }
+      // [ADD] 명예직이었다면 제거(잔존 방지)
+      {
+        const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
+        const hV = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
+        let changed = false;
+        if (hL.delete(c.owner_uid)) changed = true;
+        if (hV.delete(c.owner_uid)) changed = true;
+        if (changed) {
+          tx.update(gRef, {
+            honorary_leader_uids: Array.from(hL),
+            honorary_vice_uids: Array.from(hV),
+            updatedAt: nowMs()
+          });
+        }
+      }
+
+
 
       return { ok: true, mode: 'left' };
     });
@@ -847,6 +877,23 @@ return {
         staffSet.delete(c.owner_uid);
         tx.update(gRef, { staff_uids: Array.from(staffSet), updatedAt: nowMs() });
       }
+      // [ADD] 명예직이었다면 제거(잔존 방지)
+      {
+        const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
+        const hV = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
+        let changed = false;
+        if (hL.delete(c.owner_uid)) changed = true;
+        if (hV.delete(c.owner_uid)) changed = true;
+        if (changed) {
+          tx.update(gRef, {
+            honorary_leader_uids: Array.from(hL),
+            honorary_vice_uids: Array.from(hV),
+            updatedAt: nowMs()
+          });
+        }
+      }
+
+
 
       
       return { ok: true, mode: 'kicked' };
@@ -873,11 +920,30 @@ return {
       tx.update(cRef, { guild_role: role, updatedAt: nowMs() });
       tx.set(db.doc(`guild_members/${guildId}__${charId}`), { role }, { merge: true });
 
-      // staff_uids 동기화: officer → staff_uids 에 추가 / member → 제거
-      const staff = Array.isArray(g.staff_uids) ? new Set(g.staff_uids) : new Set();
-      if (role === 'officer') staff.add(c.owner_uid);
-      else staff.delete(c.owner_uid);
-      tx.update(gRef, { staff_uids: Array.from(staff), updatedAt: nowMs() });
+        // [REWRITE] 정원(2) 체크 + 명예직과 중복 방지 + staff_uids 동기화
+        const staffSet2 = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
+        let hL2 = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
+        let hV2 = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
+
+        if (role === 'officer') {
+          if (!staffSet2.has(c.owner_uid) && staffSet2.size >= MAX_OFFICERS) {
+            throw new HttpsError('failed-precondition', '부길드마 정원 초과(최대 2명)');
+          }
+          staffSet2.add(c.owner_uid);
+          // officer가 되면 명예직 제거(역할 중복 금지)
+          hL2.delete(c.owner_uid);
+          hV2.delete(c.owner_uid);
+        } else {
+          staffSet2.delete(c.owner_uid);
+        }
+
+        tx.update(gRef, {
+          staff_uids: Array.from(staffSet2),
+          honorary_leader_uids: Array.from(hL2),
+          honorary_vice_uids: Array.from(hV2),
+          updatedAt: nowMs()
+        });
+
 
       return { ok: true, role };
     });
@@ -920,10 +986,27 @@ return {
       tx.set(db.doc(`guild_members/${guildId}__${oldOwnerCharId}`), { role: 'officer' }, { merge: true });
 
       // 3) staff_uids 동기화: 새 오너는 자동 staff, 기존 오너도 officer 이므로 staff 유지
-      const staff = Array.isArray(g.staff_uids) ? new Set(g.staff_uids) : new Set();
-      staff.add(target.owner_uid);
-      staff.add(old.owner_uid);
-      tx.update(gRef, { staff_uids: Array.from(staff), updatedAt: nowMs() });
+      // [REWRITE] 오너 권한은 owner_uid로 충분 → 새 오너는 staff에 넣지 않음
+      // 기존 오너는 officer이므로 staff에 포함시키되, 정원(2) 준수
+      const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
+      staffSet.add(old.owner_uid);
+      if (staffSet.size > MAX_OFFICERS) {
+        throw new HttpsError('failed-precondition', '부길드마 정원(2명) 초과 — 먼저 기존 스태프를 조정하세요.');
+      }
+
+      // (역할 중복 방지) 두 사람 모두 명예직 제거
+      let hL3 = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
+      let hV3 = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
+      hL3.delete(target.owner_uid); hV3.delete(target.owner_uid);
+      hL3.delete(old.owner_uid);    hV3.delete(old.owner_uid);
+
+      tx.update(gRef, {
+        staff_uids: Array.from(staffSet),
+        honorary_leader_uids: Array.from(hL3),
+        honorary_vice_uids: Array.from(hV3),
+        updatedAt: nowMs()
+      });
+
 
       // 4) 이름예약 문서의 owner_uid도 새 오너로 변경
       try {
@@ -947,9 +1030,32 @@ return {
     const g = gSnap.data();
     if (!isOwner(uid, g)) throw new HttpsError('permission-denied', '길드장만 가능');
 
-    const set = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
-    if (add) set.add(targetUid); else set.delete(targetUid);
-    await gRef.update({ staff_uids: Array.from(set), updatedAt: nowMs() });
+      const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
+      let hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
+      let hV = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
+    
+      if (add) {
+        if (targetUid === g.owner_uid) {
+          throw new HttpsError('failed-precondition', '길드장은 스태프로 추가할 필요가 없어');
+        }
+        if (!staffSet.has(targetUid) && staffSet.size >= MAX_OFFICERS) {
+          throw new HttpsError('failed-precondition', '부길드마 정원 초과(최대 2명)');
+        }
+        staffSet.add(targetUid);
+        // 스태프로 올리면 명예직 제거(역할 중복 금지)
+        hL.delete(targetUid);
+        hV.delete(targetUid);
+      } else {
+        staffSet.delete(targetUid);
+      }
+
+      await gRef.update({
+       staff_uids: Array.from(staffSet),
+        honorary_leader_uids: Array.from(hL),
+        honorary_vice_uids: Array.from(hV),
+        updatedAt: nowMs()
+     });
+
     return { ok: true, staff_uids: Array.from(set) };
   });
 
