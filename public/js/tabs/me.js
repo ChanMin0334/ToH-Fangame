@@ -1,6 +1,9 @@
 // /public/js/tabs/me.js
+// /public/js/tabs/me.js
 import { loadUserProfile, updateNickname, leftMsForNicknameChange,
          uploadAvatarBlob, restoreAvatarFromGoogle } from '../api/user.js';
+// Firebase DB 제어를 위해 다음 코드를 추가하세요.
+import { db, auth, fx } from '../api/firebase.js';
 
 
 import { showToast } from '../ui/toast.js';
@@ -96,9 +99,24 @@ function renderNickHint(profile){
 }
 
 // 아바타를 구글 프로필로 복원
+// 아바타를 구글 프로필로 복원
 async function onResetAvatar(){
   try{
     const url = await restoreAvatarFromGoogle();
+
+    // ▼▼▼ [수정] Firestore에 복원된 아바타 URL 저장 ▼▼▼
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      showToast('로그인이 필요합니다.');
+      return;
+    }
+    const userDocRef = fx.doc(db, 'users', uid);
+    await fx.updateDoc(userDocRef, {
+      avatarURL: url,
+      avatar_b64: null
+    });
+    // ▲▲▲ [수정] 여기까지 ▲▲▲
+
     document.getElementById('meAvatar').src = url || '';
     showToast('구글 프로필 이미지로 복원했어');
   }catch(e){
@@ -145,6 +163,20 @@ function openCropModal(){
     try{
       const blob = await new Promise(res=> cvs.toBlob(b=>res(b),'image/jpeg',0.92));
       const url = await uploadAvatarBlob(blob);
+
+      // ▼▼▼ [수정] Firestore에 변경된 아바타 URL 저장 ▼▼▼
+      const uid = auth.currentUser?.uid;
+      if (!uid) {
+        showToast('로그인이 필요합니다.');
+        return;
+      }
+      const userDocRef = fx.doc(db, 'users', uid);
+      await fx.updateDoc(userDocRef, {
+        avatarURL: url,
+        avatar_b64: null // 만약 이전에 Base64 이미지를 사용했다면 필드를 정리합니다.
+      });
+      // ▲▲▲ [수정] 여기까지 ▲▲▲
+
       document.getElementById('meAvatar').src = url;
       showToast('아바타를 업로드했어');
       modal.style.display='none';
