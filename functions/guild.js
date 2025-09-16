@@ -207,7 +207,7 @@ const investGuildStat = onCall({ region: 'us-central1' }, async (req)=>{
     if(!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
     const g = gSnap.data();
 
-    if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '운영진만 가능');
+    if (!isOwner(uid, g)) throw new HttpsError('permission-denied', '길드장만 가능');
 
     const sp = Math.floor(Number(g.stat_points || 0));
     if (sp <= 0) throw new HttpsError('failed-precondition', '남은 투자 포인트가 없어');
@@ -346,18 +346,21 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
   const rf = (role === 'leader' || hL.includes(uid0)) ? 3 : ((staff.includes(uid0) || hV.includes(uid0)) ? 2 : 1);
 
 
-  return {
-    ok: true,
-    guildId,
-    let staminaBonus = 0;
-    if (staminaLv > 0) {
-      const baseFirst = rf;        // 길마3 / 부길마2 / 멤버1 (명예 등급 포함)
-      staminaBonus = baseFirst + (staminaLv - 1);
-    }
-    out.stamina_bonus = staminaBonus;
+  // --- stamina bonus: 1레벨만 (3/2/1), 이후 레벨업마다 +1 ---
+let staminaBonus = 0;
+if (staminaLv > 0) {
+  const baseFirst = rf;                 // leader/hLeader=3, staff/hVice=2, member=1
+  staminaBonus = baseFirst + (staminaLv - 1);
+}
+const expMul = 1 + (0.01 * expLv);
 
-    exp_multiplier: 1 + (0.01 * expLv),
-  };
+return {
+  ok: true,
+  guildId,
+  stamina_bonus: staminaBonus,
+  exp_multiplier: expMul,
+};
+
 });
 
 
