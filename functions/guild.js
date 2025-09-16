@@ -329,9 +329,9 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
     // 대상 캐릭 → UID 확인 (charId 우선)
     let targetUid = legacyUid || null;
     let charIdForCleanup = null;
-    const tRef = db.doc(`chars/${targetCharId}`);
-    const tSnap = await tx.get(tRef);
     if (targetCharId) {
+      const tRef = db.doc(`chars/${targetCharId}`);
+      const tSnap = await tx.get(tRef);
       if (!tSnap.exists) throw new HttpsError('not-found', '대상 캐릭 없음');
       const t = tSnap.data();
       if (t.guildId !== guildId) throw new HttpsError('failed-precondition', '해당 길드 소속 캐릭이 아냐');
@@ -349,61 +349,53 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
       hV.delete(charIdForCleanup);
     }
 
-    // [MOD] 역할 중복 금지: 오너/스태프/다른 명예직과 겹치면 불가
+    // [ADD] 역할 중복 금지: 오너/스태프/다른 명예직과 겹치면 불가
     if (g.owner_uid === targetUid) {
       throw new HttpsError('failed-precondition', '길드장은 명예직을 가질 수 없어');
     }
-    // [MOD] 캐릭터 단위로 부길드마 여부 확인
-    const t = tSnap.data(); // 대상 캐릭터 정보
-    const staffCharIds = new Set(g.staff_char_ids || []);
-    if (staffCharIds.has(targetCharId) || t.guild_role === 'officer') {
+    const staffArr = Array.isArray(g.staff_uids) ? g.staff_uids : [];
+    if (staffArr.includes(targetUid)) {
       throw new HttpsError('failed-precondition', '부길드마(운영진)와 명예직은 겹칠 수 없어');
     }
 
 
     if (type === 'hleader') {
-      const hV_chars = new Set(g.honorary_vice_char_ids || []);
-      if (hV_chars.has(targetCharId)) throw new HttpsError('failed-precondition', '이미 명예-부길마 상태야');
-
-      const hL_chars = new Set(g.honorary_leader_char_ids || []);
-      if (hL_chars.has(targetCharId)) return {
+      if (hV.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-부길마 상태야');
+      if (hL.has(targetUid)) return {
         ok: true,
         staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
         hLeader: Array.from(hL),
         hVice: Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []
       };
 
-      if (hL_chars.size >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
-      hL_chars.add(targetCharId);
-      tx.update(gRef, { honorary_leader_char_ids: [...hL_chars], updatedAt: nowMs() });
+      if (hL.size >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
+      hL.add(targetUid);
+      tx.update(gRef, { honorary_leader_uids: [...hL], updatedAt: nowMs() });
       return {
         ok: true,
         staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
-        hLeader: Array.from(hL_chars),
+        hLeader: Array.from(hL),
         hVice: Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []
       };
 
 
-    } else { // 'hvice'
-        const hL_chars = new Set(g.honorary_leader_char_ids || []);
-      if (hL_chars.has(targetCharId)) throw new HttpsError('failed-precondition', '이미 명예-길마 상태야');
-      
-      const hV_chars = new Set(g.honorary_vice_char_ids || []);
-      if (hV_chars.has(targetCharId)) return {
+    } else {
+      if (hL.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-길마 상태야');
+      if (hV.has(targetUid)) return {
         ok: true,
         staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
         hLeader: Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : [],
         hVice: Array.from(hV)
       };
 
-      if (hV_chars.size >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
-      hV_chars.add(targetCharId);
-      tx.update(gRef, { honorary_vice_char_ids: [...hV_chars], updatedAt: nowMs() });
+      if (hV.size >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
+      hV.add(targetUid);
+      tx.update(gRef, { honorary_vice_uids: [...hV], updatedAt: nowMs() });
       return {
         ok: true,
         staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
-        hLeader: Array.from(hL_chars),
-        hVice:   Array.from(hV_chars)
+        hLeader: Array.isArray(hL) ? Array.from(hL) : (Array.isArray(g.honorary_leader_uids)?g.honorary_leader_uids:[]),
+        hVice:   Array.isArray(hV) ? Array.from(hV) : (Array.isArray(g.honorary_vice_uids)?g.honorary_vice_uids:[])
       };
     }
   });
@@ -483,24 +475,12 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
   const inv = Object(g.investments || {});
   const staminaLv = Math.max(0, Math.floor(Number(inv.stamina_lv || 0)));
   const expLv     = Math.max(0, Math.floor(Number(inv.exp_lv || 0)));
-
-  // [MOD] 역할 혜택 계수(rf)를 캐릭터 ID 기반으로 계산 (기존 uid 데이터 호환)
-  const staffCharIds = new Set(g.staff_char_ids || []);
-  const hLeaderCharIds = new Set(g.honorary_leader_char_ids || []);
-  const hViceCharIds = new Set(g.honorary_vice_char_ids || []);
-  const staffUids = new Set(g.staff_uids || []);
-  const hLeaderUids = new Set(g.honorary_leader_uids || []);
-  const hViceUids = new Set(g.honorary_vice_uids || []);
-
-  const role = String(c.guild_role || 'member');
-  const ownerUid = c.owner_uid;
-  let rf = 1; // 기본 멤버
-
-  if (role === 'leader' || hLeaderCharIds.has(charId) || hLeaderUids.has(ownerUid)) {
-    rf = 3;
-  } else if (role === 'officer' || staffCharIds.has(charId) || staffUids.has(ownerUid) || hViceCharIds.has(charId) || hViceUids.has(ownerUid)) {
-    rf = 2;
-  }
+  const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
+  const hL = Array.isArray(g?.honorary_leader_uids) ? g.honorary_leader_uids : [];
+  const hV = Array.isArray(g?.honorary_vice_uids) ? g.honorary_vice_uids : [];
+  const role  = String(c.guild_role || 'member');
+  const uid0 = c.owner_uid;
+  const rf = (role === 'leader' || hL.includes(uid0)) ? 3 : ((staff.includes(uid0) || hV.includes(uid0)) ? 2 : 1);
 
 
   // --- stamina bonus: 1레벨만 (3/2/1), 이후 레벨업마다 +1 ---
@@ -937,35 +917,22 @@ return {
   // 멤버 추방 (길드장/스태프). 스태프는 오너/스태프 추방 불가, 오너는 누구든 가능(오너 본인 제외).
   const kickFromGuild = onCall({ region: 'us-central1' }, async (req) => {
     const uid = req.auth?.uid || null;
-    // [MOD] 어떤 캐릭터가 행동하는지(actingCharId) 명시적으로 받음
-    const { guildId, charId, actingCharId } = req.data || {};
-    if (!uid || !guildId || !charId || !actingCharId) throw new HttpsError('invalid-argument', '필요값(actingCharId 포함)');
+    const { guildId, charId } = req.data || {};
+    if (!uid || !guildId || !charId) throw new HttpsError('invalid-argument', '필요값');
 
     return await db.runTransaction(async (tx) => {
       const gRef = db.doc(`guilds/${guildId}`);
       const cRef = db.doc(`chars/${charId}`);
-      const actingCharRef = db.doc(`chars/${actingCharId}`);
-      const [gSnap, cSnap, actingCharSnap] = await Promise.all([tx.get(gRef), tx.get(cRef), tx.get(actingCharRef)]);
+      const [gSnap, cSnap] = await Promise.all([tx.get(gRef), tx.get(cRef)]);
       if (!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found', '길드/캐릭 없음');
 
       const g = gSnap.data(), c = cSnap.data();
-      
-      // [MOD] 권한 확인 로직: actingCharId 기준으로 변경
-      if (!actingCharSnap.exists || actingCharSnap.data().owner_uid !== uid) {
-        throw new HttpsError('permission-denied', '행위자 캐릭터의 소유자가 아님');
-      }
-      const isActingOwner = isOwner(uid, g);
-      const staffCharIds = new Set(g.staff_char_ids || []);
-      const staffUids = new Set(g.staff_uids || []); // 호환성
-      const isActingStaff = staffCharIds.has(actingCharId) || staffUids.has(uid);
-      if (!isActingOwner && !isActingStaff) {
-        throw new HttpsError('permission-denied', '권한 없음');
-      }
-
+      if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '권한 없음');
       if (c.guildId !== guildId) throw new HttpsError('failed-precondition', '해당 길드 소속이 아님');
 
+      const actingIsOwner = isOwner(uid, g);
       const targetRole = c.guild_role || 'member';
-      if (!isActingOwner) {
+      if (!actingIsOwner) {
         // 스태프 권한: 오너/다른 스태프는 추방 불가
         if (targetRole === 'leader' || targetRole === 'officer') {
           throw new HttpsError('permission-denied', '해당 멤버를 추방할 권한이 없습니다.');
@@ -1034,43 +1001,39 @@ return {
       tx.update(cRef, { guild_role: role, updatedAt: nowMs() });
       tx.set(db.doc(`guild_members/${guildId}__${charId}`), { role }, { merge: true });
 
-      // [REWRITE] 캐릭터 ID 기반으로 역할 관리 + 직책 겸임 방지 + 데이터 마이그레이션
-      const staffCharIds = new Set(g.staff_char_ids || []);
-      const hLeaderCharIds = new Set(g.honorary_leader_char_ids || []);
-      const hViceCharIds = new Set(g.honorary_vice_char_ids || []);
+        // [REWRITE] 정원(2) 체크 + 명예직과 중복 방지 + staff_uids 동기화
+        const staffSet2 = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
+        let hL2 = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
+        let hV2 = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
 
-      if (role === 'officer') {
-        if (!staffCharIds.has(charId) && staffCharIds.size >= MAX_OFFICERS) {
-          throw new HttpsError('failed-precondition', '부길드마 정원 초과(최대 2명)');
+        if (role === 'officer') {
+          if (!staffSet2.has(c.owner_uid) && staffSet2.size >= MAX_OFFICERS) {
+            throw new HttpsError('failed-precondition', '부길드마 정원 초과(최대 2명)');
+          }
+          staffSet2.add(c.owner_uid);
+          // officer가 되면 명예직 제거(역할 중복 금지)
+          hL2.delete(c.owner_uid);
+          hV2.delete(c.owner_uid);
+            // (정리) 과거에 charId가 들어간 흔적도 제거
+          hL2.delete(charId);
+          hV2.delete(charId);
+        } else {
+          staffSet2.delete(c.owner_uid);
         }
-        staffCharIds.add(charId);
-        // 부길드마가 되면 명예직은 자동 해제 (역할 중복 금지)
-        hLeaderCharIds.delete(charId);
-        hViceCharIds.delete(charId);
-      } else { // 'member'
-        staffCharIds.delete(charId);
-      }
 
-      const updatePayload = {
-        staff_char_ids: Array.from(staffCharIds),
-        honorary_leader_char_ids: Array.from(hLeaderCharIds),
-        honorary_vice_char_ids: Array.from(hViceCharIds),
-        updatedAt: nowMs()
-      };
-
-      // 기존 uid 기반 필드가 존재하면 이번에 삭제하여 데이터 포맷을 이전
-      if (g.hasOwnProperty('staff_uids')) updatePayload.staff_uids = FieldValue.delete();
-      if (g.hasOwnProperty('honorary_leader_uids')) updatePayload.honorary_leader_uids = FieldValue.delete();
-      if (g.hasOwnProperty('honorary_vice_uids')) updatePayload.honorary_vice_uids = FieldValue.delete();
-      
-      tx.update(gRef, updatePayload);
+        tx.update(gRef, {
+          staff_uids: Array.from(staffSet2),
+          honorary_leader_uids: Array.from(hL2),
+          honorary_vice_uids: Array.from(hV2),
+          updatedAt: nowMs()
+        });
 
 
       return {
         ok: true,
-        staff: Array.from(staffCharIds), // 응답값도 새 기준으로
-        hLeader: Array.from(hLeaderCharIds),
-        hVice: Array.from(hViceCharIds)
+        staff: Array.from(staffSet2),
+        hLeader: Array.from(hL2),
+        hVice: Array.from(hV2)
       };
 
     });
