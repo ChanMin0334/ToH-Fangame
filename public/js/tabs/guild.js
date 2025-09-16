@@ -69,21 +69,14 @@ export default async function showGuild(explicit){
   const root = document.getElementById('view');
   root.innerHTML = `<section class="container narrow"><div class="spin-center" style="margin-top:40px;"></div></section>`;
 
-// /public/js/tabs/guild.js
-
-// (기존 내용과 동일)
   const [gRaw, c] = await Promise.all([loadGuild(guildId), loadActiveChar()]);
   const g = gRaw || {};
   const uid = auth.currentUser?.uid || null;
   const isOwner  = !!(g && uid && g.owner_uid === uid);
-  // [MOD] 스태프 여부 판단 시, 활성 캐릭터가 부길드마인지 함께 확인 (호환성 유지)
-  const isStaffByUid = Array.isArray(g.staff_uids) && g.staff_uids.includes(uid);
-  const isStaffByCharId = c?.id && Array.isArray(g.staff_char_ids) && g.staff_char_ids.includes(c.id);
-  const isStaffClient = !!(g && uid && (isOwner || isStaffByUid || isStaffByCharId));
+  const isStaffClient = !!(g && uid && (g.owner_uid === uid || (Array.isArray(g.staff_uids) && g.staff_uids.includes(uid))));
   const cHasGuild = !!(c && c.guildId);
 
   const sub = ['about','members','settings','requests','level'].includes(subIn) ? subIn : 'about';
-// (기존 내용과 동일)
 
   const wrap = document.createElement('section');
   wrap.className = 'container narrow';
@@ -482,37 +475,29 @@ function openManageModal(row){
     try{
       if (b.dataset.act === 'officer'){
         const makeOfficer = !isOfficer;
-        // [MOD] actingCharId 추가
-        await call('setGuildRole')({ guildId: g.id, charId: row.cid, role: makeOfficer?'officer':'member', actingCharId: activeChar?.id });
-        showToast(makeOfficer?'부길드마로 지정':'부길마 해제');
+        await call('setGuildRole')({ guildId: g.id, charId: row.cid, role: makeOfficer?'officer':'member' });
+        showToast(makeOfficer?'부길마로 지정':'부길마 해제');
 
       } else if (b.dataset.act === 'transfer'){
         if (!confirm('정말 길드장을 위임할까?')) { finish(); return; }
-        // [MOD] actingCharId 추가
-        await call('transferGuildOwner')({ guildId: g.id, toCharId: row.cid, actingCharId: activeChar?.id });
+        await call('transferGuildOwner')({ guildId: g.id, toCharId: row.cid });
         showToast('길드장을 위임했어');
 
       } else if (b.dataset.act === 'hL'){
-        // [MOD] actingCharId 추가
-        const params = { guildId: g.id, targetCharId: row.cid, actingCharId: activeChar?.id };
-        if (isHL) await call('unassignHonoraryRank')({ ...params, type:'hleader' });
-        else      await call('assignHonoraryRank')({   ...params, type:'hleader' });
+        if (isHL) await call('unassignHonoraryRank')({ guildId: g.id, type:'hleader', targetUid: ownerUid });
+        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hleader', targetUid: ownerUid });
         showToast(isHL?'명예-길마 해제':'명예-길마 지정');
 
       } else if (b.dataset.act === 'hV'){
-        // [MOD] actingCharId 추가
-        const params = { guildId: g.id, targetCharId: row.cid, actingCharId: activeChar?.id };
-        if (isHV) await call('unassignHonoraryRank')({ ...params, type:'hvice' });
-        else      await call('assignHonoraryRank')({   ...params, type:'hvice' });
+        if (isHV) await call('unassignHonoraryRank')({ guildId: g.id, type:'hvice', targetUid: ownerUid });
+        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hvice', targetUid: ownerUid });
         showToast(isHV?'명예-부길마 해제':'명예-부길마 지정');
 
       } else if (b.dataset.act === 'kick'){
         if (!confirm('정말 강퇴할까?')) { finish(); return; }
-        // [MOD] actingCharId 추가
-        await call('kickFromGuild')({ guildId: g.id, charId: row.cid, actingCharId: activeChar?.id });
+        await call('kickFromGuild')({ guildId: g.id, charId: row.cid });
         showToast('강퇴 완료');
       }
-
 
       // === 서버 상태 재조회 → 화면/라벨 정합 보장 ===
       const sSnap = await fx.getDoc(fx.doc(db,'guilds', g.id));
@@ -546,7 +531,7 @@ function openManageModal(row){
       const cid = m.dataset.manage;
       const row = rows.find(r=>r.cid===cid);
       if (!row) return;
-      openManageModal(row, c); // [MOD] 활성 캐릭터(c) 정보를 모달에 전달
+      openManageModal(row);
     });
   }
 
