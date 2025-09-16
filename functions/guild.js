@@ -251,9 +251,43 @@ const donateGuildCoins = onCall({ region: 'us-central1' }, async (req)=>{
     const gc = Math.floor(Number(guild.coins || 0));
     if (uc < a) throw new HttpsError('failed-precondition', '코인 부족');
 
-    tx.update(uRef, { coins: uc - a, updatedAt: nowMs() });
-    tx.update(gRef, { coins: gc + a, updatedAt: nowMs() });
-    return { ok: true, coinsAfter: uc - a, guildCoinsAfter: gc + a };
+    const now = nowMs();
+
+// 1) 유저 코인 차감
+const coinsAfterUser = uc - a;
+
+// 2) 길드 금고 반영 + 자동 레벨업(연속)
+let coinsGuild = gc + a;
+let curLv = Math.max(1, Number(guild.level || 1));
+let sp = Math.floor(Number(guild.stat_points || 0));
+
+while (true) {
+  const need = await levelUpCost(curLv); // 표/공식 기반 비용
+  if (coinsGuild >= need) {
+    coinsGuild -= need;
+    curLv += 1;
+    sp += 1; // 레벨업 시 스탯 포인트 자동 +1
+  } else {
+    break;
+  }
+}
+
+tx.update(uRef, { coins: coinsAfterUser, updatedAt: now });
+tx.update(gRef, {
+  coins: coinsGuild,
+  level: curLv,
+  stat_points: sp,
+  updatedAt: now
+});
+
+return {
+  ok: true,
+  coinsAfter: coinsAfterUser,
+  guildCoinsAfter: coinsGuild,
+  levelAfter: curLv,
+  statPointsAfter: sp
+};
+
   });
 });
 
