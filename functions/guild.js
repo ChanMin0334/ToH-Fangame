@@ -343,6 +343,10 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
     const caps = gradeCapsForLevel(Number(g.level||1));
     const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
     const hV = new Set(Array.isArray(g.honorary_vice_uids)   ? g.honorary_vice_uids   : []);
+    const staffCid = new Set(Array.isArray(g.staff_cids) ? g.staff_cids : []);
+const hLc = new Set(Array.isArray(g.honorary_leader_cids) ? g.honorary_leader_cids : []);
+const hVc = new Set(Array.isArray(g.honorary_vice_cids)   ? g.honorary_vice_cids   : []);
+
         // 과거 잘못 저장된 흔적 정리: charId가 들어가 있었을 수 있으니 미리 제거
     if (charIdForCleanup) {
       hL.delete(charIdForCleanup);
@@ -354,9 +358,13 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
       throw new HttpsError('failed-precondition', '길드장은 명예직을 가질 수 없어');
     }
     const staffArr = Array.isArray(g.staff_uids) ? g.staff_uids : [];
+    
     if (staffArr.includes(targetUid)) {
       throw new HttpsError('failed-precondition', '부길드마(운영진)와 명예직은 겹칠 수 없어');
     }
+if (targetCharId && staffCid.has(targetCharId)) {
+  throw new HttpsError('failed-precondition', '부길드마(운영진)와 명예직은 겹칠 수 없어');
+}
 
 
     if (type === 'hleader') {
@@ -368,9 +376,17 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
         hVice: Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []
       };
 
-      if (hL.size >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
-      hL.add(targetUid);
-      tx.update(gRef, { honorary_leader_uids: [...hL], updatedAt: nowMs() });
+      if (hL.size  >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
+if (hLc.size >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
+hL.add(targetUid);
+if (targetCharId) hLc.add(targetCharId);
+tx.update(gRef, {
+  honorary_leader_uids: [...hL],
+  honorary_leader_cids: [...hLc],
+  updatedAt: nowMs()
+});
+
+
       return {
         ok: true,
         staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
@@ -388,9 +404,16 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
         hVice: Array.from(hV)
       };
 
-      if (hV.size >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
-      hV.add(targetUid);
-      tx.update(gRef, { honorary_vice_uids: [...hV], updatedAt: nowMs() });
+     if (hV.size  >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
+if (hVc.size >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
+hV.add(targetUid);
+if (targetCharId) hVc.add(targetCharId);
+tx.update(gRef, {
+  honorary_vice_uids: [...hV],
+  honorary_vice_cids: [...hVc],
+  updatedAt: nowMs()
+});
+
       return {
         ok: true,
         staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
@@ -429,21 +452,18 @@ const unassignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
   if (!targetUid) throw new HttpsError('invalid-argument', '대상 UID 확인 실패');
 
 
-    const key = (type === 'hleader') ? 'honorary_leader_uids' : 'honorary_vice_uids';
-  const cur = new Set(Array.isArray(g[key]) ? g[key] : []);
-  cur.delete(targetUid);
-  if (charIdForCleanup) cur.delete(charIdForCleanup); // 과거에 charId로 들어간 흔적 제거
-  await gRef.update({ [key]: [...cur], updatedAt: nowMs() });
+   const keyU = (type === 'hleader') ? 'honorary_leader_uids' : 'honorary_vice_uids';
+const keyC = (type === 'hleader') ? 'honorary_leader_cids' : 'honorary_vice_cids';
+const curU = new Set(Array.isArray(g[keyU]) ? g[keyU] : []);
+const curC = new Set(Array.isArray(g[keyC]) ? g[keyC] : []);
+curU.delete(targetUid);
+if (charIdForCleanup) curC.delete(charIdForCleanup);
+await gRef.update({ [keyU]: [...curU], [keyC]: [...curC], updatedAt: nowMs() });
 
-  // 통일 응답
-  const hL = (key === 'honorary_leader_uids') ? Array.from(cur) : (Array.isArray(g.honorary_leader_uids)? g.honorary_leader_uids : []);
-  const hV = (key === 'honorary_vice_uids')   ? Array.from(cur) : (Array.isArray(g.honorary_vice_uids)?   g.honorary_vice_uids   : []);
-  return {
-    ok: true,
-    staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
-    hLeader: hL,
-    hVice:   hV
-  };
+// 통일 응답
+const hL = (keyU === 'honorary_leader_uids') ? [...curU] : (Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
+const hV = (keyU === 'honorary_vice_uids')   ? [...curU] : (Array.isArray(g.honorary_vice_uids)   ? g.honorary_vice_uids   : []);
+return { ok: true, staff: Array.isArray(g.staff_uids) ? g.staff_uids : [], hLeader: hL, hVice: hV };
 
 });
 
@@ -476,11 +496,27 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
   const staminaLv = Math.max(0, Math.floor(Number(inv.stamina_lv || 0)));
   const expLv     = Math.max(0, Math.floor(Number(inv.exp_lv || 0)));
   const staff = Array.isArray(g?.staff_uids) ? g.staff_uids : [];
-  const hL = Array.isArray(g?.honorary_leader_uids) ? g.honorary_leader_uids : [];
-  const hV = Array.isArray(g?.honorary_vice_uids) ? g.honorary_vice_uids : [];
-  const role  = String(c.guild_role || 'member');
-  const uid0 = c.owner_uid;
-  const rf = (role === 'leader' || hL.includes(uid0)) ? 3 : ((staff.includes(uid0) || hV.includes(uid0)) ? 2 : 1);
+const hL = Array.isArray(g?.honorary_leader_uids) ? g.honorary_leader_uids : [];
+const hV = Array.isArray(g?.honorary_vice_uids)   ? g.honorary_vice_uids   : [];
+const hLc = new Set(Array.isArray(g?.honorary_leader_cids) ? g.honorary_leader_cids : []);
+const hVc = new Set(Array.isArray(g?.honorary_vice_cids)   ? g.honorary_vice_cids   : []);
+const role  = String(c.guild_role || 'member');
+const uid0 = c.owner_uid;
+
+// 과거 잘못 저장된 유산(legacy)도 인식: uids 배열에 charId가 들어가 있었던 경우
+const legacyHLByCid = hL.includes(charId);
+const legacyHVByCid = hV.includes(charId);
+
+const rf =
+  (role === 'leader' ||
+   hL.includes(uid0) || hLc.has(charId) || legacyHLByCid)
+    ? 3
+    : ((staff.includes(uid0) ||
+        hV.includes(uid0) || hVc.has(charId) || legacyHVByCid)
+        ? 2
+        : 1);
+
+
 
 
   // --- stamina bonus: 1레벨만 (3/2/1), 이후 레벨업마다 +1 ---
@@ -885,28 +921,36 @@ return {
       tx.set(memRef, { leftAt: nowMs() }, { merge: true });
 // [추가] 부길마였다면 staff_uids에서 제거
       {
-        const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
-        staffSet.delete(c.owner_uid);
-        tx.update(gRef, { staff_uids: Array.from(staffSet), updatedAt: nowMs() });
-      }
+  const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
+  const staffCid = new Set(Array.isArray(g.staff_cids) ? g.staff_cids : []);
+  staffSet.delete(c.owner_uid);
+  staffCid.delete(charId);
+  tx.update(gRef, { staff_uids: [...staffSet], staff_cids: [...staffCid], updatedAt: nowMs() });
+}
+
       // [ADD] 명예직이었다면 제거(잔존 방지)
       {
-        const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
-        const hV = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
-        let changed = false;
-        if (hL.delete(c.owner_uid)) changed = true;
-        if (hV.delete(c.owner_uid)) changed = true;
-        if (hL.delete(charId)) changed = true;
-        if (hV.delete(charId)) changed = true;
+  const hL  = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
+  const hV  = new Set(Array.isArray(g.honorary_vice_uids)   ? g.honorary_vice_uids   : []);
+  const hLc = new Set(Array.isArray(g.honorary_leader_cids) ? g.honorary_leader_cids : []);
+  const hVc = new Set(Array.isArray(g.honorary_vice_cids)   ? g.honorary_vice_cids   : []);
+  let changed = false;
+  if (hL.delete(c.owner_uid)) changed = true;
+  if (hV.delete(c.owner_uid)) changed = true;
+  if (hLc.delete(charId))     changed = true;
+  if (hVc.delete(charId))     changed = true;
 
-        if (changed) {
-          tx.update(gRef, {
-            honorary_leader_uids: Array.from(hL),
-            honorary_vice_uids: Array.from(hV),
-            updatedAt: nowMs()
-          });
-        }
-      }
+  if (changed) {
+    tx.update(gRef, {
+      honorary_leader_uids: [...hL],
+      honorary_vice_uids:   [...hV],
+      honorary_leader_cids: [...hLc],
+      honorary_vice_cids:   [...hVc],
+      updatedAt: nowMs()
+    });
+  }
+}
+
 
 
 
@@ -951,28 +995,35 @@ return {
 
       // [추가] 부길마였다면 staff_uids에서 제거
       {
-        const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
-        staffSet.delete(c.owner_uid);
-        tx.update(gRef, { staff_uids: Array.from(staffSet), updatedAt: nowMs() });
-      }
-      // [ADD] 명예직이었다면 제거(잔존 방지)
-      {
-        const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
-        const hV = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
-        let changed = false;
-        if (hL.delete(c.owner_uid)) changed = true;
-        if (hV.delete(c.owner_uid)) changed = true;
-        if (hL.delete(charId)) changed = true;
-        if (hV.delete(charId)) changed = true;
+  const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
+  const staffCid = new Set(Array.isArray(g.staff_cids) ? g.staff_cids : []);
+  staffSet.delete(c.owner_uid);
+  staffCid.delete(charId);
+  tx.update(gRef, { staff_uids: [...staffSet], staff_cids: [...staffCid], updatedAt: nowMs() });
+}
 
-        if (changed) {
-          tx.update(gRef, {
-            honorary_leader_uids: Array.from(hL),
-            honorary_vice_uids: Array.from(hV),
-            updatedAt: nowMs()
-          });
-        }
-      }
+      {
+  const hL  = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
+  const hV  = new Set(Array.isArray(g.honorary_vice_uids)   ? g.honorary_vice_uids   : []);
+  const hLc = new Set(Array.isArray(g.honorary_leader_cids) ? g.honorary_leader_cids : []);
+  const hVc = new Set(Array.isArray(g.honorary_vice_cids)   ? g.honorary_vice_cids   : []);
+  let changed = false;
+  if (hL.delete(c.owner_uid)) changed = true;
+  if (hV.delete(c.owner_uid)) changed = true;
+  if (hLc.delete(charId))     changed = true;
+  if (hVc.delete(charId))     changed = true;
+
+  if (changed) {
+    tx.update(gRef, {
+      honorary_leader_uids: [...hL],
+      honorary_vice_uids:   [...hV],
+      honorary_leader_cids: [...hLc],
+      honorary_vice_cids:   [...hVc],
+      updatedAt: nowMs()
+    });
+  }
+}
+
 
 
 
@@ -1006,6 +1057,10 @@ return {
         const staffSet2 = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
         let hL2 = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
         let hV2 = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
+      const staffChar2 = new Set(Array.isArray(g.staff_cids) ? g.staff_cids : []);
+let hL2c = new Set(Array.isArray(g.honorary_leader_cids) ? g.honorary_leader_cids : []);
+let hV2c = new Set(Array.isArray(g.honorary_vice_cids)   ? g.honorary_vice_cids   : []);
+
 
         if (role === 'officer') {
           if (!staffSet2.has(c.owner_uid) && staffSet2.size >= MAX_OFFICERS) {
@@ -1018,16 +1073,25 @@ return {
             // (정리) 과거에 charId가 들어간 흔적도 제거
           hL2.delete(charId);
           hV2.delete(charId);
+          staffChar2.add(charId);
+          hL2c.delete(charId); hV2c.delete(charId);
+
         } else {
           staffSet2.delete(c.owner_uid);
+          staffChar2.delete(charId);
+
         }
 
         tx.update(gRef, {
-          staff_uids: Array.from(staffSet2),
+         staff_uids: Array.from(staffSet2),
+         staff_cids: Array.from(staffChar2),
           honorary_leader_uids: Array.from(hL2),
-          honorary_vice_uids: Array.from(hV2),
-          updatedAt: nowMs()
-        });
+         honorary_vice_uids:   Array.from(hV2),
+         honorary_leader_cids: Array.from(hL2c),
+         honorary_vice_cids:   Array.from(hV2c),
+         updatedAt: nowMs()
+      });
+
 
 
       return {
@@ -1080,6 +1144,10 @@ return {
       const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
       staffSet.delete(target.owner_uid); // 새 오너는 staff 불필요(오너 권한으로 충분)
       staffSet.add(old.owner_uid);       // 이전 오너는 officer이므로 staff에 포함
+      const staffCid = new Set(Array.isArray(g.staff_cids) ? g.staff_cids : []);
+staffCid.delete(toCharId);
+staffCid.add(oldOwnerCharId);
+
       if (staffSet.size > MAX_OFFICERS) {
         throw new HttpsError('failed-precondition', '부길드마 정원(2명) 초과 — 먼저 기존 스태프를 조정하세요.');
       }
@@ -1090,16 +1158,25 @@ return {
       let hV3 = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
       hL3.delete(target.owner_uid); hV3.delete(target.owner_uid);
       hL3.delete(old.owner_uid);    hV3.delete(old.owner_uid);
+      let hL3c = new Set(Array.isArray(g.honorary_leader_cids) ? g.honorary_leader_cids : []);
+let hV3c = new Set(Array.isArray(g.honorary_vice_cids)   ? g.honorary_vice_cids   : []);
+hL3c.delete(toCharId);  hV3c.delete(toCharId);
+hL3c.delete(oldOwnerCharId); hV3c.delete(oldOwnerCharId);
+
        // (정리) 과거 charId 흔적 제거
       hL3.delete(toCharId);      hV3.delete(toCharId);
       hL3.delete(oldOwnerCharId);hV3.delete(oldOwnerCharId);
 
       tx.update(gRef, {
-        staff_uids: Array.from(staffSet),
-        honorary_leader_uids: Array.from(hL3),
-        honorary_vice_uids: Array.from(hV3),
-        updatedAt: nowMs()
-      });
+  staff_uids: Array.from(staffSet),
+  staff_cids: Array.from(staffCid),
+  honorary_leader_uids: Array.from(hL3),
+  honorary_vice_uids:   Array.from(hV3),
+  honorary_leader_cids: Array.from(hL3c),
+  honorary_vice_cids:   Array.from(hV3c),
+  updatedAt: nowMs()
+});
+
 
 
       // 4) 이름예약 문서의 owner_uid도 새 오너로 변경
@@ -1155,6 +1232,7 @@ return {
         honorary_leader_uids: Array.from(hL),
         honorary_vice_uids: Array.from(hV),
         updatedAt: nowMs()
+        
      });
 
     return { ok: true, staff_uids: Array.from(staffSet) };
