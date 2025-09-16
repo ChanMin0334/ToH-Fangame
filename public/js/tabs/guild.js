@@ -82,6 +82,20 @@ export default async function showGuild(explicit){
   wrap.className = 'container narrow';
   root.innerHTML = '';
   root.appendChild(wrap);
+  // [ADD] 작은 버튼 + 모달 기본 스타일
+const _guildStyle = document.createElement('style');
+_guildStyle.textContent = `
+  .btn.xs{ padding:4px 8px; font-size:12px; border-radius:10px }
+  .kv-modal{ position:fixed; inset:0; z-index:9999;
+    background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; }
+  .kv-modal .panel{ background:#0b0f16; border:1px solid #273247; border-radius:14px;
+    min-width:280px; max-width:92vw; padding:12px }
+  .kv-modal .head{ display:flex; align-items:center; gap:8px; margin-bottom:8px }
+  .kv-modal .grid{ display:grid; grid-template-columns:1fr 1fr; gap:6px }
+  .kv-modal .rowr{ display:flex; gap:6px; justify-content:flex-end; margin-top:8px }
+`;
+document.head.appendChild(_guildStyle);
+
 
   if(!gRaw){
     wrap.innerHTML = `
@@ -360,14 +374,8 @@ hero.querySelector('#my-contrib').innerHTML =
         const roleText = x.role==='leader'?'길드마스터':x.role==='officer'?'부길드마':'멤버';
 
         // 액션 버튼 (운영진만)
-        const actions = isStaffClient && x.role!=='leader' ? `
-          <div class="row" style="gap:6px;flex-wrap:wrap">
-            <button class="btn ghost small" data-toggle-officer="${esc(x.cid)}">${x.role==='officer'?'부길마 해제':'부길마 지정'}</button>
-            <button class="btn ghost small" data-hleader="${esc(x.cid)}">${hL.has(x.owner_uid)?'명예-길마 해제':'명예-길마 지정'}</button>
-            <button class="btn ghost small" data-hvice="${esc(x.cid)}">${hV.has(x.owner_uid)?'명예-부길마 해제':'명예-부길마 지정'}</button>
-            <button class="btn small" data-transfer="${esc(x.cid)}">길드장 위임</button>
-          </div>
-        ` : '';
+        const actions = ''; // [REWRITE] 카드 내부의 큰 액션 줄 제거(모달에서 처리)
+
 
         return `
           <div class="kv-card" style="padding:10px">
@@ -385,8 +393,13 @@ hero.querySelector('#my-contrib').innerHTML =
                 </div>
                 ${actions}
               </div>
-              <div style="flex:1"></div>
-              <a class="btn ghost small" href="#/char/${esc(x.cid)}">보기</a>
+               <div style="flex:1"></div>
+               <div class="row" style="gap:6px">
+                 <a class="btn ghost xs" href="#/char/${esc(x.cid)}">보기</a>
+                 ${isStaffClient && x.role!=='leader'
+                   ? `<button class="btn xs" data-manage="${esc(x.cid)}">관리</button>`
+                   : ``}
+                </div>
             </div>
           </div>
         `;
@@ -395,86 +408,130 @@ hero.querySelector('#my-contrib').innerHTML =
 
     render();
     sort2.onchange = render;
+    // [ADD] 멤버 관리 모달
+function openManageModal(row){
+  const ownerUid = row.owner_uid;
+  const isOwner   = ownerUid === g.owner_uid;
+  const isOfficer = Array.isArray(g.staff_uids) && g.staff_uids.includes(ownerUid);
+  const isHL      = (hL.has(ownerUid));
+  const isHV      = (hV.has(ownerUid));
 
-    // 액션 처리 (오피서/명예/위임)
-    memGrid.addEventListener('click', async (e)=>{
-      const btn = e.target.closest('button');
-      if (!btn) return;
-      const cid = btn.dataset.toggleOfficer || btn.dataset.hleader || btn.dataset.hvice || btn.dataset.transfer;
-      if (!cid) return;
+  const canHonorLeader = !isOwner && !isOfficer && !isHV;
+  const canHonorVice   = !isOwner && !isOfficer && !isHL;
+  const canOfficer     = row.role !== 'leader';
+  const canKick        = row.role !== 'leader'; // 리더는 강퇴 불가(서버에서도 거절)
 
-      // 대상 찾기
-      const row = rows.find(r=>r.cid===cid);
-      if(!row) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'kv-modal';
+  wrap.innerHTML = `
+    <div class="panel">
+      <div class="head">
+        <img src="${esc(row.thumb)}" onerror="this.style.display='none'"
+             style="width:40px;height:40px;border-radius:8px;object-fit:cover;background:#111">
+        <div style="min-width:0">
+          <div style="font-weight:800" class="ellipsis">${esc(row.name)}</div>
+          <div class="text-dim" style="font-size:12px">
+            ${row.role==='leader'?'길드장':row.role==='officer'?'부길드마':'멤버'}
+            ${isHL?'· 명예-길마':''}${isHV?'· 명예-부길마':''}
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <button class="btn ghost xs" data-close>닫기</button>
+      </div>
 
-      // 명예 토글은 캐릭터 기준으로 보이지만, 내부에선 owner_uid로 호출
-      const ownerUid = row.owner_uid;
+      <div class="grid">
+        <button class="btn xs" data-act="officer">${isOfficer?'부길마 해제':'부길마 지정'}</button>
+        <button class="btn ghost xs" data-act="transfer" ${row.role==='leader'?'disabled title="이미 길드장이야"':''}>길드장 위임</button>
 
-      // 공통 re-render 헬퍼
-      const rerender = ()=>{
-        // hL/hV와 role 변경이 반영되도록
-        render();
-      };
+        <button class="btn xs" data-act="hL"
+          ${canHonorLeader?'':`disabled title="오너/부길마/명예-부길마와 겹칠 수 없어"`}>
+          ${isHL?'명예-길마 해제':'명예-길마 지정'}</button>
 
-      // 버튼별 동작
-      if (btn.dataset.toggleOfficer){
-        await lock(btn, async ()=>{
-          try{
-            const makeOfficer = row.role !== 'officer';
-            await call('setGuildRole')({ guildId: g.id, charId: cid, role: makeOfficer ? 'officer' : 'member' });
-            row.role = makeOfficer ? 'officer' : 'member';
-            showToast(makeOfficer?'부길마로 지정':'부길마 해제');
-            rerender();
-          }catch(err){ showToast(err?.message||'실패했어'); }
-        });
-      } else if (btn.dataset.hleader){
-        await lock(btn, async ()=>{
-          try{
-            if (hL.has(ownerUid)){
-              await call('unassignHonoraryRank')({ guildId: g.id, type: 'hleader', targetUid: ownerUid });
-              hL.delete(ownerUid);
-              showToast('명예-길마 해제');
-            }else{
-              await call('assignHonoraryRank')({ guildId: g.id, type: 'hleader', targetUid: ownerUid });
-              hL.add(ownerUid);
-              // 명예-부길마에 있었다면 빼줌(겹침 방지)
-              if (hV.has(ownerUid)) hV.delete(ownerUid);
-              showToast('명예-길마 지정');
-            }
-            rerender();
-          }catch(err){
-            // 슬롯 초과 등 서버에서 막히면 코드/메시지 그대로 노출
-            showToast(err?.message||'실패했어');
-          }
-        });
-      } else if (btn.dataset.hvice){
-        await lock(btn, async ()=>{
-          try{
-            if (hV.has(ownerUid)){
-              await call('unassignHonoraryRank')({ guildId: g.id, type: 'hvice', targetUid: ownerUid });
-              hV.delete(ownerUid);
-              showToast('명예-부길마 해제');
-            }else{
-              await call('assignHonoraryRank')({ guildId: g.id, type: 'hvice', targetUid: ownerUid });
-              hV.add(ownerUid);
-              // 명예-길마에 있었다면 빼줌(겹침 방지)
-              if (hL.has(ownerUid)) hL.delete(ownerUid);
-              showToast('명예-부길마 지정');
-            }
-            rerender();
-          }catch(err){ showToast(err?.message||'실패했어'); }
-        });
-      } else if (btn.dataset.transfer){
-        await lock(btn, async ()=>{
-          if (!confirm('정말 길드장 위임할까?')) return;
-          try{
-            await call('transferGuildOwner')({ guildId: g.id, toCharId: cid });
-            showToast('길드장을 위임했어');
-            // 즉시 반영을 위해 현재 화면 재로드
-            location.hash = `#/guild/${g.id}/about`;
-          }catch(err){ showToast(err?.message||'실패했어'); }
-        });
+        <button class="btn xs" data-act="hV"
+          ${canHonorVice?'':`disabled title="오너/부길마/명예-길마와 겹칠 수 없어"`}>
+          ${isHV?'명예-부길마 해제':'명예-부길마 지정'}</button>
+
+        <button class="btn danger xs" data-act="kick"
+          ${canKick?'':`disabled title="길드장은 강퇴할 수 없어"`}>강퇴</button>
+      </div>
+
+      <div class="rowr">
+        <a class="btn ghost xs" href="#/char/${esc(row.cid)}">캐릭터 보기</a>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+
+  const close = ()=> wrap.remove();
+
+  wrap.addEventListener('click', async (e)=>{
+    if (e.target.matches('[data-close]') || e.target === wrap) { close(); return; }
+    const b = e.target.closest('[data-act]'); if(!b) return;
+
+    // 버튼 잠금
+    const old = b.textContent; b.disabled = true; b.textContent = '처리 중…';
+    const finish = ()=>{ b.disabled = false; b.textContent = old; };
+
+    try{
+      if (b.dataset.act === 'officer'){
+        const makeOfficer = !isOfficer;
+        await call('setGuildRole')({ guildId: g.id, charId: row.cid, role: makeOfficer?'officer':'member' });
+        showToast(makeOfficer?'부길마로 지정':'부길마 해제');
+
+      } else if (b.dataset.act === 'transfer'){
+        if (!confirm('정말 길드장을 위임할까?')) { finish(); return; }
+        await call('transferGuildOwner')({ guildId: g.id, toCharId: row.cid });
+        showToast('길드장을 위임했어');
+
+      } else if (b.dataset.act === 'hL'){
+        if (isHL) await call('unassignHonoraryRank')({ guildId: g.id, type:'hleader', targetUid: ownerUid });
+        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hleader', targetUid: ownerUid });
+        showToast(isHL?'명예-길마 해제':'명예-길마 지정');
+
+      } else if (b.dataset.act === 'hV'){
+        if (isHV) await call('unassignHonoraryRank')({ guildId: g.id, type:'hvice', targetUid: ownerUid });
+        else      await call('assignHonoraryRank')({   guildId: g.id, type:'hvice', targetUid: ownerUid });
+        showToast(isHV?'명예-부길마 해제':'명예-부길마 지정');
+
+      } else if (b.dataset.act === 'kick'){
+        if (!confirm('정말 강퇴할까?')) { finish(); return; }
+        await call('kickFromGuild')({ guildId: g.id, charId: row.cid });
+        showToast('강퇴 완료');
       }
+
+      // === 서버 상태 재조회 → 화면/라벨 정합 보장 ===
+      const sSnap = await fx.getDoc(fx.doc(db,'guilds', g.id));
+      const g2 = sSnap.exists()? sSnap.data(): g;
+      g.owner_uid = g2.owner_uid;
+      g.staff_uids = Array.isArray(g2.staff_uids)? g2.staff_uids: [];
+      g.honorary_leader_uids = Array.isArray(g2.honorary_leader_uids)? g2.honorary_leader_uids: [];
+      g.honorary_vice_uids   = Array.isArray(g2.honorary_vice_uids)?   g2.honorary_vice_uids: [];
+
+      hL.clear(); g.honorary_leader_uids.forEach(u=>hL.add(u));
+      hV.clear(); g.honorary_vice_uids.forEach(u=>hV.add(u));
+
+      // row.role 재평가
+      const nowOfficer = g.staff_uids.includes(ownerUid);
+      row.role = (ownerUid===g.owner_uid) ? 'leader' : (nowOfficer ? 'officer' : 'member');
+
+      close();
+      render(); // 전체 리스트 다시 그려 깔끔하게 동기화
+    }catch(err){
+      showToast(err?.message||'실패했어');
+      finish();
+    }
+  });
+}
+
+
+    // [REWRITE] 카드 내부 액션 → 모달 열기만 처리
+    memGrid.addEventListener('click', (e)=>{
+      const m = e.target.closest('[data-manage]');
+      if (!m) return;
+      const cid = m.dataset.manage;
+      const row = rows.find(r=>r.cid===cid);
+      if (!row) return;
+      openManageModal(row);
     });
   }
 
