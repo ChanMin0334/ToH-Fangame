@@ -79,7 +79,9 @@ export async function showRankings(force=false){
   const src = App.rankings || {weekly:[], total:[], elo:[]};
   const list = State.tab==='weekly' ? (src.weekly||[])
              : State.tab==='total'  ? (src.total||[])
+             : State.tab==='elo_low'? (src.elo_low||[])
              : (src.elo||[]);
+
 
   v.replaceChildren(
     el('div',{className:'container narrow'},
