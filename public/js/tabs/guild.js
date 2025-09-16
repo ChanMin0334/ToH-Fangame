@@ -1,5 +1,4 @@
 // /public/js/tabs/guild.js
-
 import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
@@ -7,8 +6,9 @@ import { getStorage, ref as stRef, uploadBytes, getDownloadURL } from 'https://w
 
 const call = (name)=> httpsCallable(func, name);
 const esc  = (s)=> String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt  = (n)=> Number(n||0).toLocaleString();
 
-// [공통] 버튼 잠금 도우미
+// 버튼 잠금 도우미
 function lock(btn, runner){
   if(!btn) return runner();
   const old = btn.textContent;
@@ -24,13 +24,14 @@ function lock(btn, runner){
     });
 }
 
-// #/guild/{id}/{sub}
+// 라우팅 파서
 function parseGuildId(){
   const h = location.hash || '';
   const m = h.match(/^#\/guild\/([^/ ?#]+)(?:\/([^?#/]+))?/);
   return { id: m?.[1] ? decodeURIComponent(m[1]) : '', sub: m?.[2] || 'about' };
 }
 
+// 데이터 로더
 async function loadGuild(id){
   if(!id) return null;
   const s = await fx.getDoc(fx.doc(db,'guilds', id));
@@ -41,6 +42,20 @@ async function loadActiveChar(){
   const s = await fx.getDoc(fx.doc(db,'chars', cid));
   return s.exists()? ({ id: cid, ...s.data() }) : null;
 }
+async function loadMyMemberRow(gid, cid){
+  if(!gid || !cid) return null;
+  const q = fx.query(
+    fx.collection(db,'guild_members'),
+    fx.where('guildId','==', gid),
+    fx.where('charId','==', cid),
+    fx.limit(1)
+  );
+  const qs = await fx.getDocs(q);
+  if(qs.empty) return null;
+  const d = qs.docs[0].data();
+  return { id: qs.docs[0].id, ...d };
+}
+
 const joinLabel = (s)=> s==='free' ? '즉시가입' : s==='invite' ? '초대전용' : '신청승인';
 
 export default async function showGuild(explicit){
@@ -54,7 +69,7 @@ export default async function showGuild(explicit){
   const isStaffClient = !!(g && uid && (g.owner_uid === uid || (Array.isArray(g.staff_uids) && g.staff_uids.includes(uid))));
   const cHasGuild = !!(c && c.guildId);
 
-  // 기본 sub 라우팅: 존재하는 탭만 처리
+  // 탭
   const sub = ['about','members','settings','requests','level'].includes(subIn) ? subIn : 'about';
 
   const wrap = document.createElement('section');
@@ -72,7 +87,7 @@ export default async function showGuild(explicit){
     return;
   }
 
-  // ── 탭 헤더
+  // 헤더
   wrap.innerHTML = `
     <div class="bookmarks">
       <a href="#/plaza/guilds" class="bookmark">🏰 길드</a>
@@ -115,9 +130,9 @@ export default async function showGuild(explicit){
   const body = wrap.querySelector('#tabbody');
 
   // ───────────────────────────────────────────────────
-  // 소개 탭
+  // 소개 탭 (코인 바 + 내 기여도 표시 + 기여 버튼)
   if (sub === 'about') {
-    // 서버에서 비용/금고 코인 가져오기
+    // 서버에서 현재 레벨/다음 비용/금고코인
     let levelNow = Number(g.level||1);
     let nextCost = 0;
     let guildCoins = Number(g.coins||0);
@@ -128,9 +143,17 @@ export default async function showGuild(explicit){
       guildCoins = Number(data?.guildCoins||guildCoins);
     }catch(e){ console.warn(e); }
 
+    // 내 기여도(주간/누적)
+    let myWeekly = 0, myTotal = 0;
+    const myRow = await loadMyMemberRow(g.id, c?.id||'');
+    if (myRow){
+      myWeekly = Number(myRow.points_weekly||0);
+      myTotal  = Number(myRow.points_total ||0);
+    }
+
     const pct = nextCost>0 ? Math.min(100, Math.floor((guildCoins / nextCost) * 100)) : 0;
 
-    // 히어로(코인 진행 바 + 목표치 + 수치)
+    // 히어로 (코인 바)
     const hero = document.createElement('div');
     hero.className = 'kv-card';
     hero.style.padding = '12px';
@@ -143,13 +166,15 @@ export default async function showGuild(explicit){
         <div>
           <div style="font-weight:900;font-size:22px;line-height:1.2">${esc(g.name||'(이름없음)')}</div>
           <div style="margin-top:8px">
-            <div style="font-size:12px;color:#8aa0b3">다음 레벨업 목표치: <b>Lv${levelNow} → Lv${levelNow+1}</b> · 필요 <b>${nextCost.toLocaleString()} 코인</b></div>
+            <div id="goal-text" style="font-size:12px;color:#8aa0b3">
+              다음 레벨업 목표치: <b>Lv${levelNow} → Lv${levelNow+1}</b> · 필요 <b>${fmt(nextCost)} 코인</b>
+            </div>
             <div style="position:relative;height:12px;border-radius:9999px;background:#1c1c1c;overflow:hidden;margin-top:6px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)">
               <div id="coin-bar" style="position:absolute;inset:0;width:${pct}%;height:100%;
                      background:linear-gradient(90deg,#FFD54F,#FFC107,#FFB300);transition:width .2s;"></div>
             </div>
             <div id="coin-text" style="margin-top:6px;font-size:12px;color:#8aa0b3">
-              길드 금고: <b>${guildCoins.toLocaleString()}</b> / 필요: <b>${nextCost.toLocaleString()}</b> ( ${pct}% )
+              길드 금고: <b>${fmt(guildCoins)}</b> / 필요: <b>${fmt(nextCost)}</b> ( ${pct}% )
             </div>
           </div>
         </div>
@@ -157,7 +182,7 @@ export default async function showGuild(explicit){
     `;
     body.appendChild(hero);
 
-    // 코인 기여(도네이트) — 처리 중 버튼 비활성화 + 즉시 반영
+    // 코인 기여 + 내 기여도
     const donate = document.createElement('div');
     donate.className = 'kv-card';
     donate.style.marginTop = '8px';
@@ -165,12 +190,14 @@ export default async function showGuild(explicit){
       <div class="kv-label">코인 기여</div>
       <div class="row" style="gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap">
         <input id="don-amt" type="number" min="1" placeholder="기여 코인" class="input" style="width:120px"/>
-        <span id="don-char-chip" class="chip">
-        ${c && c.id ? `기여 캐릭터: ${esc(c.name||c.id)}` : '기여 캐릭터: (선택 필요)'}
-      </span>
-      <a href="#/plaza/guilds" class="btn ghost small">캐릭터 선택</a>
-
+        <span class="chip">
+          ${c && c.id ? `기여 캐릭터: ${esc(c.name||c.id)}` : '기여 캐릭터: (선택 필요)'}
+        </span>
+        <a href="#/plaza/guilds" class="btn ghost small">캐릭터 선택</a>
         <button class="btn" id="btn-donate">기여</button>
+      </div>
+      <div class="text-dim" style="font-size:12px;margin-top:6px">
+        내 기여: 주간 <b id="mine-weekly">${fmt(myWeekly)}</b> · 누적 <b id="mine-total">${fmt(myTotal)}</b>
       </div>
       <div class="text-dim" style="font-size:12px;margin-top:4px">* 캐릭터가 이 길드에 소속되어 있어야 해.</div>
     `;
@@ -185,7 +212,7 @@ export default async function showGuild(explicit){
       body.appendChild(about);
     }
 
-    // 길드 보너스(작은 글씨)
+    // 길드 보너스 (작은 글씨)
     {
       const inv = g.investments || {};
       const staminaLv = Number(inv.stamina_lv||0);
@@ -195,18 +222,18 @@ export default async function showGuild(explicit){
       bonus.style.marginTop = '8px';
       bonus.innerHTML = `
         <div class="text-dim" style="font-size:12px">
-          <b>길드 보너스</b> · 스태미나 Lv <b>${staminaLv}</b>, 전투 EXP Lv <b>${expLv}</b><br/>
+          <b>길드 보너스(투자)</b> · 스태미나 Lv <b id="inv-sta-lv">${staminaLv}</b>, 전투 EXP Lv <b id="inv-exp-lv">${expLv}</b><br/>
           규칙: 스태미나는 <i>1레벨에만</i> (길마 +3 / 부길마 +2 / 멤버 +1), 이후 레벨업마다 <b>+1</b>씩 증가 ·
-          전투 EXP 배율은 레벨당 <b>+1%</b> (×${(1+0.01*expLv).toFixed(2)})
+          전투 EXP 배율은 레벨당 <b>+1%</b> (×<span id="inv-exp-mul">${(1+0.01*expLv).toFixed(2)}</span>)
         </div>
       `;
       body.appendChild(bonus);
     }
 
-    // 가입/탈퇴/신청 취소 UI (기존 로직 유지)
+    // 가입/탈퇴/신청취소 블록
     renderJoinBlocks(body, g, c, uid);
 
-    // donate 동작: 즉시 바/숫자 갱신
+    // 기여 버튼
     donate.querySelector('#btn-donate').onclick = ()=> lock(donate.querySelector('#btn-donate'), async ()=>{
       const amt = Number(donate.querySelector('#don-amt').value||0);
       const charId = c?.id || null;
@@ -215,14 +242,14 @@ export default async function showGuild(explicit){
       if (c?.guildId !== g.id) { showToast('선택된 캐릭터가 이 길드 소속이 아니야'); return; }
 
       try{
-        // [수정됨] 서버가 자동 레벨업까지 처리하므로 반환값만 사용 (중복 호출 제거)
         const res = await call('donateGuildCoins')({ guildId: g.id, amount: amt, charId });
         const out = res?.data || {};
         guildCoins = Number(out.guildCoinsAfter ?? (guildCoins + amt));
+        const gpAfter = Number(out.guildPointsAfter ?? g.stat_points ?? g.guild_points ?? 0); // 서버에서 포인트도 같이 내려주면 사용
         let levelNow2 = Number(out.levelAfter ?? levelNow);
-        let nextCost2 = nextCost;
 
-        // 레벨이 변했으면(자동 승급) 다음 레벨 비용 다시 가져오기
+        // 다음 비용 갱신
+        let nextCost2 = nextCost;
         if (levelNow2 !== levelNow) {
           levelNow = levelNow2;
           try {
@@ -232,19 +259,22 @@ export default async function showGuild(explicit){
         }
 
         const pct2 = nextCost2>0 ? Math.min(100, Math.floor((guildCoins / nextCost2) * 100)) : 0;
-
-        // 진행바/수치 즉시 갱신
         hero.querySelector('#coin-bar').style.width = pct2 + '%';
         hero.querySelector('#coin-text').innerHTML =
-          `길드 금고: <b>${guildCoins.toLocaleString()}</b> / 필요: <b>${nextCost2.toLocaleString()}</b> ( ${pct2}% )`;
-        
-        // hero 영역의 레벨업 목표치 텍스트도 갱신
-        hero.querySelector('div[style="font-size:12px;color:#8aa0b3"]').innerHTML = 
-          `다음 레벨업 목표치: <b>Lv${levelNow} → Lv${levelNow+1}</b> · 필요 <b>${nextCost2.toLocaleString()} 코인</b>`;
+          `길드 금고: <b>${fmt(guildCoins)}</b> / 필요: <b>${fmt(nextCost2)}</b> ( ${pct2}% )`;
+        hero.querySelector('#goal-text').innerHTML =
+          `다음 레벨업 목표치: <b>Lv${levelNow} → Lv${levelNow+1}</b> · 필요 <b>${fmt(nextCost2)} 코인</b>`;
 
-        nextCost = nextCost2; // 상태 보정
+        // 내 기여(주간/누적) 바로 반영 (서버도 동시에 올린다는 가정)
+        myWeekly += amt; myTotal += amt;
+        donate.querySelector('#mine-weekly').textContent = fmt(myWeekly);
+        donate.querySelector('#mine-total').textContent  = fmt(myTotal);
+
+        // 길드 포인트가 증가했다면(자동 레벨업→포인트 지급) settings/level 탭에서도 즉시 보이도록 g 캐시 갱신 느낌
+        if (!isNaN(gpAfter)) g.stat_points = gpAfter;
+
+        nextCost = nextCost2;
         showToast('기여 완료!');
-
       }catch(e){
         console.error(e);
         showToast(e?.message||'기여 실패');
@@ -253,7 +283,7 @@ export default async function showGuild(explicit){
   }
 
   // ───────────────────────────────────────────────────
-  // 멤버 탭 (명예 배지 표기)
+  // 멤버 탭 (명예 배지 캐릭터ID 기반 + 중복 제거)
   if (sub === 'members') {
     const box = document.createElement('div');
     box.className = 'kv-card';
@@ -281,28 +311,32 @@ export default async function showGuild(explicit){
     );
     const qs = await fx.getDocs(q);
 
-    const hL = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
-    const hV = new Set(Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []);
-    const rows = [];
+    const hL = new Set(Array.isArray(g.honorary_leader_cids) ? g.honorary_leader_cids : []);
+    const hV = new Set(Array.isArray(g.honorary_vice_cids) ? g.honorary_vice_cids : []);
     const roleRank = { leader:0, officer:1, member:2 };
 
+    // 중복 제거(Map by cid, 높은 역할 우선)
+    const byCid = new Map();
     for (const d of qs.docs) {
       const m = d.data(); if (m.leftAt) continue;
       const cid = m.charId;
       const cs = await fx.getDoc(fx.doc(db,'chars', cid));
       const cd = cs.exists()? cs.data() : {};
       const role = m.role || cd.guild_role || 'member';
-      rows.push({
+      const row = {
         cid,
         name: cd.name || cid,
         role,
         rank: roleRank[role] ?? 9,
         weekly: Number(m.points_weekly||0),
+        total:  Number(m.points_total ||0),
         elo: Number(cd.elo||0),
-        thumb: cd.thumb_url || cd.image_url || '',
-        owner_uid: cd.owner_uid || ''
-      });
+        thumb: cd.thumb_url || cd.image_url || ''
+      };
+      const prev = byCid.get(cid);
+      if (!prev || row.rank < prev.rank) byCid.set(cid, row);
     }
+    const rows = [...byCid.values()];
 
     function render(){
       const sortSecondary = sort2.value;
@@ -316,8 +350,8 @@ export default async function showGuild(explicit){
 
       memGrid.innerHTML = arr.map(x=>{
         const honorChips = [];
-        if (hL.has(x.owner_uid)) honorChips.push(`<span class="chip">명예-길마</span>`);
-        else if (hV.has(x.owner_uid)) honorChips.push(`<span class="chip">명예-부길마</span>`);
+        if (hL.has(x.cid)) honorChips.push(`<span class="chip">명예-길마</span>`);
+        else if (hV.has(x.cid)) honorChips.push(`<span class="chip">명예-부길마</span>`);
         return `
           <div class="kv-card" style="padding:8px">
             <div class="row" style="gap:10px;align-items:center">
@@ -326,8 +360,8 @@ export default async function showGuild(explicit){
               <div>
                 <div style="font-weight:700">${esc(x.name)}</div>
                 <div class="text-dim" style="font-size:12px">
-                  ${x.role==='leader'?'길드마스터':x.role==='officer'?'부길드마':'멤버'}
-                  · 주간 기여 ${x.weekly} · ELO ${x.elo}
+                  ${x.role==='leader'?'길드마스터':x.role==='officer'?'부길마':'멤버'}
+                  · 주간 ${fmt(x.weekly)} · 누적 ${fmt(x.total)} · ELO ${x.elo}
                   ${honorChips.length? ' · ' + honorChips.join(' ') : ''}
                 </div>
               </div>
@@ -344,101 +378,105 @@ export default async function showGuild(explicit){
   }
 
   // ───────────────────────────────────────────────────
-  // 레벨업 탭 (모두 볼 수 있음, 버튼은 길마만)
+  // 레벨업 탭 (길드 포인트로 투자: 스태미나/EXP) — 모두 볼 수 있고, 업그레이드는 길마만
   if (sub === 'level') {
-    let levelNow = Number(g.level||1);
-    let nextCost = 0;
-    let guildCoins = Number(g.coins||0);
-    try{
-      const { data } = await call('getGuildLevelCost')({ guildId: g.id });
-      levelNow  = Number(data?.level||levelNow);
-      nextCost  = Number(data?.cost||0);
-      guildCoins = Number(data?.guildCoins||guildCoins);
-    }catch(e){ console.warn(e); }
-
-    const pct = nextCost>0 ? Math.min(100, Math.floor((guildCoins / nextCost) * 100)) : 0;
+    const inv = g.investments || {};
+    let staminaLv = Number(inv.stamina_lv||0);
+    let expLv     = Number(inv.exp_lv||0);
+    let gPoints   = Number(g.stat_points ?? g.guild_points ?? 0);
 
     const card = document.createElement('div');
     card.className = 'kv-card';
     card.innerHTML = `
-      <div class="kv-label">레벨업 진행</div>
+      <div class="kv-label">길드 포인트 투자</div>
       <div class="text-dim" style="margin:6px 0 8px 0;font-size:12px">
-        현재 레벨 <b>Lv${levelNow}</b> → 다음 레벨 비용 <b>${nextCost.toLocaleString()} 코인</b>
+        보유 길드 포인트: <b id="gp">${fmt(gPoints)}</b>
       </div>
-      <div class="bar-wrap" style="width:100%;height:12px;background:#1c1c1c;border-radius:9999px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)">
-        <div id="lv-bar" style="width:${pct}%;height:100%;
-          background: linear-gradient(90deg, #FFD54F, #FFC107, #FFB300);
-          transition:width .3s;"></div>
+
+      <!-- 스태미나 투자 -->
+      <div class="kv-card" style="padding:10px">
+        <div class="row" style="align-items:center; gap:10px">
+          <div style="font-weight:800">스태미나 시설</div>
+          <div class="text-dim" style="font-size:12px">Lv <b id="lv-sta">${staminaLv}</b></div>
+          <div style="flex:1"></div>
+          ${isOwner? `<button class="btn small" id="btn-up-sta">업그레이드 (-1P)</button>`:''}
+        </div>
+        <div class="text-dim" style="font-size:12px;margin-top:6px">
+          효과: 1레벨에만 (길마 +3 / 부길마 +2 / 멤버 +1), 이후 레벨마다 모두 +1
+        </div>
+        <div style="position:relative;height:10px;border-radius:9999px;background:#1c1c1c;overflow:hidden;margin-top:8px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)">
+          <div id="bar-sta" style="position:absolute;inset:0;width:${Math.min(100, staminaLv*5)}%;height:100%;
+            background:linear-gradient(90deg,#FFD54F,#FFC107,#FFB300)"></div>
+        </div>
       </div>
-      <div class="row" style="margin-top:6px;justify-content:space-between;align-items:center">
-        <div id="lv-text" class="text-dim" style="font-size:12px">길드 금고: ${guildCoins.toLocaleString()} / 필요: ${nextCost.toLocaleString()} ( ${pct}% )</div>
-        <div class="row" style="gap:6px">
-          <button class="btn" id="btn-levelup-guild">레벨업(길드 금고)</button>
-          <button class="btn" id="btn-levelup-user">레벨업(내 코인)</button>
+
+      <!-- EXP 투자 -->
+      <div class="kv-card" style="padding:10px;margin-top:8px">
+        <div class="row" style="align-items:center; gap:10px">
+          <div style="font-weight:800">전투 EXP 배율</div>
+          <div class="text-dim" style="font-size:12px">Lv <b id="lv-exp">${expLv}</b> (×<span id="mul-exp">${(1+0.01*expLv).toFixed(2)}</span>)</div>
+          <div style="flex:1"></div>
+          ${isOwner? `<button class="btn small" id="btn-up-exp">업그레이드 (-1P)</button>`:''}
+        </div>
+        <div class="text-dim" style="font-size:12px;margin-top:6px">
+          효과: 레벨당 +1% (파티 전체 적용)
+        </div>
+        <div style="position:relative;height:10px;border-radius:9999px;background:#1c1c1c;overflow:hidden;margin-top:8px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)">
+          <div id="bar-exp" style="position:absolute;inset:0;width:${Math.min(100, expLv)}%;height:100%;
+            background:linear-gradient(90deg,#FFD54F,#FFC107,#FFB300)"></div>
         </div>
       </div>
     `;
     body.appendChild(card);
 
-    // 권한 가드
-    if (!isOwner) {
-      card.querySelector('#btn-levelup-guild').style.display = 'none';
-      card.querySelector('#btn-levelup-user').style.display = 'none';
-    } else {
-      card.querySelector('#btn-levelup-guild').onclick = ()=> lock(card.querySelector('#btn-levelup-guild'), async ()=>{
-        if(!confirm('정말 레벨업 하시겠습니까? (길드 금고에서 차감)')) return;
+    function setGP(v){ gPoints = Number(v||0); card.querySelector('#gp').textContent = fmt(gPoints); }
+    function setSta(v){
+      staminaLv = Number(v||0);
+      card.querySelector('#lv-sta').textContent = staminaLv;
+      card.querySelector('#bar-sta').style.width = Math.min(100, staminaLv*5) + '%';
+    }
+    function setExp(v){
+      expLv = Number(v||0);
+      card.querySelector('#lv-exp').textContent  = expLv;
+      card.querySelector('#mul-exp').textContent = (1+0.01*expLv).toFixed(2);
+      card.querySelector('#bar-exp').style.width = Math.min(100, expLv) + '%';
+    }
+
+    if (isOwner){
+      const upSta = card.querySelector('#btn-up-sta');
+      const upExp = card.querySelector('#btn-up-exp');
+      upSta.onclick = ()=> lock(upSta, async ()=>{
+        if(!confirm('스태미나 시설을 업그레이드할까요? (길드 포인트 1 소모)')) return;
         try{
-          await call('upgradeGuildLevel')({ guildId: g.id, payFromGuild: true });
-          showToast('레벨업 완료!'); location.hash = `#/guild/${g.id}/about`;
+          const { data } = await call('upgradeGuildInvestment')({ guildId: g.id, kind: 'stamina' });
+          if(!data?.ok) throw new Error('실패');
+          setSta(data.investments?.stamina_lv ?? (staminaLv+1));
+          setGP(data.guildPointsAfter ?? (gPoints-1));
+          showToast('업그레이드 완료!');
         }catch(e){ showToast(e?.message||'실패했어'); }
       });
-      card.querySelector('#btn-levelup-user').onclick = ()=> lock(card.querySelector('#btn-levelup-user'), async ()=>{
-        if(!confirm('정말 레벨업 하시겠습니까? (내 코인에서 차감)')) return;
+      upExp.onclick = ()=> lock(upExp, async ()=>{
+        if(!confirm('전투 EXP 배율을 업그레이드할까요? (길드 포인트 1 소모)')) return;
         try{
-          await call('upgradeGuildLevel')({ guildId: g.id, payFromGuild: false });
-          showToast('레벨업 완료!'); location.hash = `#/guild/${g.id}/about`;
+          const { data } = await call('upgradeGuildInvestment')({ guildId: g.id, kind: 'exp' });
+          if(!data?.ok) throw new Error('실패');
+          setExp(data.investments?.exp_lv ?? (expLv+1));
+          setGP(data.guildPointsAfter ?? (gPoints-1));
+          showToast('업그레이드 완료!');
         }catch(e){ showToast(e?.message||'실패했어'); }
       });
     }
-
-    // 추가로 소개 탭과 동일한 도네이트 카드도 보여주고 싶다면 아래 주석 해제:
-    /*
-    const donate = document.createElement('div');
-    donate.className = 'kv-card';
-    donate.style.marginTop = '8px';
-    donate.innerHTML = \`
-      <div class="kv-label">코인 기여</div>
-      <div class="row" style="gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap">
-        <input id="don-amt" type="number" min="1" placeholder="기여 코인" class="input" style="width:120px"/>
-        <input id="don-char" type="text" placeholder="내 캐릭터ID(이 길드 소속)" class="input" style="flex:1;min-width:200px"/>
-        <button class="btn" id="btn-donate">기여</button>
-      </div>\`;
-    body.appendChild(donate);
-    donate.querySelector('#btn-donate').onclick = ()=> lock(donate.querySelector('#btn-donate'), async ()=>{
-      const amt = Number(donate.querySelector('#don-amt').value||0);
-      const charId = String(donate.querySelector('#don-char').value||'').trim();
-      if (!amt || !charId) { showToast('금액과 캐릭터ID를 입력해줘!'); return; }
-      try{
-        await call('donateGuildCoins')({ guildId: g.id, amount: amt, charId });
-        guildCoins += amt;
-        const pct2 = nextCost>0 ? Math.min(100, Math.floor((guildCoins / nextCost) * 100)) : 0;
-        card.querySelector('#lv-bar').style.width = pct2 + '%';
-        card.querySelector('#lv-text').textContent = \`길드 금고: \${guildCoins.toLocaleString()} / 필요: \${nextCost.toLocaleString()} ( \${pct2}% )\`;
-        showToast('기여 완료!');
-      }catch(e){ showToast(e?.message||'기여 실패'); }
-    });
-    */
   }
 
   // ───────────────────────────────────────────────────
-  // 설정(길드장) — 기존 코드 유지
+  // 설정(길드장) — 부길마(캐릭터ID) 지정/해제 + 명예 등급(캐릭터ID) 관리
   if (sub === 'settings') {
     if (!isOwner) { body.innerHTML = `<div class="kv-card text-dim" style="margin-top:8px">관리자만 접근할 수 있어.</div>`; return; }
     renderSettings(body, g);
   }
 
   // ───────────────────────────────────────────────────
-  // 가입 승인(운영진) — 카드 클릭 시 캐릭 페이지로 이동
+  // 가입 승인(운영진) — 카드 클릭 시 캐릭 페이지로 이동, 승인/거절 즉시 반영
   if (sub === 'requests') {
     if (!isStaffClient) { body.innerHTML = `<div class="kv-card text-dim" style="margin-top:8px">운영진만 접근할 수 있어.</div>`; return; }
 
@@ -480,12 +518,12 @@ export default async function showGuild(explicit){
       // 카드 클릭 → 캐릭터 보기 (버튼 클릭은 제외)
       rqBox.addEventListener('click', (e)=>{
         const btn = e.target.closest('button');
-        if (btn) return; // 버튼은 별도 처리
+        if (btn) return;
         const card = e.target.closest('.rq-card');
         if (card?.dataset.cid) location.hash = `#/char/${card.dataset.cid}`;
       });
 
-      // 버튼 처리
+      // 버튼 처리(성공 시 카드 즉시 제거)
       rqBox.addEventListener('click', (e)=>{
         const ok = e.target.closest('[data-acc]'); const no = e.target.closest('[data-rej]');
         if(!ok && !no) return;
@@ -508,13 +546,12 @@ export default async function showGuild(explicit){
               await call('rejectGuildJoin')({ guildId: g.id, charId: cid });
               showToast('거절 완료');
             }
-            location.hash = `#/guild/${g.id}/requests`;
+            // 즉시 목록 반영
+            card.remove();
+            if (!rqBox.querySelector('.kv-card')) rqBox.innerHTML = `<div class="text-dim">대기 중 신청이 없어.</div>`;
           }catch(e){
             console.error(e);
-            const code = e?.code || e?.details?.code || '';
-            const msg  = e?.message || e?.details || '실패했어';
-            showToast(`처리 실패: ${msg}${code?` (${code})`:''}`);
-            // 실패 → 버튼 원복
+            showToast(e?.message || '실패했어');
             buttons.forEach(b=>{ b.disabled = false; b.dataset.busy=''; });
           }
         });
@@ -527,9 +564,9 @@ export default async function showGuild(explicit){
 }
 
 // ─────────────────────────────────────────────────────
-// 가입/탈퇴/신청 취소 블록(about 탭에서 사용)
+// 가입/탈퇴/신청 취소 블록
 function renderJoinBlocks(body, g, c, uid){
-  // 내가 이 길드 소속(리더 제외) → 탈퇴
+  // 내 캐릭이 소속(리더 제외) → 탈퇴
   if (c && c.guildId === g.id && c.guild_role !== 'leader') {
     const box = document.createElement('div');
     box.className = 'kv-card';
@@ -549,7 +586,7 @@ function renderJoinBlocks(body, g, c, uid){
     });
   }
 
-  // 미가입 & 초대전용 아니면 → 가입 조건 + 신청/취소 UI
+  // 미가입 & 초대전용 아니면 → 가입 조건 + 신청/취소
   if (c && !c.guildId && g.settings?.join !== 'invite') {
     const cond = document.createElement('div');
     cond.className = 'kv-card';
@@ -643,12 +680,11 @@ function renderJoinBlocks(body, g, c, uid){
 }
 
 // ─────────────────────────────────────────────────────
-// 설정(길드장) — 기존 코드 모듈화
+// 설정(길드장)
 function renderSettings(body, g){
   const s = g.settings || {};
   const req = s.requirements || {};
 
-  // [수정됨] 템플릿 리터럴이 올바르게 끝나도록 구문 오류 수정
   body.innerHTML = `
     <div class="kv-card" style="margin-top:8px; display:flex; flex-direction:column; gap:10px">
       <label class="kv-card" style="padding:8px">
@@ -702,22 +738,33 @@ function renderSettings(body, g){
         </div>
       </div>
 
-      <div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:wrap">
-        <button class="btn" id="g-save">저장</button>
-        <button class="btn danger" id="g-delete">길드 삭제</button>
-      </div>
-
       <div class="kv-card" style="padding:8px">
         <div class="kv-label">멤버 관리</div>
         <div id="mem-list" class="col" style="gap:8px"></div>
+
+        <!-- 부길마 지정/해제 (캐릭터 ID) -->
         <div class="kv-card" style="padding:8px;margin-top:8px">
-          <div class="kv-label">명예 등급 관리</div>
+          <div class="kv-label">부길마 관리 (캐릭터 ID)</div>
+          <div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">
+            <input id="officer-cid" class="input" type="text" placeholder="캐릭터 ID" style="min-width:220px">
+            <button class="btn small" id="btn-officer-assign">부길마 지정</button>
+            <button class="btn small ghost" id="btn-officer-revoke">부길마 해제</button>
+          </div>
+          <div class="text-dim" style="font-size:12px;margin-top:6px">
+            * 멤버 카드의 ‘부길마 지정/해제’ 버튼으로도 바로 처리 가능
+          </div>
+        </div>
+
+        <!-- 명예 등급 (캐릭터 ID) -->
+        <div class="kv-card" style="padding:8px;margin-top:8px">
+          <div class="kv-label">명예 등급 관리 (캐릭터 ID)</div>
           <div class="text-dim" style="font-size:12px;margin-bottom:6px">
-            길드 레벨에 따라 슬롯 증가: 명예-길마(10레벨마다 +1), 명예-부길마(5레벨마다 +1)
+            슬롯 제한 고려: 명예-길마(예: 10레벨마다 +1), 명예-부길마(예: 5레벨마다 +1)<br>
+            실제 제한/검증은 서버 함수에서 처리
           </div>
 
           <div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">
-            <input id="hon-uid" class="input" type="text" placeholder="대상 사용자 UID" style="min-width:260px">
+            <input id="hon-cid" class="input" type="text" placeholder="캐릭터 ID" style="min-width:260px">
             <button class="btn small" id="btn-hleader">명예-길마 지정</button>
             <button class="btn small" id="btn-hvice">명예-부길마 지정</button>
           </div>
@@ -732,62 +779,15 @@ function renderSettings(body, g){
           </div>
         </div>
       </div>
+
+      <div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="g-save">저장</button>
+        <button class="btn danger" id="g-delete">길드 삭제</button>
+      </div>
     </div>
   `;
 
-  // 명예 등급 리스트 렌더
-  function renderHonorLists(){
-    const hL = Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : [];
-    const hV = Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : [];
-    const mk = (arr, key)=> (arr.length ? arr.map(uid=>`
-      <div class="row" style="gap:8px;align-items:center">
-        <span class="chip">${esc(uid)}</span>
-        <button class="btn ghost small" data-un-${key}="${esc(uid)}">해제</button>
-      </div>`).join('') : `<div class="text-dim">없음</div>`);
-    body.querySelector('#list-hleader').innerHTML = mk(hL, 'hleader');
-    body.querySelector('#list-hvice').innerHTML   = mk(hV, 'hvice');
-  }
-  renderHonorLists();
-
-  // 지정 버튼
-  body.querySelector('#btn-hleader').onclick = ()=> lock(body.querySelector('#btn-hleader'), async ()=>{
-    const targetUid = String(body.querySelector('#hon-uid').value||'').trim();
-    if(!targetUid){ showToast('대상 UID를 입력해줘'); return; }
-    try{
-      await call('assignHonoraryRank')({ guildId: g.id, type: 'hleader', targetUid });
-      showToast('명예-길마로 지정했어');
-      location.hash = `#/guild/${g.id}/settings`; // 즉시 반영
-    }catch(e){ showToast(e?.message||'지정 실패'); }
-  });
-
-  body.querySelector('#btn-hvice').onclick = ()=> lock(body.querySelector('#btn-hvice'), async ()=>{
-    const targetUid = String(body.querySelector('#hon-uid').value||'').trim();
-    if(!targetUid){ showToast('대상 UID를 입력해줘'); return; }
-    try{
-      await call('assignHonoraryRank')({ guildId: g.id, type: 'hvice', targetUid });
-      showToast('명예-부길마로 지정했어');
-      location.hash = `#/guild/${g.id}/settings`;
-    }catch(e){ showToast(e?.message||'지정 실패'); }
-  });
-
-  // 해제 버튼 위임
-  body.addEventListener('click', async (e)=>{
-    const a = e.target.closest('[data-un-hleader]'); const b = e.target.closest('[data-un-hvice]');
-    if(!a && !b) return;
-    const uid = a?.dataset.unHleader || b?.dataset.unHvice;
-    const type = a ? 'hleader' : 'hvice';
-    const btn = e.target.closest('button');
-    lock(btn, async ()=>{
-      try{
-        await call('unassignHonoraryRank')({ guildId: g.id, type, targetUid: uid });
-        showToast('해제했어');
-        location.hash = `#/guild/${g.id}/settings`;
-      }catch(err){ showToast(err?.message||'해제 실패'); }
-    });
-  });
-
-
-  // 값 비우기 도우미
+  // 값 비우기
   body.querySelector('#clear-elo').onclick   = ()=> body.querySelector('#req-elo').value   = '';
   body.querySelector('#clear-wins').onclick  = ()=> body.querySelector('#req-wins').value  = '';
   body.querySelector('#clear-likes').onclick = ()=> body.querySelector('#req-likes').value = '';
@@ -850,46 +850,43 @@ function renderSettings(body, g){
     }
   }
 
-  // 멤버 목록 + 추방/부길마/위임
+  // 멤버 목록 + 추방/부길마/위임 (버튼 즉시 반영)
   (async ()=>{
     const q = fx.query(
       fx.collection(db,'guild_members'),
       fx.where('guildId','==', g.id),
-      fx.limit(200)
+      fx.limit(300)
     );
     const qs = await fx.getDocs(q);
     const memWrap = body.querySelector('#mem-list');
     if (qs.empty) { memWrap.innerHTML = `<div class="text-dim">멤버 없음</div>`; return; }
 
-    const rows = await Promise.all(qs.docs.map(async d=>{
-      const m = d.data(); if (m.leftAt) return null;
+    // 중복 제거 + 높은 역할 우선
+    const roleRank = { leader:0, officer:1, member:2 };
+    const byCid = new Map();
+    for (const d of qs.docs) {
+      const m = d.data(); if (m.leftAt) continue;
       const cid = m.charId;
       const cs = await fx.getDoc(fx.doc(db,'chars', cid));
       const cd = cs.exists() ? cs.data() : {};
       const role = m.role || cd.guild_role || 'member';
-      
-      let honorChip = '';
-      // [수정됨] 명예 길마를 우선으로 표시
-      if (Array.isArray(g.honorary_leader_uids) && g.honorary_leader_uids.includes(cd.owner_uid)) {
-        honorChip = '<span class="chip" style="background:#3a2a00;border:1px solid #b58a00;color:#ffd86f">명예-길마</span>';
-      } else if (Array.isArray(g.honorary_vice_uids) && g.honorary_vice_uids.includes(cd.owner_uid)) {
-        honorChip = '<span class="chip" style="background:#1d2a3a;border:1px solid #3b78cf;color:#cfe4ff">명예-부길마</span>';
-      }
+      const row = { cid, name: cd.name||cid, role, rank: roleRank[role]??9 };
+      const prev = byCid.get(cid);
+      if (!prev || row.rank < prev.rank) byCid.set(cid, row);
+    }
+    const rows = [...byCid.values()].sort((a,b)=> a.rank-b.rank || (a.name||'').localeCompare(b.name||'','ko'));
 
-      return `
-        <div class="kv-card" style="padding:8px">
-          <div class="row" style="gap:8px;align-items:center">
-            <span class="chip">${esc(cd.name||cid)}</span>
-            <span class="chip">${esc(role)}</span>
-            <div style="flex:1"></div>
-            ${role!=='leader' ? `<button class="btn ghost small" data-kick="${esc(cid)}">추방</button>`:``}
-            ${role!=='leader' ? `<button class="btn ghost small" data-toggle="${esc(cid)}">${role==='officer'?'부길마 해제':'부길마 지정'}</button>`:``}
-            ${role!=='leader' ? `<button class="btn small" data-transfer="${esc(cid)}">길드장 위임</button>`:``}
-            ${honorChip}
-          </div>
-        </div>`;
-    }));
-    memWrap.innerHTML = rows.filter(Boolean).join('');
+    memWrap.innerHTML = rows.map(r=>`
+      <div class="kv-card" style="padding:8px">
+        <div class="row" style="gap:8px;align-items:center">
+          <span class="chip">${esc(r.name)}</span>
+          <span class="chip">${esc(r.role)}</span>
+          <div style="flex:1"></div>
+          ${r.role!=='leader' ? `<button class="btn ghost small" data-kick="${esc(r.cid)}">추방</button>`:``}
+          ${r.role!=='leader' ? `<button class="btn ghost small" data-toggle="${esc(r.cid)}">${r.role==='officer'?'부길마 해제':'부길마 지정'}</button>`:``}
+          ${r.role!=='leader' ? `<button class="btn small" data-transfer="${esc(r.cid)}">길드장 위임</button>`:``}
+        </div>
+      </div>`).join('');
 
     memWrap.addEventListener('click', (e)=>{
       const k = e.target.closest('[data-kick]');
@@ -899,21 +896,108 @@ function renderSettings(body, g){
       if (!cid) return;
       const btn = e.target.closest('button');
       lock(btn, async ()=>{
-        if (k) {
-          if (!confirm('정말 추방할까?')) return;
-          await call('kickFromGuild')({ guildId: g.id, charId: cid });
-          showToast('추방했어'); btn.closest('.kv-card')?.remove();
-        } else if (t) {
-          const nowOfficer = t.textContent.includes('해제');
-          await call('setGuildRole')({ guildId: g.id, charId: cid, role: nowOfficer ? 'member' : 'officer' });
-          showToast(nowOfficer ? '부길마 해제' : '부길마로 지정');
-          location.hash = `#/guild/${g.id}/settings`;
-        } else if (x) {
-          if (!confirm('정말 길드장 위임할까?')) return;
-          await call('transferGuildOwner')({ guildId: g.id, toCharId: cid });
-          showToast('길드장을 위임했어'); location.hash = `#/guild/${g.id}/about`;
+        try{
+          if (k) {
+            if (!confirm('정말 추방할까?')) return;
+            await call('kickFromGuild')({ guildId: g.id, charId: cid });
+            showToast('추방했어'); btn.closest('.kv-card')?.remove();
+          } else if (t) {
+            const nowOfficer = t.textContent.includes('해제');
+            await call('setGuildRole')({ guildId: g.id, charId: cid, role: nowOfficer ? 'member' : 'officer' });
+            showToast(nowOfficer ? '부길마 해제' : '부길마로 지정');
+            // 버튼 텍스트 즉시 반영
+            t.textContent = nowOfficer ? '부길마 지정' : '부길마 해제';
+            // 역할 칩도 바꾸기
+            const chip = t.closest('.row').querySelectorAll('.chip')[1];
+            if (chip) chip.textContent = nowOfficer ? 'member' : 'officer';
+          } else if (x) {
+            if (!confirm('정말 길드장 위임할까?')) return;
+            await call('transferGuildOwner')({ guildId: g.id, toCharId: cid });
+            showToast('길드장을 위임했어');
+            location.hash = `#/guild/${g.id}/about`;
+          }
+        }catch(e){
+          console.error(e);
+          showToast(e?.message||'실패했어');
         }
       });
     });
+
+    // 부길마 입력 지정/해제(캐릭 ID)
+    const assignBtn = body.querySelector('#btn-officer-assign');
+    const revokeBtn = body.querySelector('#btn-officer-revoke');
+    const cidInput  = body.querySelector('#officer-cid');
+    if (assignBtn && revokeBtn && cidInput){
+      assignBtn.onclick = ()=> lock(assignBtn, async ()=>{
+        const cid = String(cidInput.value||'').trim();
+        if(!cid) return showToast('캐릭터 ID를 입력해줘');
+        try{
+          await call('setGuildRole')({ guildId: g.id, charId: cid, role: 'officer' });
+          showToast('부길마로 지정했어');
+        }catch(e){ showToast(e?.message||'실패했어'); }
+      });
+      revokeBtn.onclick = ()=> lock(revokeBtn, async ()=>{
+        const cid = String(cidInput.value||'').trim();
+        if(!cid) return showToast('캐릭터 ID를 입력해줘');
+        try{
+          await call('setGuildRole')({ guildId: g.id, charId: cid, role: 'member' });
+          showToast('부길마 해제했어');
+        }catch(e){ showToast(e?.message||'실패했어'); }
+      });
+    }
   })();
+
+  // 명예 등급 리스트 렌더 + 지정/해제(캐릭ID)
+  (function renderHonor(g){
+    const listH = body.querySelector('#list-hleader');
+    const listV = body.querySelector('#list-hvice');
+    if(!listH || !listV) return;
+
+    const hL = Array.isArray(g.honorary_leader_cids) ? g.honorary_leader_cids : [];
+    const hV = Array.isArray(g.honorary_vice_cids) ? g.honorary_vice_cids : [];
+    const mk = (arr, key)=> (arr.length ? arr.map(cid=>`
+      <div class="row" style="gap:8px;align-items:center">
+        <span class="chip">${esc(cid)}</span>
+        <button class="btn ghost small" data-un-${key}="${esc(cid)}">해제</button>
+      </div>`).join('') : `<div class="text-dim">없음</div>`);
+    listH.innerHTML = mk(hL, 'hleader');
+    listV.innerHTML = mk(hV, 'hvice');
+
+    // 지정 버튼
+    const cidIn = body.querySelector('#hon-cid');
+    const btnHL = body.querySelector('#btn-hleader');
+    const btnHV = body.querySelector('#btn-hvice');
+    if (btnHL) btnHL.onclick = ()=> lock(btnHL, async ()=>{
+      const charId = String(cidIn.value||'').trim(); if(!charId) return showToast('캐릭터 ID를 입력해줘');
+      try{
+        await call('assignHonoraryRankByChar')({ guildId: g.id, type: 'hleader', charId });
+        showToast('명예-길마로 지정했어');
+        location.hash = `#/guild/${g.id}/settings`;
+      }catch(e){ showToast(e?.message||'지정 실패'); }
+    });
+    if (btnHV) btnHV.onclick = ()=> lock(btnHV, async ()=>{
+      const charId = String(cidIn.value||'').trim(); if(!charId) return showToast('캐릭터 ID를 입력해줘');
+      try{
+        await call('assignHonoraryRankByChar')({ guildId: g.id, type: 'hvice', charId });
+        showToast('명예-부길마로 지정했어');
+        location.hash = `#/guild/${g.id}/settings`;
+      }catch(e){ showToast(e?.message||'지정 실패'); }
+    });
+
+    // 해제 버튼 위임
+    body.addEventListener('click', async (e)=>{
+      const a = e.target.closest('[data-un-hleader]'); const b = e.target.closest('[data-un-hvice]');
+      if(!a && !b) return;
+      const cid = a?.dataset.unHleader || b?.dataset.unHvice;
+      const type = a ? 'hleader' : 'hvice';
+      const btn = e.target.closest('button');
+      lock(btn, async ()=>{
+        try{
+          await call('unassignHonoraryRankByChar')({ guildId: g.id, type, charId: cid });
+          showToast('해제했어');
+          location.hash = `#/guild/${g.id}/settings`;
+        }catch(err){ showToast(err?.message||'해제 실패'); }
+      });
+    });
+  })(g);
 }
