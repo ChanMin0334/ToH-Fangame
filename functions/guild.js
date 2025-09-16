@@ -950,7 +950,14 @@ return {
 
   const cost = await levelUpCost(L);
   const costNext = await levelUpCost(L+1);
-  return { ok:true, level:L, cost, costNext };
+  return { 
+  ok:true, 
+  level: L, 
+  cost, 
+  costNext, 
+  guildCoins: Number(gSnap.data()?.coins || 0) 
+};
+
 });
 
 
