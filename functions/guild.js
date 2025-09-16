@@ -360,43 +360,44 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
 
 
     if (type === 'hleader') {
-      // 이미 명예-길마이면 변화 없으므로 성공 처리
-      if (hL.has(targetUid)) return { ok: true, hLeader: Array.from(hL), hVice: Array.from(hV) };
+      if (hV.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-부길마 상태야');
+      if (hL.has(targetUid)) return {
+        ok: true,
+        staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+        hLeader: Array.from(hL),
+        hVice: Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []
+      };
+
       if (hL.size >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
-      
-      // 새로운 역할 부여 및 기존 역할 제거
       hL.add(targetUid);
-      hV.delete(targetUid); // [수정] 다른 명예직 목록에서 제거
+      tx.update(gRef, { honorary_leader_uids: [...hL], updatedAt: nowMs() });
+      return {
+        ok: true,
+        staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+        hLeader: Array.from(hL),
+        hVice: Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []
+      };
 
-      tx.update(gRef, {
-        honorary_leader_uids: Array.from(hL),
-        honorary_vice_uids: Array.from(hV), // [수정] 함께 업데이트
-        updatedAt: nowMs()
-      });
 
-    } else { // type === 'hvice'
-      // 이미 명예-부길마이면 변화 없으므로 성공 처리
-      if (hV.has(targetUid)) return { ok: true, hLeader: Array.from(hL), hVice: Array.from(hV) };
+    } else {
+      if (hL.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-길마 상태야');
+      if (hV.has(targetUid)) return {
+        ok: true,
+        staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+        hLeader: Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : [],
+        hVice: Array.from(hV)
+      };
+
       if (hV.size >= caps.max_honorary_vices) throw new HttpsError('failed-precondition', '명예-부길마 슬롯 초과');
-
-      // 새로운 역할 부여 및 기존 역할 제거
       hV.add(targetUid);
-      hL.delete(targetUid); // [수정] 다른 명예직 목록에서 제거
-
-      tx.update(gRef, {
-        honorary_leader_uids: Array.from(hL), // [수정] 함께 업데이트
-        honorary_vice_uids: Array.from(hV),
-        updatedAt: nowMs()
-      });
+      tx.update(gRef, { honorary_vice_uids: [...hV], updatedAt: nowMs() });
+      return {
+        ok: true,
+        staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+        hLeader: Array.isArray(hL) ? Array.from(hL) : (Array.isArray(g.honorary_leader_uids)?g.honorary_leader_uids:[]),
+        hVice:   Array.isArray(hV) ? Array.from(hV) : (Array.isArray(g.honorary_vice_uids)?g.honorary_vice_uids:[])
+      };
     }
-
-    // 최종 결과 반환
-    return {
-      ok: true,
-      staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
-      hLeader: Array.from(hL),
-      hVice: Array.from(hV)
-    };
   });
 });
 
