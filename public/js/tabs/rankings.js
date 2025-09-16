@@ -19,7 +19,9 @@ function tabs(){
   return el('div',{className:'row', style:'gap:8px;margin-bottom:10px'},
     make('weekly','주간 좋아요'),
     make('total','누적 좋아요'),
-    make('elo','Elo')
+    make('elo','Elo'),
+    make('elo_low','Elo(역순)')
+
   );
 }
 
@@ -44,7 +46,7 @@ function rankCard(c, i){
   const stat = (State.tab==='weekly') ? (c.likes_weekly||0)
             : (State.tab==='total')  ? (c.likes_total||0)
             : (c.elo||0);
-  const statLabel = (State.tab==='elo') ? 'Elo' : '❤';
+  const statLabel = (State.tab==='elo' || State.tab==='elo_low') ? 'Elo' : '❤';
 
   return el('div',{className:'rank-card', onclick:open, style:'cursor:pointer'},
     el('div',{className:'rank-no'}, `#${i+1}`),
@@ -77,6 +79,7 @@ export async function showRankings(force=false){
   const src = App.rankings || {weekly:[], total:[], elo:[]};
   const list = State.tab==='weekly' ? (src.weekly||[])
              : State.tab==='total'  ? (src.total||[])
+             : State.tab==='elo_low'? (src.elo||[]).slice().reverse()
              : (src.elo||[]);
 
   v.replaceChildren(
