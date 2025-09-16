@@ -337,11 +337,24 @@ const assignHonoraryRank = onCall({ region: 'us-central1' }, async (req)=>{
 
     if (type === 'hleader') {
       if (hV.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-부길마 상태야');
-      if (hL.has(targetUid)) return { ok:true, honorary_leader_uids:[...hL] };
+      if (hL.has(targetUid)) return {
+        ok: true,
+        staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+        hLeader: Array.from(hL),
+        hVice: Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []
+      };
+
       if (hL.size >= caps.max_honorary_leaders) throw new HttpsError('failed-precondition', '명예-길마 슬롯 초과');
       hL.add(targetUid);
       tx.update(gRef, { honorary_leader_uids: [...hL], updatedAt: nowMs() });
-      return { ok:true, honorary_leader_uids:[...hL] };
+      return {
+        ok: true,
+        staff: Array.isArray(g.staff_uids) ? g.staff_uids : [],
+        hLeader: Array.from(hL),
+        hVice: Array.isArray(g.honorary_vice_uids) ? g.honorary_vice_uids : []
+      };
+
+
     } else {
       if (hL.has(targetUid)) throw new HttpsError('failed-precondition', '이미 명예-길마 상태야');
       if (hV.has(targetUid)) return { ok:true, honorary_vice_uids:[...hV] };
@@ -996,14 +1009,14 @@ return {
       tx.update(oldOwnerCharRef, { guild_role: 'officer', updatedAt: nowMs() });
       tx.set(db.doc(`guild_members/${guildId}__${oldOwnerCharId}`), { role: 'officer' }, { merge: true });
 
-      // 3) staff_uids 동기화: 새 오너는 자동 staff, 기존 오너도 officer 이므로 staff 유지
-      // [REWRITE] 오너 권한은 owner_uid로 충분 → 새 오너는 staff에 넣지 않음
-      // 기존 오너는 officer이므로 staff에 포함시키되, 정원(2) 준수
+      // [FIX] 새 오너는 staff에서 제거, 이전 오너만 officer로 유지
       const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
-      staffSet.add(old.owner_uid);
+      staffSet.delete(target.owner_uid); // 새 오너는 staff 불필요(오너 권한으로 충분)
+      staffSet.add(old.owner_uid);       // 이전 오너는 officer이므로 staff에 포함
       if (staffSet.size > MAX_OFFICERS) {
         throw new HttpsError('failed-precondition', '부길드마 정원(2명) 초과 — 먼저 기존 스태프를 조정하세요.');
       }
+
 
       // (역할 중복 방지) 두 사람 모두 명예직 제거
       let hL3 = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
@@ -1074,7 +1087,7 @@ return {
         updatedAt: nowMs()
      });
 
-    return { ok: true, staff_uids: Array.from(set) };
+    return { ok: true, staff_uids: Array.from(staffSet) };
   });
 
 
