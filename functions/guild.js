@@ -983,6 +983,7 @@ return {
 
   // 역할 변경(오너만): member <-> officer
   const setGuildRole = onCall({ region: 'us-central1' }, async (req) => {
+    logger.info('[setGuildRole] start', { uid: req.auth?.uid||null, guildId: req.data?.guildId, charId: req.data?.charId, role: req.data?.role });
     const uid = req.auth?.uid || null;
     const { guildId, charId, role } = req.data || {};
     if (!uid || !guildId || !charId || !role) throw new HttpsError('invalid-argument', '필요값');
@@ -999,7 +1000,7 @@ return {
       if (role !== 'member' && role !== 'officer') throw new HttpsError('invalid-argument', 'role은 member|officer');
 
       tx.update(cRef, { guild_role: role, updatedAt: nowMs() });
-      tx.set(db.doc(`guild_members/${guildId}__${charId}`), { role }, { merge: true });
+      tx.set(db.doc(`guild_members/${guildId}__${charId}`), { role, updatedAt: nowMs() }, { merge: true });
 
         // [REWRITE] 정원(2) 체크 + 명예직과 중복 방지 + staff_uids 동기화
         const staffSet2 = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
