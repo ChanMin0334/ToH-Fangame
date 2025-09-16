@@ -431,13 +431,13 @@ export async function requestAdventureNarrative({
 
   try {
     raw = await callGemini(primary, systemText, userText, 0.85);
-    await logInfo('ai#adventure', '어드벤처 응답 성공', { ms: Math.round(performance.now()-t0), model: primary });
+  //  await logInfo('ai#adventure', '어드벤처 응답 성공', { ms: Math.round(performance.now()-t0), model: primary });
   } catch (e1) {
     try{
       raw = await callGemini(fallback, systemText, userText, 0.85);
-      await logInfo('ai#adventure', '어드벤처 폴백 성공', { ms: Math.round(performance.now()-t0), model: fallback, err: String(e1?.message||e1) });
+   //   await logInfo('ai#adventure', '어드벤처 폴백 성공', { ms: Math.round(performance.now()-t0), model: fallback, err: String(e1?.message||e1) });
     }catch(e2){
-      await logError('ai#adventure', '어드벤처 폴백 실패', { err: String(e2?.message||e2) });
+    //  await logError('ai#adventure', '어드벤처 폴백 실패', { err: String(e2?.message||e2) });
       throw e2;
     }
   }
