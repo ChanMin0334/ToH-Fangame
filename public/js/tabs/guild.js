@@ -83,18 +83,23 @@ export default async function showGuild(explicit){
   root.innerHTML = '';
   root.appendChild(wrap);
   // [ADD] 작은 버튼 + 모달 기본 스타일
-const _guildStyle = document.createElement('style');
-_guildStyle.textContent = `
-  .btn.xs{ padding:4px 8px; font-size:12px; border-radius:10px }
-  .kv-modal{ position:fixed; inset:0; z-index:9999;
-    background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; }
-  .kv-modal .panel{ background:#0b0f16; border:1px solid #273247; border-radius:14px;
-    min-width:280px; max-width:92vw; padding:12px }
-  .kv-modal .head{ display:flex; align-items:center; gap:8px; margin-bottom:8px }
-  .kv-modal .grid{ display:grid; grid-template-columns:1fr 1fr; gap:6px }
-  .kv-modal .rowr{ display:flex; gap:6px; justify-content:flex-end; margin-top:8px }
-`;
-document.head.appendChild(_guildStyle);
+// [SAFE] 중복 삽입 방지
+if (!document.getElementById('guild-style')) {
+  const _guildStyle = document.createElement('style');
+  _guildStyle.id = 'guild-style';
+  _guildStyle.textContent = `
+    .btn.xs{ padding:4px 8px; font-size:12px; border-radius:10px }
+    .kv-modal{ position:fixed; inset:0; z-index:9999;
+      background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; }
+    .kv-modal .panel{ background:#0b0f16; border:1px solid #273247; border-radius:14px;
+      min-width:280px; max-width:92vw; padding:12px }
+    .kv-modal .head{ display:flex; align-items:center; gap:8px; margin-bottom:8px }
+    .kv-modal .grid{ display:grid; grid-template-columns:1fr 1fr; gap:6px }
+    .kv-modal .rowr{ display:flex; gap:6px; justify-content:flex-end; margin-top:8px }
+  `;
+  document.head.appendChild(_guildStyle);
+}
+
 
 
   if(!gRaw){
@@ -341,17 +346,39 @@ hero.querySelector('#my-contrib').innerHTML =
       const cs = await fx.getDoc(fx.doc(db,'chars', cid));
       const cd = cs.exists()? cs.data() : {};
       const role = m.role || cd.guild_role || 'member';
+
+      // 명예 여부(UID 기준)
+      const isHL = hL.has(cd.owner_uid);
+      const isHV = hV.has(cd.owner_uid);
+
+      // 화면에 ‘하나만’ 보여줄 라벨(명예가 있으면 명예를 우선 표시)
+      // 리더/부길마가 있으면 항상 그걸 우선 표시(과거 데이터에 명예가 잘못 남아있어도 안정)
+      const displayRole =
+        (role === 'leader')  ? '길드마스터' :
+        (role === 'officer') ? '부길드마'   :
+        (isHL ? '명예-길마' : (isHV ? '명예-부길마' : '멤버'));
+
+
+      // 정렬 우선순위(숫자 낮을수록 위)
+      // 0: 길마, 1: 부길마/명예-길마, 2: 명예-부길마, 3: 멤버
+      const displayRank =
+        (role === 'leader') ? 0 :
+        (role === 'officer') ? 1 :
+        (isHL ? 1 : (isHV ? 2 : 3));
+
       rows.push({
         cid,
         name: cd.name || cid,
-        role,
-        rank: roleRank[role] ?? 9,
+        role,                // 원본 서버 role
+        displayRole,         // 화면 표시용 직책(명예 우선)
+        rank: displayRank,   // 정렬 기준
         weekly: Number(m.points_weekly||0),
         total: Number(m.points_total||0),
         elo: Number(cd.elo||0),
         thumb: cd.thumb_url || cd.image_url || '',
         owner_uid: cd.owner_uid || ''
       });
+
     }
 
     function render(){
@@ -367,11 +394,9 @@ hero.querySelector('#my-contrib').innerHTML =
       });
 
       memGrid.innerHTML = arr.map(x=>{
-        const chips = [];
-        // 명예 뱃지
-        if (hL.has(x.owner_uid)) chips.push(`<span class="chip">명예-길마</span>`);
-        else if (hV.has(x.owner_uid)) chips.push(`<span class="chip">명예-부길마</span>`);
-        const roleText = x.role==='leader'?'길드마스터':x.role==='officer'?'부길드마':'멤버';
+        const isHL = hL.has(x.owner_uid);
+        const isHV = hV.has(x.owner_uid);
+
 
         // 액션 버튼 (운영진만)
         const actions = ''; // [REWRITE] 카드 내부의 큰 액션 줄 제거(모달에서 처리)
@@ -385,8 +410,7 @@ hero.querySelector('#my-contrib').innerHTML =
               <div style="min-width:0">
                 <div style="font-weight:700;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                   <span class="ellipsis">${esc(x.name)}</span>
-                  <span class="chip">${roleText}</span>
-                  ${chips.join('')}
+                  <span class="chip">${esc(x.displayRole)}</span>
                 </div>
                 <div class="text-dim" style="font-size:12px">
                   주간 ${x.weekly.toLocaleString()} · 누적 ${x.total.toLocaleString()} · ELO ${x.elo}
