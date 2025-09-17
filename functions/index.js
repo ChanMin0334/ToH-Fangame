@@ -476,6 +476,9 @@ exports.endExploreHttp = onRequest({ region:'us-central1' }, async (req, res) =>
     return res.status(200).json({ ok:false, error: err?.message || 'internal' });
   }
 });
+// === Backward-compat aliases (keep old callable names alive) ===
+exports.stepExplore = exports.stepExploreCall;
+exports.endExplore  = exports.endExploreCall;
 
 
 // === [일반 EXP 지급 + 코인 민팅] onCall ===
