@@ -5,6 +5,7 @@ import { showToast } from '../ui/toast.js';
 import { getUserInventory } from '../api/user.js';
 import { uploadGuildBadgeSquare, createGuild, fetchMyChars } from '../api/store.js';
 import { rarityStyle } from './char.js'; // [추가] char.js에서 rarityStyle 함수를 가져옵니다.
+import { rarityStyle, ensureItemCss, esc } from './char.js';
 
 
 /* (기존 esc 함수와 동일) */
@@ -227,7 +228,8 @@ async function renderShop_Sell(root, c) {
                 const borderStyle = isAether ? '' : `border-left: 3px solid ${selectedIds.has(item.id) ? '#4aa3ff' : style.border};`;
                 
                 return `
-                <button class="kv-card item-sell-card ${selectedIds.has(item.id) ? 'selected' : ''} ${isAether ? 'rarity-aether' : ''}" data-item-id="${item.id}"
+                <button class="kv-card item-card item-sell-card ${selectedIds.has(item.id) ? 'selected' : ''} ${isAether ? 'rarity-aether' : ''}" data-item-id="${item.id}"
+
                         style="${borderStyle} text-align: left; padding: 8px;">
                   <div style="font-weight: 700; color:${style.text};">${esc(item.name)}</div>
                   <div class="text-dim" style="font-size: 12px;">판매가: 🪙 ${calculatePrice(item)}</div>
