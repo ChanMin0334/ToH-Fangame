@@ -387,5 +387,13 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
 
 }
 
+/* [추가] 에테르 등급 아이템을 위한 그라데이션 테두리 스타일 */
+.item.rarity-aether, .kv-card.rarity-aether {
+  border-width: 2px;
+  border-style: solid;
+  border-image-slice: 1;
+  border-image-source: linear-gradient(140deg, #ff79c6, #8be9fd, #50fa7b);
+}
+
 
 
