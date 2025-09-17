@@ -343,8 +343,9 @@ exports.stepExploreCall = onCall({ region:'us-central1' }, async (req) => {
   }
 });
 
-// (B) 구/직접 HTTP 호출을 위한 엔드포인트 (프론트가 /stepExplore 로 POST하는 경우)
-exports.stepExplore = onRequest({ region:'us-central1' }, async (req, res) => {
+// (B) 구/직접 HTTP 호출을 위한 엔드포인트 (프론트가 /stepExploreHttp 로 POST하는 경우)
+exports.stepExploreHttp = onRequest({ region:'us-central1' }, async (req, res) => {
+
   // CORS (sellItemsHttp와 동일 허용 목록 사용)
   const origin = req.get('origin');
   const allow = new Set([
