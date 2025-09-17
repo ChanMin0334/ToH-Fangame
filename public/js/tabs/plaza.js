@@ -154,8 +154,8 @@ async function renderShop_Sell(root, c) {
 
   const calculatePrice = (item) => {
     const prices = {
-      consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100 },
-      non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200 }
+      consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100, aether: 250 },
+      non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200, aether: 500 }
     };
     const isConsumable = item.isConsumable || item.consumable;
     const priceTier = isConsumable ? prices.consumable : prices.non_consumable;
