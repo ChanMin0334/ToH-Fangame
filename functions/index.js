@@ -679,6 +679,7 @@ exports.startExploreV2   = exploreV2.startExploreV2;
 exports.advPrepareNextV2 = exploreV2.advPrepareNextV2;
 exports.advApplyChoiceV2 = exploreV2.advApplyChoiceV2;
 exports.endExploreV2     = exploreV2.endExploreV2;
+exports.advStartBattleV2 = exploreV2.advStartBattleV2;
 
 
 const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
