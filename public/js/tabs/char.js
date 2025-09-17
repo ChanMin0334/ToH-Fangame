@@ -48,6 +48,7 @@ export function rarityStyle(r) {
     epic:   { bg: '#20163a', border: '#7e5cff', text: '#e6dcff', label: '유니크' },
     legend: { bg: '#2b220b', border: '#f3c34f', text: '#ffe9ad', label: '레전드' },
     myth:   { bg: '#3a0f14', border: '#ff5b66', text: '#ffc9ce', label: '신화' },
+    aether: { bg: 'linear-gradient(140deg, #1a0c1e, #141428, #0c1e1a)', border: 'linear-gradient(140deg, #ff79c6, #8be9fd, #50fa7b)', text: '#f8f8f2', label: '에테르' },
   };
   return map[(r || '').toLowerCase()] || map.normal;
 }
