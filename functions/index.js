@@ -26,6 +26,45 @@ const EXPLORE_CONFIG = {
     legend:{ rewardMult:1.8, prob:{calm:15, find:15, trap:35, rest: 5, battle:30}, trap:[3,6], battle:[3,6], rest:[1,1] },
   }
 };
+
+
+
+function isActiveStatus(s) { return s === 'running' || s === 'ongoing'; }
+function isDoneStatus(s)   { return s === 'done'    || s === 'ended'; }
+
+function normalizeStamina(run) {
+  const now   = (run.staminaNow   ?? run.stamina   ?? 0);
+  const start = (run.staminaStart ?? run.stamina_start ?? now);
+  return { now, start };
+}
+
+async function ensureRunning(db, runRef, run) {
+  if (run.status === 'ongoing') {
+    await runRef.update({ status: 'running', updatedAt: Timestamp.now() });
+    run.status = 'running';
+  }
+}
+
+function writeDonePayload(extra={}) {
+  const now = Timestamp.now();
+  return {
+    status: 'done',
+    updatedAt: now,
+    endedAt: now,     // 레거시 호환
+    ended: true,      // 레거시 호환: 있으면 true/없으면 무시
+    ...extra,
+  };
+}
+
+
+
+
+
+
+
+
+
+
 function pickByProb(prob){
   const entries = Object.entries(prob);
   const total = entries.reduce((s,[,p])=>s+p,0) || 1;
@@ -198,9 +237,18 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
   const ch = charSnap.data()||{};
   if (ch.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 시작 가능');
   if (ch.explore_active_run) {
-    const old = await db.doc(ch.explore_active_run).get();
-    if (old.exists) return { ok:true, reused:true, runId: old.id, data: old.data() };
+    const oldRef = db.doc(ch.explore_active_run);
+    const old = await oldRef.get();
+    if (old.exists) {
+      const od = old.data() || {};
+      if (od.status === 'ongoing') {
+        await oldRef.update({ status: 'running', updatedAt: Timestamp.now() });
+        od.status = 'running';
+      }
+      return { ok: true, reused: true, runId: old.id, data: od };
+    }
   }
+
 
   const diffKey = (EXPLORE_CONFIG.diff[difficulty] ? difficulty : 'normal');
   const payload = {
@@ -242,7 +290,14 @@ exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
   if(!snap.exists) throw new HttpsError('not-found','run 없음');
   const r = snap.data()||{};
   if (r.owner_uid !== uid) throw new HttpsError('permission-denied', '내 진행만 가능');
-  if (r.status !== 'running') return { ok:false, reason:'not-running' };
+  if (!(r.status === 'running' || r.status === 'ongoing')) {
+  return { ok:false, reason:'not-running' };
+  }
+   if (r.status === 'ongoing') {
+    await runRef.update({ status: 'running', updatedAt: Timestamp.now() });
+    r.status = 'running';
+  }
+
 
   const DC = EXPLORE_CONFIG.diff[r.difficulty] || EXPLORE_CONFIG.diff.normal;
   const kind = pickByProb(DC.prob);
@@ -256,7 +311,11 @@ exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
   else if (kind==='rest'){ delta=  rnd(DC.rest[0],   DC.rest[1]); text=`짧은 휴식… 체력 +${delta}`; }
   else if (kind==='battle'){delta= -rnd(DC.battle[0], DC.battle[1]); text=`소규모 교전! 체력 ${delta}`; }
 
-  const staminaNow = clamp((r.staminaNow|0) + delta, 0, 999);
+  const sNow   = (r.staminaNow   ?? r.stamina   ?? EXPLORE_CONFIG.staminaStart);
+  const sStart = (r.staminaStart ?? r.stamina_start ?? EXPLORE_CONFIG.staminaStart);
+  // sStart는 여기서 바로 쓰진 않지만, 필요하면 사용할 수 있도록 남겨둠
+  const staminaNow = clamp(sNow + delta, 0, 999);
+
   const turn = (r.turn|0) + 1;
   const ev = { step:turn, kind, deltaStamina:delta, desc:text, roll:{d:'d100', value:roll}, ts: nowTs() };
   const willEnd = staminaNow<=0;
@@ -311,10 +370,16 @@ exports.endExplore = onCall({ region:'us-central1' }, async (req)=>{
   await db.runTransaction(async (tx)=>{
     tx.set(itemRef, itemPayload, { merge:true });
     tx.update(runRef, {
-      status:'done', endedAt: Timestamp.now(),
-      rewards: { exp, items:[{ id:itemRef.id, rarity:itemPayload.rarity, name:itemPayload.item_name }] },
+      status: 'done',
+      endedAt: Timestamp.now(),
+      ended: true, // 레거시 UI 대비
+      rewards: {
+        exp,
+        items: [{ id: itemRef.id, rarity: itemPayload.rarity, name: itemPayload.item_name }]
+      },
       updatedAt: Timestamp.now()
     });
+
 
     // EXP→코인 민팅 (캐릭 exp는 0~99로, 유저 지갑 coins는 +minted)
     const result = await mintByAddExp(tx, charRef, exp, `explore:${runRef.id}`);
