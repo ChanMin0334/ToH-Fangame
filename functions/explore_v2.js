@@ -286,7 +286,9 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
     const chosenDice = pend.diceResults[idx];
     const chosenOutcome = pend.choice_outcomes[idx] || { event_type:'narrative' };
 
-    const narrativeLog = `${pend.narrative_text}\n\n> ${pend.choices[idx] || ''}`.trim().slice(0, 2300);
+    const resultText  = String((pend.choice_outcomes?.[idx]?.result_text) || '').trim();
+    const narrativeLog = `${pend.narrative_text}\n\n[선택: ${pend.choices[idx] || ''}]\n→ ${resultText}`.trim().slice(0, 2300);
+
 
     // 전투 발생: battle_pending 세팅하고 이벤트로도 남김(소모 0)
     if (chosenOutcome.event_type === 'combat'){
