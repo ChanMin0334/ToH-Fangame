@@ -351,6 +351,108 @@
         ],
         "lore_long": "대재앙, '균열의 날' 이후, 세상은 완전히 변했다. 기존의 국경과 질서는 힘을 잃었고, 이제는 각 도시의 '균열' 등급과 그곳을 공략하는 헌터들의 명성이 새로운 권력의 지표가 되었다. 아이들은 군인이나 과학자 대신 S급 헌터가 되기를 꿈꾸며, 방송은 24시간 내내 던전 공략을 생중계한다. 마수에게서 얻는 '마정석'은 기존의 에너지를 대체하는 신인류의 동력원이 되었고, 이를 둘러싼 기업과 길드, 국가 간의 암투는 던전 속 마수와의 싸움만큼이나 치열하다. 하지만 화려한 헌터들의 삶 이면에는 평범한 사람들의 희생과, 던전 공략에 실패하여 돌아오지 못한 이들의 슬픔이 짙게 깔려 있다. 사람들은 불안한 평화 속에서 살아간다. 오늘의 영웅이 내일의 희생자가 될 수 있는 세상, 이곳이 바로 '아르카'다."
       }
+    },
+    {
+      "id": "soulgarde",
+      "name": "소울가르드",
+      "img": "worlds/soulgarde.png",
+      "intro": "영혼의 동반자, '소울블레이드'와 함께 태어나는 세계. 검과 영혼은 하나다.",
+      "detail": {
+        "lore": "소울가르드의 모든 생명은 태어날 때 자신의 영혼과 공명하는 무기, '소울블레이드'의 파트너가 된다. 이들은 함께 성장하고 싸우며, 한쪽의 상처는 다른 한쪽에게도 느껴진다. 이 유대의 깊이가 곧 그 사람의 힘을 결정한다.",
+        "sites": [
+          {
+            "id": "imprinting-forest",
+            "name": "각인의 숲",
+            "img": "sites/soulgarde/imprinting-forest.png",
+            "description": "아이들이 자신의 소울블레이드를 처음 만나는 고대 숲. 영혼의 결정들이 나무처럼 자라난다.",
+            "type": "sanctuary",
+            "tags": ["탄생", "의식", "신비"],
+            "difficulty": "easy"
+          },
+          {
+            "id": "aethersis",
+            "name": "에테르시스",
+            "img": "sites/soulgarde/aethersis.png",
+            "description": "거대한 휴면 소울 크리스탈을 중심으로 세워진 대도시. 교류와 휴식의 중심지이다.",
+            "type": "city",
+            "tags": ["문명", "안식처", "교역"],
+            "difficulty": "easy"
+          },
+          {
+            "id": "bonding-grounds",
+            "name": "결속의 대련장",
+            "img": "sites/soulgarde/bonding-grounds.png",
+            "description": "젊은 계승자들이 파트너와 함께 시련을 극복하며 유대를 시험하고 강화하는 수련 장소.",
+            "type": "training ground",
+            "tags": ["훈련", "유대", "성장"],
+            "difficulty": "normal"
+          },
+          {
+            "id": "soulforge",
+            "name": "영혼 대장간",
+            "img": "sites/soulgarde/soulforge.png",
+            "description": "물리적인 벼림이 아닌, 기억과 공명을 통해 소울블레이드의 잠재력을 이끌어내는 신성한 대장간.",
+            "type": "workshop",
+            "tags": ["강화", "기억", "장인"],
+            "difficulty": "normal"
+          },
+          {
+            "id": "library-of-shattered-sky",
+            "name": "조각난 하늘의 도서관",
+            "img": "sites/soulgarde/library-of-shattered-sky.png",
+            "description": "부서진 채 하늘에 떠 있는 고대의 도서관. 유대와 소울블레이드의 비밀에 대한 기록이 잠들어 있다.",
+            "type": "archive",
+            "tags": ["지식", "고대", "탐험"],
+            "difficulty": "normal"
+          },
+          {
+            "id": "tomb-of-forsaken-king",
+            "name": "버려진 왕의 무덤",
+            "img": "sites/soulgarde/tomb-of-forsaken-king.png",
+            "description": "소울블레이드를 잃고 최초의 '공허한 자'가 되었다는 왕의 무덤. 그의 원한이 타락한 영혼들을 불러 모은다.",
+            "type": "tomb",
+            "tags": ["언데드", "저주", "원한"],
+            "difficulty": "hard"
+          },
+          {
+            "id": "howling-valley",
+            "name": "울부짖는 골짜기",
+            "img": "sites/soulgarde/howling-valley.png",
+            "description": "고대 전쟁터. 잠든 수천의 소울블레이드가 내는 공명의 바람 때문에 유대가 약한 자는 광기에 휩싸인다.",
+            "type": "valley",
+            "tags": ["전쟁터", "공명", "광기"],
+            "difficulty": "hard"
+          },
+          {
+            "id": "silent-lands",
+            "name": "침묵의 대지",
+            "img": "sites/soulgarde/silent-lands.png",
+            "description": "소울블레이드가 파괴되어 영혼의 절반을 잃은 '공허한 자'들이 배회하는 비극의 땅.",
+            "type": "wasteland",
+            "tags": ["공허", "비극", "절망"],
+            "difficulty": "vhard"
+          },
+          {
+            "id": "rift-of-dissonance",
+            "name": "불협화음의 균열",
+            "img": "sites/soulgarde/rift-of-dissonance.png",
+            "description": "깨어진 유대의 부정적인 에너지가 모여 현실을 찢고 나타난 균열. 이 세계의 법칙을 부정하는 존재들이 쏟아져 나온다.",
+            "type": "anomaly",
+            "tags": ["혼돈", "침식", "이계"],
+            "difficulty": "vhard"
+          },
+          {
+            "id": "altar-of-arche",
+            "name": "최초의 검, 아르케의 제단",
+            "img": "sites/soulgarde/altar-of-arche.png",
+            "description": "세상에 처음 나타난 소울블레이드가 잠들어 있다는 전설의 성소. 육신과 영혼의 완벽한 합일을 이룰 수 있다고 전해진다.",
+            "type": "sanctum",
+            "tags": ["시작", "궁극", "깨달음"],
+            "difficulty": "legendary"
+          }
+        ],
+        "lore_long": "소울가르드의 모든 생명은 혼자가 아니다. 태어나는 순간부터 그들의 영혼은 반으로 나뉘어, 하나는 육신에 깃들고 다른 하나는 무기의 형태를 띤 '소울블레이드'로 현현한다. 이 때문에 소울가르드에서 무기는 단순한 도구가 아니라, 자신의 반쪽이자 평생을 함께할 동반자다. 아이들은 '각인의 숲'에서 고대의 의식을 통해 자신의 소울블레이드를 처음으로 손에 쥐게 되며, 이 순간부터 둘의 감각과 생각이 희미하게 연결된다. 주인의 성장에 따라 소울블레이드의 형태와 능력이 변하기도 하고, 반대로 소울블레이드의 타고난 성질이 주인의 성격에 영향을 미치기도 한다. 이들의 유대는 텔레파시와 같은 소통을 가능하게 하고, 전투 시에는 완벽한 공명을 통해 인간의 한계를 뛰어넘는 힘을 발휘하게 한다. 하지만 이 강력한 유대에는 치명적인 대가가 따른다. 만약 소울블레이드가 전투에서 파괴되면, 주인은 영혼의 절반을 영원히 잃고 감정과 의지를 상실한 '공허한 자'가 되어 '침묵의 대지'를 떠돌게 된다. 반대로 주인이 죽으면, 소울블레이드는 빛을 잃은 결정체로 돌아가 주인의 무덤 곁을 지킨다고 한다. 때문에 소울가르드의 전사에게 패배는 단순한 죽음이 아니라, 자기 자신과 동반자의 존재 자체를 소멸시키는 비극적인 사건이다."
+      }
     }
   ]
 }
