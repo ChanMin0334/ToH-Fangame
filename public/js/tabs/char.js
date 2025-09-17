@@ -104,12 +104,20 @@ export function ensureItemCss() {
   .shine-effect::after { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%); transform: rotate(30deg); animation: shine 3s infinite ease-in-out; pointer-events: none; }
   @keyframes shine { 0% { transform: translateX(-75%) translateY(-25%) rotate(30deg); } 100% { transform: translateX(75%) translateY(25%) rotate(30deg); } }
   .item-card { transition: box-shadow .18s ease, transform .18s ease, filter .18s ease; will-change: transform, box-shadow; outline: none; }
+  /* 공통 아이템 카드 베이스 */
+.kv-card.item-card{
+  border:1px solid #fff;
+  border-radius:12px;
+  background:rgba(255,255,255,.03);
+  padding:10px;
+}
+
   /* === AETHER rarity: animated rainbow background === */
 .kv-card.rarity-aether,
 .item.rarity-aether {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(255,255,255,.22);
+  border: 1px solid #fff;
 }
 
 /* 무지개 애니메이션 레이어 (바닥) */
@@ -739,7 +747,7 @@ async function renderLoadout(c, view){
       const borderStyle = isAether ? '' : `border-left: 3px solid ${style.border};`; // 에테르 등급은 CSS 클래스가 테두리를 처리하므로 인라인 스타일 제거
 
       return `
-        <button class="item ${isAether ? 'rarity-aether' : ''}" data-item-id="${it.id}"
+        <button class="kv-card item-card ${isAether ? 'rarity-aether' : ''}" data-item-id="${it.id}"
           style="text-align:left; cursor:pointer; ${borderStyle} ${isAether ? '' : `background:${style.bg};`}">
 
           <div class="name" style="color:${style.text}">${it.name || '아이템'}</div>
