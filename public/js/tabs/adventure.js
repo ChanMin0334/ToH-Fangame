@@ -329,6 +329,14 @@ function ensureItemCss() {
     box-shadow: 0 6px 18px rgba(0,0,0,.35);
     filter: brightness(1.05);
   }
+  /* 공통 아이템 카드 베이스 */
+  .kv-card.item-card{
+    border:1px solid #fff;
+    border-radius:12px;
+    background:rgba(255,255,255,.03);
+    padding:10px;
+}
+
 `;
 
   document.head.appendChild(st);
@@ -779,8 +787,7 @@ async function showSharedInventory(root) {
       card.style.cssText = `
         padding: 8px;
         cursor: pointer;
-        border: 1px solid ${style.border};
-        background: ${style.bg};
+        background: ${String(item.rarity||'').toLowerCase()==='aether' ? 'transparent' : style.bg};
         color: ${style.text};
         transition: transform 0.2s;
         width: 100%;
