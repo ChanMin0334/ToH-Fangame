@@ -15,10 +15,6 @@ const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY'); // 이미 있다면 재�
 const exploreV2 = require('./explore_v2')(admin, { onCall, HttpsError, logger, GEMINI_API_KEY });
 
 
-const { defineSecret } = require('firebase-functions/params');
-const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
-
-
 
 // === [탐험 난이도/룰 테이블 & 헬퍼] ===
 const EXPLORE_CONFIG = {
