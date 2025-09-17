@@ -281,6 +281,8 @@ export async function showBattle(){
     if (!meSnap.exists()) throw new Error('내 캐릭터 정보를 찾을 수 없습니다.');
     myCharData = { id: meSnap.id, ...meSnap.data() };
     await renderLoadoutForMatch(document.getElementById('loadoutArea'), myCharData);
+    ensureItemCss();
+
 
     let matchData = null;
     const persisted = loadMatchLock('battle', intent.charId);
@@ -387,7 +389,7 @@ async function renderLoadoutForMatch(box, myChar){
             ${[0,1,2].map(i => {
                 const item = equippedItems[i];
                 const style = item ? rarityStyle(item.rarity) : null;
-                return `<div class="kv-card" style="min-height:44px;display:flex; flex-direction:column; align-items:center;justify-content:center;padding:8px;font-size:13px;text-align:center; ${item ? `border-left: 3px solid ${style.border}; background:${style.bg};` : ''}">
+                return `<div class="kv-card item-card ${item && (String(item.rarity||'').toLowerCase()==='aether' ? 'rarity-aether' : '')}" style="min-height:44px;display:flex; flex-direction:column; align-items:center;justify-content:center;padding:8px;font-size:13px;text-align:center; ${item ? `border-left: 3px solid ${style.border}; background:${style.bg};` : ''}">
                           ${item ? `<div>
                             <div style="font-weight:bold; color:${style.text};">${esc(item.name)}</div>
                             <div style="font-size:12px; opacity:.8">${esc(item.desc_soft || item.desc || item.description || (item.desc_long ? String(item.desc_long).split('\n')[0] : ''))}</div>
@@ -459,7 +461,9 @@ async function openItemPicker(c, onSave) {
               const style = rarityStyle(item.rarity);
               const isSelected = selectedIds.includes(item.id);
               return `
-                <div class="kv-card item-picker-card ${isSelected ? 'selected' : ''}" data-item-id="${item.id}" style="padding:10px; border: 2px solid ${isSelected ? '#4aa3ff' : 'transparent'}; cursor:pointer;">
+                <div class="kv-card item-card item-picker-card ${isSelected ? 'selected' : ''}" data-item-id="${item.id}"
+                     style="padding:10px; outline:${isSelected ? '2px solid #4aa3ff' : 'none'}; cursor:pointer;">
+
                   <div style="font-weight:700; color: ${style.text}; pointer-events:none;">${esc(item.name)}</div>
                   <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden; pointer-events:none;">${esc(item.desc_soft || item.desc || item.description || (item.desc_long ? String(item.desc_long).split('\n')[0] : '-') )}</div>
                 </div>
