@@ -252,8 +252,10 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       choices: choicesText,
       choice_outcomes: outcomes,
       diceResults: choices,
+      summary3_update, // ✅ 추가: 다음 턴 요약 반영용
       at: Date.now()
     };
+
 
     await ref.update({
       pending_choices: pending,
@@ -370,6 +372,31 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
     const snap = await ref.get();
     return { ok:true, state: snap.data() };
   });
+  const advStartBattleV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
+  const uid = req.auth?.uid;
+  if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
+  const { runId } = req.data||{};
+  if(!runId) throw new HttpsError('invalid-argument','runId 필요');
 
-  return { startExploreV2, advPrepareNextV2, advApplyChoiceV2, endExploreV2 };
+  const ref = db.collection('explore_runs').doc(runId);
+  const s = await ref.get();
+  if(!s.exists) throw new HttpsError('not-found','런 없음');
+  const run = s.data();
+  if(run.owner_uid !== uid) throw new HttpsError('permission-denied','소유자 아님');
+  if(run.status !== 'ongoing') throw new HttpsError('failed-precondition','종료된 런');
+
+  const bp = run.battle_pending;
+  if(!bp) throw new HttpsError('failed-precondition','대기중인 전투 없음');
+
+  await ref.update({
+    pending_battle: bp,
+    battle_pending: null,
+    updatedAt: Timestamp.now()
+  });
+
+  const fresh = await ref.get();
+  return { ok:true, state: fresh.data() };
+});
+
+  return { startExploreV2, advPrepareNextV2, advApplyChoiceV2, endExploreV2, advStartBattleV2 };
 };
