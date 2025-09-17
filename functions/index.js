@@ -442,7 +442,7 @@ exports.endExploreCall = onCall({ region:'us-central1' }, async (req) => {
   }
 });
 
-exports.endExplore = onRequest({ region:'us-central1' }, async (req, res) => {
+exports.endExploreHttp = onRequest({ region:'us-central1' }, async (req, res) => {
   const origin = req.get('origin');
   const allow = new Set([
     'https://tale-of-heros---fangame.firebaseapp.com',
