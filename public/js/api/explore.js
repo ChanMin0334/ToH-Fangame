@@ -46,14 +46,6 @@ export async function serverStartBattle(runId){
 export const call = (name) => httpsCallable(func, name);
 
 
-export async function serverStartBattle(runId){
-  const { data } = await call('advStartBattleV2')({ runId });
-  if(!data?.ok) throw new Error('advStartBattleV2 실패');
-  return data.state;
-}
-
-
-
 export async function serverPrepareNext(runId){
   const { data } = await call('advPrepareNextV2')({ runId });
   if(!data?.ok) throw new Error('advPrepareNextV2 실패');
