@@ -380,8 +380,8 @@ async function sellItemsCore(uid, data) {
 
       // 판매 가격 정책
       const prices = {
-        consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100 },
-        non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200 }
+        consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100, aether: 250 },
+        non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200, aether: 500 }
       };
 
       const itemsToKeep = [];
