@@ -158,6 +158,7 @@ async function renderShop_Sell(root, c) {
       epic:   { bg: 'rgba(157,91,255,.12)', border: '#7e5cff', text: '#e6dcff' },
       legend: { bg: 'rgba(255,191,73,.12)', border: '#f3c34f', text: '#ffe9ad' },
       myth:   { bg: 'rgba(255,91,102,.12)', border: '#ff5b66', text: '#ffc9ce' },
+      aether: { bg: 'rgba(200, 180, 255, 0.1)', border: '#c792ea', text: '#f8f8f2' },
     };
     return map[r] || map.normal;
   };
