@@ -245,7 +245,7 @@ export async function showExploreRun() {
     showLoading(true, '선택지 적용 중...');
     try {
       const result = await serverApplyChoice(state.id, index); // ✅ 서버에서 이벤트 반영
-      state = result.state;
+      state = { ...state, ...result.state }; // 💥 해결책: 기존 state와 새 state를 병합합니다.
 
       if (result.battle) {
         // 서버가 battle_pending 세팅함
