@@ -9,6 +9,8 @@ const { initializeApp } = require('firebase-admin/app');
 const crypto = require('crypto');
 const { Timestamp, FieldValue, FieldPath } = require('firebase-admin/firestore');
 
+const { defineSecret } = require('firebase-functions/params');
+const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
 
 
 
@@ -477,6 +479,35 @@ exports.sellItemsHttp = onRequest({ region: 'us-central1' }, async (req, res) =>
     res.status(500).json({ ok: false, error: e?.message || 'internal' });
   }
 });
+
+exports.aiGenerate = onRequest({ region: 'us-central1', secrets: [GEMINI_API_KEY] }, async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(204).send('');
+
+  try{
+    const { model, systemText, userText, temperature, maxOutputTokens } = req.body || {};
+    if(!model || !systemText) return res.status(400).json({ error:'bad-args' });
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY.value()}`;
+    const body = {
+      contents: [{ role: 'user', parts: [{ text: `${systemText}\n\n${userText||''}` }]}],
+      generationConfig: { temperature: temperature ?? 0.9, maxOutputTokens: maxOutputTokens ?? 8192 },
+      safetySettings: []
+    };
+
+    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const j = await r.json();
+    const text = j?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+    return res.json({ text });
+  }catch(e){
+    console.error('[aiGenerate]', e);
+    return res.status(500).json({ error: String(e?.message||e) });
+  }
+});
+
+
 
 // Cloud Functions for Firebase (Gen1/Gen2 상관없음 — HTTP 함수)
 // package.json: "firebase-admin", "firebase-functions" 필요
