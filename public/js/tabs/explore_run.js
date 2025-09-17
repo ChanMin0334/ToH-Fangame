@@ -61,10 +61,10 @@ function renderHeader(box, run){
     <div class="kv-card" style="margin-top:8px">
       <div class="row" style="gap:10px;align-items:center">
         <div style="flex:1">체력</div>
-        <div class="text-dim" style="font-size:12px">${run.stamina}/${run.stamina_start}</div>
+        <div class="text-dim" style="font-size:12px">${run.staminaNow}/${run.staminaStart}</div>
       </div>
       <div style="height:10px;border:1px solid #273247;border-radius:999px;overflow:hidden;background:#0d1420;margin-top:6px">
-        <div style="height:100%;width:${Math.max(0, Math.min(100, (run.stamina/run.stamina_start)*100))}%;
+        <div style="height:100%;width:${Math.max(0, Math.min(100, (run.staminaNow/run.staminaStart)*100))}%;
                     background:linear-gradient(90deg,#4ac1ff,#7a9bff,#c2b5ff)"></div>
       </div>
     </div>
@@ -220,7 +220,7 @@ function showExploreRun(){
 
   // 다음 턴 준비(서버 호출)
   const prepareNextTurn = async () => {
-    if (!state || state.status === 'ended') return;
+    if (!state || state.status === 'done') return;
     showLoading(true, '다음 턴 준비 중…');
     try {
       const { data } = await callStepExplore({ runId });
