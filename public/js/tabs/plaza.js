@@ -4,7 +4,7 @@ import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/fireba
 import { showToast } from '../ui/toast.js';
 import { getUserInventory } from '../api/user.js';
 import { uploadGuildBadgeSquare, createGuild, fetchMyChars } from '../api/store.js';
-
+import { rarityStyle } from './char.js'; // [추가] char.js에서 rarityStyle 함수를 가져옵니다.
 
 
 /* (기존 esc 함수와 동일) */
@@ -148,20 +148,9 @@ function renderShop_Buy(root, c) {
 // [교체] 판매 탭 화면 (모든 기능 포함)
 async function renderShop_Sell(root, c) {
   // --- 판매 관련 헬퍼 함수 ---
-  const rarityOrder = ['myth', 'legend', 'epic', 'rare', 'normal'];
-  const rarityNames = { myth: '신화', legend: '레전드', epic: '유니크', rare: '레어', normal: '일반' };
+  const rarityOrder = ['aether', 'myth', 'legend', 'epic', 'rare', 'normal'];
+  const rarityNames = { aether: '에테' myth: '신화', legend: '레전드', epic: '유니크', rare: '레어', normal: '일반' };
   
-  const rarityStyle = (r) => {
-    const map = {
-      normal: { bg: 'rgba(255,255,255,0.03)', border: '#5f6673', text: '#c8d0dc' },
-      rare:   { bg: 'rgba(91,124,255,.12)', border: '#3b78cf', text: '#cfe4ff' },
-      epic:   { bg: 'rgba(157,91,255,.12)', border: '#7e5cff', text: '#e6dcff' },
-      legend: { bg: 'rgba(255,191,73,.12)', border: '#f3c34f', text: '#ffe9ad' },
-      myth:   { bg: 'rgba(255,91,102,.12)', border: '#ff5b66', text: '#ffc9ce' },
-      aether: { bg: 'rgba(200, 180, 255, 0.1)', border: '#c792ea', text: '#f8f8f2' },
-    };
-    return map[r] || map.normal;
-  };
 
   const calculatePrice = (item) => {
     const prices = {
@@ -233,10 +222,15 @@ async function renderShop_Sell(root, c) {
               ${rarityNames[rarity]} 등급
             </div>
             <div class="grid3" style="gap: 8px;">
-              ${groupedByRarity[rarity].map(item => `
-                <button class="kv-card item-sell-card ${selectedIds.has(item.id) ? 'selected' : ''}" data-item-id="${item.id}"
-                        style="border-left: 3px solid ${selectedIds.has(item.id) ? '#4aa3ff' : style.border}; text-align: left; padding: 8px;">
+              ${groupedByRarity[rarity].map(item => {
+                const isAether = (item.rarity || '').toLowerCase() === 'aether';
+                const borderStyle = isAether ? '' : `border-left: 3px solid ${selectedIds.has(item.id) ? '#4aa3ff' : style.border};`;
+                
+                return `
+                <button class="kv-card item-sell-card ${selectedIds.has(item.id) ? 'selected' : ''} ${isAether ? 'rarity-aether' : ''}" data-item-id="${item.id}"
+                        style="${borderStyle} text-align: left; padding: 8px;">
                   <div style="font-weight: 700; color:${style.text};">${esc(item.name)}</div>
+                `}).join('')}
                   <div class="text-dim" style="font-size: 12px;">판매가: 🪙 ${calculatePrice(item)}</div>
                 </button>
               `).join('')}
