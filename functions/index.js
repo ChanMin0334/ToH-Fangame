@@ -643,4 +643,8 @@ const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
 Object.assign(exports, guildFns);
 exports.kickGuildMember = guildFns.kickFromGuild;
 
+// === BEGIN PATCH: battle module export ===
+const battleFns = require('./battle'); // functions/battle/index.js
+Object.assign(exports, battleFns);
+// === END PATCH ===
 
