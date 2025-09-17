@@ -52,13 +52,14 @@ const RARITY_TABLES_BY_DIFFICULTY = {
     { upto: 980, rarity: 'legend' },
     { upto: 1000, rarity: 'myth'  },
   ],
-  // Legend: 20% / Rare: 40% / Epic: 25% / Legend: 10% / Myth: 5%
+  // Legend: 19.5% / Rare: 40% / Epic: 25% / Legend: 10% / Myth: 5% / Aether: 0.5%
   legend: [
-    { upto: 200, rarity: 'normal' },
-    { upto: 600, rarity: 'rare'   },
-    { upto: 850, rarity: 'epic'   },
-    { upto: 950, rarity: 'legend' },
-    { upto: 1000, rarity: 'myth'  },
+    { upto: 195, rarity: 'normal' },
+    { upto: 595, rarity: 'rare'   },
+    { upto: 845, rarity: 'epic'   },
+    { upto: 945, rarity: 'legend' },
+    { upto: 995, rarity: 'myth'  },
+    { upto: 1000, rarity: 'aether'  },
   ],
 };
 // ...
