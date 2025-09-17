@@ -149,7 +149,7 @@ function renderShop_Buy(root, c) {
 async function renderShop_Sell(root, c) {
   // --- 판매 관련 헬퍼 함수 ---
   const rarityOrder = ['aether', 'myth', 'legend', 'epic', 'rare', 'normal'];
-  const rarityNames = { aether: '에테' myth: '신화', legend: '레전드', epic: '유니크', rare: '레어', normal: '일반' };
+  const rarityNames = { aether: '에테르', myth: '신화', legend: '레전드', epic: '유니크', rare: '레어', normal: '일반' };
   
 
   const calculatePrice = (item) => {
@@ -230,10 +230,9 @@ async function renderShop_Sell(root, c) {
                 <button class="kv-card item-sell-card ${selectedIds.has(item.id) ? 'selected' : ''} ${isAether ? 'rarity-aether' : ''}" data-item-id="${item.id}"
                         style="${borderStyle} text-align: left; padding: 8px;">
                   <div style="font-weight: 700; color:${style.text};">${esc(item.name)}</div>
-                `}).join('')}
                   <div class="text-dim" style="font-size: 12px;">판매가: 🪙 ${calculatePrice(item)}</div>
                 </button>
-              `).join('')}
+              `}).join('')}
             </div>
           </div>
         `;
