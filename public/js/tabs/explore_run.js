@@ -8,9 +8,12 @@ import { showToast } from '../ui/toast.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 
 // ====== Cloud Functions 래퍼 ======
-const callStepExplore = (payload)  => httpsCallable(func, 'stepExplore')(payload);
-const callChoose      = (payload)  => httpsCallable(func, 'chooseExplore')(payload);
-const callEndExplore  = (payload)  => httpsCallable(func, 'endExplore')(payload);
+// 서버: stepExploreCall(Callable) + (선택) stepExploreHttp(HTTP)
+// 여기선 Callable 우선 사용
+const callStepExplore = (payload)  => httpsCallable(func, 'stepExploreCall')(payload);
+const callChoose      = (payload)  => httpsCallable(func, 'chooseExplore')(payload);   // 서버 이름 그대로면 유지
+const callEndExplore  = (payload)  => httpsCallable(func, 'endExploreCall')(payload);  // endExplore를 endExploreCall로 노출했다면 이렇게
+
 
 // ====== 상수 ======
 const STAMINA_MIN = 0;
@@ -61,10 +64,10 @@ function renderHeader(box, run){
     <div class="kv-card" style="margin-top:8px">
       <div class="row" style="gap:10px;align-items:center">
         <div style="flex:1">체력</div>
-        <div class="text-dim" style="font-size:12px">${run.stamina}/${run.stamina_start}</div>
+        <div class="text-dim" style="font-size:12px">${(run.staminaNow ?? run.stamina)}/${(run.staminaStart ?? run.stamina_start)}</div>
       </div>
       <div style="height:10px;border:1px solid #273247;border-radius:999px;overflow:hidden;background:#0d1420;margin-top:6px">
-        <div style="height:100%;width:${Math.max(0, Math.min(100, (run.stamina/run.stamina_start)*100))}%;
+        <div style="height:100%;width:${Math.max(0, Math.min(100, ((run.staminaNow ?? run.stamina)/(run.staminaStart ?? run.stamina_start))*100))}%;
                     background:linear-gradient(90deg,#4ac1ff,#7a9bff,#c2b5ff)"></div>
       </div>
     </div>
@@ -74,7 +77,7 @@ function renderHeader(box, run){
 // 이벤트 라인
 function eventLineHTML(ev){
   const kind = ev?.dice?.eventKind || ev?.kind || 'narrative';
-  const note = ev?.note || '이벤트가 발생했습니다.';
+  const note = ev?.desc || ev?.note || '이벤트가 발생했습니다.';
 
   const styleMap = {
     combat: { border: '#ff5b66', title: '전투 발생' },
@@ -164,12 +167,17 @@ function showExploreRun(){
       }
     } else {
       const lastEvent = events.slice(-1)[0];
-      narrativeEl.innerHTML = rt(lastEvent?.note || `당신은 ${esc(runState.site_name || runState.site_id || '장소')}에서 탐험을 시작했습니다…`);
+      narrativeEl.innerHTML = rt(
+        lastEvent?.desc || lastEvent?.note ||
+        `당신은 ${esc(runState.site_name || runState.site_id || '장소')}에서 탐험을 시작했습니다…`
+      );
+
       if (runState.battle_pending || runState.pending_battle) {
         choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end">
           <button class="btn" id="btnStartBattle">⚔️ 전투 시작</button>
         </div>`;
-      } else if (runState.status === 'ended') {
+      } else if (runState.status === 'done' || runState.status === 'ended') {
+
         choiceBox.innerHTML = `<div class="text-dim">탐험이 종료되었습니다.</div>`;
       } else {
         choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end">
@@ -220,7 +228,7 @@ function showExploreRun(){
 
   // 다음 턴 준비(서버 호출)
   const prepareNextTurn = async () => {
-    if (!state || state.status === 'ended') return;
+    if (!state || state.status === 'done' || state.status === 'ended') return;
     showLoading(true, '다음 턴 준비 중…');
     try {
       const { data } = await callStepExplore({ runId });
@@ -239,7 +247,7 @@ function showExploreRun(){
 
   // 선택 처리(서버 호출)
   const handleChoice = async (index) => {
-    if (!state || state.status === 'ended') return;
+    if (!state || state.status === 'done' || state.status === 'ended') return;
     showLoading(true, '선택지 처리 중…');
     try {
       const { data } = await callChoose({ runId, index });
@@ -263,7 +271,7 @@ function showExploreRun(){
 
   // 종료(서버 호출)
   const endRun = async (reason) => {
-    if (!state || state.status === 'ended') return;
+    if (!state || state.status === 'done' || state.status === 'ended') return;
     showLoading(true, '탐험 종료 중…');
     try {
       const { data } = await callEndExplore({ runId, reason });
