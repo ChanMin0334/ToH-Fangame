@@ -108,44 +108,112 @@ export async function hasActiveRunForChar(charId){
   return !s.empty;
 }
 
-// 서버 권위: 런 생성은 Cloud Functions 'startExplore'만 사용
 export async function createRun({ world, site, char }){
   const u = auth.currentUser;
-  if(!u) throw new Error('로그인이 필요해');
-
-  const { data } = await httpsCallable(func, 'startExplore')({
-    charId: char.id,
-    worldId: world.id,
-    siteId: site.id,
-    difficulty: site.difficulty || 'normal'
-  });
-
-  if (!data?.ok) {
-    // 쿨타임 등 사유 포함
-    throw new Error(data?.reason || '탐험 시작 실패');
+  if(!u) {
+    console.error('[explore] createRun called but auth.currentUser is null!');
+    throw new Error('인증 정보가 없습니다. 다시 로그인해주세요.');
   }
-  // 서버가 발급한 runId만 신뢰
-  return data.runId;
-}
 
-// 새 함수: 한 턴 진행 (서버 난수/검증)
-export async function stepRun({ runId }){
-  const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
-  const { data } = await httpsCallable(func, 'stepExplore')({ runId });
-  if (!data?.ok) throw new Error(data?.reason || '턴 진행 실패');
-  return data; // { ok, done, step, staminaNow, event }
+  // 이제 이 함수는 정상적으로 호출됩니다.
+  if(await hasActiveRunForChar(char.id)){
+    throw new Error('이미 진행 중인 탐험이 있어');
+  }
+
+
+
+  // --- Guild-based stamina bonus (미가입이면 0) ---
+  // --- 길드 보너스는 서버 계산값 사용(명예직/역할 모두 반영) ---
+  let staminaStart = STAMINA_BASE;
+  try{
+    const { data: gb } = await call('getGuildBuffsForChar')({ charId: char.id });
+    if (gb?.ok) {
+      staminaStart = Math.max(1, STAMINA_BASE + Number(gb.stamina_bonus || 0));
+    }
+  }catch(_){}
+
+
+
+  const payload = {
+    charRef: `chars/${char.id}`,
+    owner_uid: u.uid,
+    world_id: world.id, world_name: world.name,
+    site_id: site.id,   site_name: site.name,
+    difficulty: site.difficulty || 'normal',
+    startedAt: fx.serverTimestamp(),
+    stamina_start: staminaStart,
+    stamina: staminaStart,
+    turn: 0,
+    status: 'ongoing',
+    summary3: '',
+    prerolls: makePrerolls(50, 1000),
+    events: [],
+    rewards: []
+  };
+
+  let runRef;
+  try {
+    // 순차적 쓰기 (writeBatch 대안)
+    runRef = await fx.addDoc(fx.collection(db, 'explore_runs'), payload);
+
+    const charRef = fx.doc(db, 'chars', char.id);
+    await fx.updateDoc(charRef, { last_explore_startedAt: fx.serverTimestamp() });
+
+// 로그는 실패해도 진행되도록 별도 try
+    try {
+      await logInfo('explore', '탐험 시작', {
+        code: 'explore_start',
+        world: world.name || world.id,
+        site:  site.name  || site.id,
+        charId: char.id
+      }, `explore_runs/${runRef.id}`);
+    } catch (e) {
+      console.warn('[explore] start log skipped', e);
+    }
+
+  } catch (e) {
+    console.error('[explore] A critical error occurred during sequential write:', e);
+    throw new Error('탐험 시작에 실패했습니다. 잠시 후 다시 시도해주세요.');
+  }
+
+  applyCooldown(EXPLORE_COOLDOWN_KEY, EXPLORE_COOLDOWN_MS);
+
+  return runRef.id;
 }
 
 
 // (이하 endRun, rollStep 등 나머지 함수들은 변경사항 없음)
-// 서버 권위: 종료/보상 확정도 Cloud Functions 'endExplore'만 사용
-export async function endRun({ runId, reason = 'ended' }){
+export async function endRun({ runId, reason='ended' }){
+  
+
   const u = auth.currentUser; if(!u) throw new Error('로그인이 필요해');
-  const { data } = await httpsCallable(func, 'endExplore')({ runId });
-  if (!data?.ok) throw new Error(data?.reason || '탐험 종료 실패');
+  const ref = fx.doc(db,'explore_runs', runId);
+  const s = await fx.getDoc(ref);
+  if(!s.exists()) throw new Error('런이 없어');
+  const r = s.data();
+  try {
+    await logInfo('explore', `탐험 종료: ${reason}`, {
+      code: 'explore_end',
+      runId,
+      world: r.world_name || r.world_id,
+      site:  r.site_name  || r.site_id
+    }, `explore_runs/${runId}`);
+  } catch (e) {
+    console.warn('[explore] end log skipped', e);
+  }
+
+  
+  if(r.owner_uid !== u.uid) throw new Error('소유자가 아니야');
+  if(r.status !== 'ongoing') return true;
+
+  await fx.updateDoc(ref, {
+    status: 'ended',
+    endedAt: fx.serverTimestamp(),
+    reason,
+    updatedAt: fx.serverTimestamp()
+  });
   return true;
 }
-
 
 export async function getActiveRun(runId){
   const ref = fx.doc(db,'explore_runs', runId);
