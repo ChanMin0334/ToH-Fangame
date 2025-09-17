@@ -609,7 +609,8 @@ async function openItemPicker(c, onSave) {
               const style = rarityStyle(item.rarity);
               const isSelected = selectedIds.includes(item.id);
               return `
-                <div class="kv-card item-picker-card ${isSelected ? 'selected' : ''}" data-item-id="${item.id}" style="padding:10px; border: 2px solid ${isSelected ? '#4aa3ff' : 'transparent'}; cursor:pointer;">
+                  <div class="kv-card item-picker-card ${(item.rarity||'').toLowerCase()==='aether' ? 'rarity-aether' : ''} ${isSelected ? 'selected' : ''}" data-item-id="${item.id}" style="padding:10px; border: 2px solid ${isSelected ? '#4aa3ff' : 'transparent'}; cursor:pointer;">
+
                   <div style="font-weight:700; color: ${style.text}; pointer-events:none;">${esc(item.name)}</div>
                   <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden; pointer-events:none;">${esc(item.desc_soft || item.desc || item.description || (item.desc_long ? String(item.desc_long).split('\n')[0] : '-') )}</div>
                 </div>
@@ -662,6 +663,7 @@ async function openItemPicker(c, onSave) {
 
 // 스킬/아이템 탭
 async function renderLoadout(c, view){
+    ensureItemCss(); // aether 무지개 CSS를 로드아웃 진입 시 바로 주입
   const isOwner = auth.currentUser && auth.currentUser.uid === c.owner_uid;
 
   const abilitiesAll = Array.isArray(c.abilities_all) ? c.abilities_all : [];
