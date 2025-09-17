@@ -4,8 +4,8 @@ import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/fireba
 import { showToast } from '../ui/toast.js';
 import { getUserInventory } from '../api/user.js';
 import { uploadGuildBadgeSquare, createGuild, fetchMyChars } from '../api/store.js';
-import { rarityStyle } from './char.js'; // [추가] char.js에서 rarityStyle 함수를 가져옵니다.
 import { rarityStyle, ensureItemCss, esc } from './char.js';
+
 
 
 /* (기존 esc 함수와 동일) */
