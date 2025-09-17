@@ -279,50 +279,50 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
 });
 
 // === [탐험 한 턴 진행] onCall ===
-exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
-  const uid = req.auth?.uid;
-  if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
-  const { runId } = req.data||{};
-  if(!runId) throw new HttpsError('invalid-argument','runId 필요');
+// === [탐험 한 턴 진행] core & endpoints ===
+async function stepExploreCore(uid, runId) {
+  if (!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
+  if (!runId) throw new HttpsError('invalid-argument','runId 필요');
 
   const runRef = db.doc(`explore_runs/${runId}`);
   const snap = await runRef.get();
-  if(!snap.exists) throw new HttpsError('not-found','run 없음');
-  const r = snap.data()||{};
-  if (r.owner_uid !== uid) throw new HttpsError('permission-denied', '내 진행만 가능');
+  if (!snap.exists) throw new HttpsError('not-found','run 없음');
+
+  const r = snap.data() || {};
+  if (r.owner_uid !== uid) throw new HttpsError('permission-denied','내 진행만 가능');
+
+  // 하위호환: ongoing 허용 + 최초 호출 시 running 승격
   if (!(r.status === 'running' || r.status === 'ongoing')) {
-  return { ok:false, reason:'not-running' };
+    return { ok:false, reason:'not-running' };
   }
-   if (r.status === 'ongoing') {
+  if (r.status === 'ongoing') {
     await runRef.update({ status: 'running', updatedAt: Timestamp.now() });
-    r.status = 'running';
   }
 
-
-  const DC = EXPLORE_CONFIG.diff[r.difficulty] || EXPLORE_CONFIG.diff.normal;
+  const DC   = EXPLORE_CONFIG.diff[r.difficulty] || EXPLORE_CONFIG.diff.normal;
   const kind = pickByProb(DC.prob);
   const roll = 1 + Math.floor(Math.random()*100);
   const rnd  = (a,b)=> a + Math.floor(Math.random()*(b-a+1));
 
-  let delta = 0, text='';
-  if (kind==='calm'){   delta=-1;                text='고요한 이동… 체력 -1'; }
-  else if (kind==='find'){ delta=-1;             text='무언가를 발견했어! (임시 보상 후보) 체력 -1'; }
-  else if (kind==='trap'){ delta= -rnd(DC.trap[0],   DC.trap[1]); text=`함정! 체력 ${delta}`; }
-  else if (kind==='rest'){ delta=  rnd(DC.rest[0],   DC.rest[1]); text=`짧은 휴식… 체력 +${delta}`; }
+  let delta = 0, text = '';
+  if (kind==='calm'){   delta=-1;                             text='고요한 이동… 체력 -1'; }
+  else if (kind==='find'){ delta=-1;                          text='무언가를 발견했어! (임시 보상 후보) 체력 -1'; }
+  else if (kind==='trap'){ delta= -rnd(DC.trap[0], DC.trap[1]);text=`함정! 체력 ${delta}`; }
+  else if (kind==='rest'){ delta=  rnd(DC.rest[0], DC.rest[1]);text=`짧은 휴식… 체력 +${delta}`; }
   else if (kind==='battle'){delta= -rnd(DC.battle[0], DC.battle[1]); text=`소규모 교전! 체력 ${delta}`; }
 
   const sNow   = (r.staminaNow   ?? r.stamina   ?? EXPLORE_CONFIG.staminaStart);
   const sStart = (r.staminaStart ?? r.stamina_start ?? EXPLORE_CONFIG.staminaStart);
-  // sStart는 여기서 바로 쓰진 않지만, 필요하면 사용할 수 있도록 남겨둠
   const staminaNow = clamp(sNow + delta, 0, 999);
 
   const turn = (r.turn|0) + 1;
-  const ev = { step:turn, kind, deltaStamina:delta, desc:text, roll:{d:'d100', value:roll}, ts: nowTs() };
-  const willEnd = staminaNow<=0;
+  const ev = { step:turn, kind, deltaStamina:delta, desc:text, roll:{d:'d100', value:roll}, ts: Timestamp.now() };
+  const willEnd = staminaNow <= 0;
 
-  const { FieldValue, Timestamp } = require('firebase-admin/firestore');
   await runRef.update({
-    staminaNow, turn,
+    staminaNow,
+    staminaStart: sStart,
+    turn,
     events: FieldValue.arrayUnion(ev),
     status: willEnd ? 'done' : 'running',
     endedAt: willEnd ? Timestamp.now() : FieldValue.delete(),
@@ -330,23 +330,70 @@ exports.stepExplore = onCall({ region:'us-central1' }, async (req)=>{
   });
 
   return { ok:true, done:willEnd, step:turn, staminaNow, event: ev };
+}
+
+// (A) 최신 앱에서 httpsCallable로 부르는 엔드포인트 (이름 변경)
+exports.stepExploreCall = onCall({ region:'us-central1' }, async (req) => {
+  try {
+    return await stepExploreCore(req.auth?.uid, req.data?.runId);
+  } catch (err) {
+    logger.error('[stepExploreCall] fail', err);
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal','step-internal-error',{ message: err?.message || String(err) });
+  }
 });
 
+// (B) 구/직접 HTTP 호출을 위한 엔드포인트 (프론트가 /stepExplore 로 POST하는 경우)
+exports.stepExplore = onRequest({ region:'us-central1' }, async (req, res) => {
+  // CORS (sellItemsHttp와 동일 허용 목록 사용)
+  const origin = req.get('origin');
+  const allow = new Set([
+    'https://tale-of-heros---fangame.firebaseapp.com',
+    'https://tale-of-heros---fangame.web.app',
+    'http://localhost:5000',
+    'http://localhost:5173'
+  ]);
+  if (origin && allow.has(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Vary', 'Origin');
+    res.set('Access-Control-Allow-Credentials', 'true');
+  }
+  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).send('');
+  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method Not Allowed' });
+
+  try {
+    // Authorization: Bearer <idToken> 지원 (있으면 검증)
+    let uid = null;
+    const authHeader = req.get('Authorization') || '';
+    if (authHeader.startsWith('Bearer ')) {
+      const idToken = authHeader.slice(7);
+      const decoded = await admin.auth().verifyIdToken(idToken);
+      uid = decoded.uid;
+    }
+    const runId = (req.body && req.body.runId) || null;
+    const result = await stepExploreCore(uid, runId);
+    return res.json(result);
+  } catch (err) {
+    logger.error('[stepExplore HTTP] fail', err);
+    // HTTP는 200에 에러바디 내려도 되고, 4xx/5xx 내려도 됨. 기존 service.ts 기대치에 맞춰 200으로 통일.
+    return res.status(200).json({ ok:false, error: err?.message || 'internal' });
+  }
+});
+
+
 // === [탐험 종료 & 보상 확정] onCall ===
-exports.endExplore = onCall({ region:'us-central1' }, async (req)=>{
-  const uid = req.auth?.uid;
-  if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
-  const { runId } = req.data||{};
-  if(!runId) throw new HttpsError('invalid-argument','runId 필요');
+// core 로직은 현재 onCall 본문을 그대로 함수로 빼면 돼
+async function endExploreCore(uid, runId) {
+  if (!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
+  if (!runId) throw new HttpsError('invalid-argument','runId 필요');
 
   const runRef = db.doc(`explore_runs/${runId}`);
   const snap = await runRef.get();
-  if(!snap.exists) throw new HttpsError('not-found','run 없음');
-  const r = snap.data()||{};
+  if (!snap.exists) throw new HttpsError('not-found','run 없음');
+  const r = snap.data() || {};
   if (r.owner_uid !== uid) throw new HttpsError('permission-denied','내 진행만 가능');
-
-  const charId = (r.charRef||'').replace('chars/','');
-  const charRef = db.doc(`chars/${charId}`);
 
   const CFG = EXPLORE_CONFIG, DC = CFG.diff[r.difficulty] || CFG.diff.normal;
   const turns = (r.turn|0);
@@ -354,10 +401,9 @@ exports.endExplore = onCall({ region:'us-central1' }, async (req)=>{
   let exp = Math.round(CFG.exp.basePerTurn * turns * DC.rewardMult * runMult);
   exp = clamp(exp, CFG.exp.min, CFG.exp.max);
 
-  const { Timestamp, FieldValue } = require('firebase-admin/firestore');
   const itemRef = db.collection('char_items').doc();
   const itemPayload = {
-    owner_uid: uid,
+    owner_uid: r.owner_uid,
     char_id: r.charRef,
     item_name: '탐험 더미 토큰',
     rarity: 'common',
@@ -372,25 +418,64 @@ exports.endExplore = onCall({ region:'us-central1' }, async (req)=>{
     tx.update(runRef, {
       status: 'done',
       endedAt: Timestamp.now(),
-      ended: true, // 레거시 UI 대비
-      rewards: {
-        exp,
-        items: [{ id: itemRef.id, rarity: itemPayload.rarity, name: itemPayload.item_name }]
-      },
+      ended: true,
+      rewards: { exp, items:[{ id:itemRef.id, rarity:itemPayload.rarity, name:itemPayload.item_name }] },
       updatedAt: Timestamp.now()
     });
-
-
-    // EXP→코인 민팅 (캐릭 exp는 0~99로, 유저 지갑 coins는 +minted)
-    const result = await mintByAddExp(tx, charRef, exp, `explore:${runRef.id}`);
-
-    // 진행중 플래그 해제
+    const charId = (r.charRef||'').replace('chars/','');
+    const charRef = db.doc(`chars/${charId}`);
+    await mintByAddExp(tx, charRef, exp, `explore:${runRef.id}`);
     tx.update(charRef, { explore_active_run: FieldValue.delete() });
-
   });
 
   return { ok:true, exp, itemId: itemRef.id };
+}
+
+exports.endExploreCall = onCall({ region:'us-central1' }, async (req) => {
+  try {
+    return await endExploreCore(req.auth?.uid, req.data?.runId);
+  } catch (err) {
+    logger.error('[endExploreCall] fail', err);
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal','end-internal-error',{ message: err?.message || String(err) });
+  }
 });
+
+exports.endExplore = onRequest({ region:'us-central1' }, async (req, res) => {
+  const origin = req.get('origin');
+  const allow = new Set([
+    'https://tale-of-heros---fangame.firebaseapp.com',
+    'https://tale-of-heros---fangame.web.app',
+    'http://localhost:5000',
+    'http://localhost:5173'
+  ]);
+  if (origin && allow.has(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Vary', 'Origin');
+    res.set('Access-Control-Allow-Credentials', 'true');
+  }
+  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).send('');
+  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method Not Allowed' });
+
+  try {
+    let uid = null;
+    const authHeader = req.get('Authorization') || '';
+    if (authHeader.startsWith('Bearer ')) {
+      const idToken = authHeader.slice(7);
+      const decoded = await admin.auth().verifyIdToken(idToken);
+      uid = decoded.uid;
+    }
+    const runId = (req.body && req.body.runId) || null;
+    const result = await endExploreCore(uid, runId);
+    return res.json(result);
+  } catch (err) {
+    logger.error('[endExplore HTTP] fail', err);
+    return res.status(200).json({ ok:false, error: err?.message || 'internal' });
+  }
+});
+
 
 // === [일반 EXP 지급 + 코인 민팅] onCall ===
 // 호출: httpsCallable('grantExpAndMint')({ charId, exp, note })
