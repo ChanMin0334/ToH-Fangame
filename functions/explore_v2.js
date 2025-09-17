@@ -308,7 +308,10 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
 
 // ... (advPrepareNextV2 함수 아래) ...
 
-  const advApplyChoiceV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
+// ANCHOR: functions/explore_v2.js -> advApplyChoiceV2 함수
+
+// entire function to be replaced
+const advApplyChoiceV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
     const uid = req.auth?.uid;
     if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
     const { runId, index } = req.data||{};
@@ -328,16 +331,12 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
     const chosenDice = pend.diceResults[idx];
     const chosenOutcome = pend.choice_outcomes[idx] || { event_type:'narrative' };
 
+    // 💥 AI가 생성한 '결과' 텍스트를 가져와 로그에 포함
     const resultText = String(chosenOutcome.result_text || '아무 일도 일어나지 않았다.').trim();
     const narrativeLog = `${pend.narrative_text}\n\n[선택: ${pend.choices[idx] || ''}]\n→ ${resultText}`.trim().slice(0, 2300);
 
-    // 전투 발생: battle_pending 세팅하고 이벤트로도 남김(소모 0)
+    // 전투 발생 시
     if (chosenOutcome.event_type === 'combat'){
-    
-    const narrativeLog = `${pend.narrative_text}\n\n> ${pend.choices[idx] || ''}`.trim().slice(0, 2300);
-
-    if (chosenOutcome.event_type === 'combat'){
-      // (기존 전투 처리 로직은 변경 없음)
       const battleInfo = { enemy: chosenOutcome.enemy || { tier: (chosenDice?.combat?.enemyTier||'normal') }, narrative: narrativeLog };
       await ref.update({
         battle_pending: battleInfo,
@@ -355,6 +354,7 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       return { ok:true, state: fresh.data(), battle:true };
     }
 
+    // 아이템 지급(선택지에서 item 발생 시)
     let newItem = null;
     if (chosenOutcome.event_type === 'item' && chosenOutcome.item){
       newItem = {
@@ -363,18 +363,16 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2,9)
       };
     }
-    
-    // --- 💥 [추가] 아이템이 있으면 유저 인벤토리에 추가 ---
+
+    // 아이템이 있으면 유저 인벤토리에 추가
     if (newItem) {
       const userInvRef = db.collection('users').doc(uid);
       await userInvRef.update({
         items_all: FieldValue.arrayUnion(newItem)
       }).catch((e) => {
-        // 문서가 없는 경우 등 에러가 나도 탐험은 진행되도록 로깅만 처리
         logger.error(`[explore_v2] Failed to add item to user inventory for uid: ${uid}`, { error: e.message, newItem });
       });
     }
-    // --- 추가 끝 ---
 
     const delta = Number(chosenDice?.deltaStamina || 0);
     const staminaNow = Math.max(0, (run.stamina||0) + delta);
@@ -384,7 +382,7 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       events: FieldValue.arrayUnion({
         t: Date.now(),
         note: narrativeLog,
-        dice: { ...(chosenDice||{}), ...(newItem? { item:newItem }: {}) },
+        dice: { ...(chosenDice||{}), ...(newItem ? { item:newItem } : {}) },
         deltaStamina: delta,
       }),
       summary3: (pend.summary3_update || run.summary3 || ''),
@@ -393,8 +391,8 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
     };
     await ref.update(updates);
 
+    // 체력 소진 시 종료
     if (staminaNow <= 0){
-      // (기존 체력 소진 로직은 변경 없음)
       await ref.update({
         status: 'ended',
         endedAt: Timestamp.now(),
