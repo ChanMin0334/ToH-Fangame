@@ -1,39 +1,62 @@
 // /public/js/tabs/explore_run.js
-import { db, auth, fx } from '../api/firebase.js';
-import { grantExp } from '../api/store.js';
-import { showToast } from '../ui/toast.js';
-import { requestAdventureNarrative } from '../api/ai.js';
-import { getCharForAI } from '../api/store.js';
-import { appendEvent, getActiveRun, rollThreeChoices } from '../api/explore.js';
+// 서버 권위 버전: 클라이언트는 Firestore에 직접 쓰지 않습니다.
+// - 턴 생성/선택/종료는 Cloud Functions(stepExplore / chooseExplore / endExplore)로만 수행
+// - 프리롤은 클라이언트에서 생성/소비하지 않으며, 서버가 즉석 난수로 처리합니다.
 
+import { db, auth, fx, func } from '../api/firebase.js';
+import { showToast } from '../ui/toast.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+
+// ====== Cloud Functions 래퍼 ======
+const callStepExplore = (payload)  => httpsCallable(func, 'stepExplore')(payload);
+const callChoose      = (payload)  => httpsCallable(func, 'chooseExplore')(payload);
+const callEndExplore  = (payload)  => httpsCallable(func, 'endExplore')(payload);
+
+// ====== 상수 ======
 const STAMINA_MIN = 0;
 
-// ---------- 유틸리티 함수 (전체 포함) ----------
-
-function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
-
-function rt(raw) {
+// ---------- 유틸리티 ----------
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function rt(raw){
   if (!raw) return '';
   let s = String(raw);
   s = esc(s);
   s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
   s = s.replace(/_(.+?)_/g, '<i>$1</i>');
-  s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
-  s = s.replace(/\n/g, '<br>');
+  s = s.replace(/(https?:\/\/[^\s)]+)(?=[)\s]|$)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
   return s;
 }
-
-function parseRunId(){
-  const h = location.hash || '';
-  const m = h.match(/^#\/explore-run\/([^/]+)/);
-  return m ? m[1] : null;
+function parseRunId() {
+  const h = String(location.hash || '');
+  // 지원: #/explore-run/<id>  또는  #/explore-run?id=<id>
+  const m = h.match(/#\/explore-run\/([^/?#]+)/) || h.match(/[?&]id=([^&#]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
 }
 
+// 로딩 오버레이
+function showLoading(on = true, msg = ''){
+  let ov = document.getElementById('toh-loading-overlay');
+  if (on) {
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'toh-loading-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);z-index:9999';
+      ov.innerHTML = '<div style="padding:12px 16px;border-radius:12px;background:#0b1220;border:1px solid #25324a;color:#cfe1ff;font-weight:700">로딩 중…</div>';
+      document.body.appendChild(ov);
+    }
+    if (msg) ov.firstChild.textContent = msg;
+  } else if (ov) {
+    ov.remove();
+  }
+}
+
+// 헤더 UI
 function renderHeader(box, run){
   box.innerHTML = `
     <div class="row" style="gap:8px;align-items:center">
       <button class="btn ghost" id="btnBack">← 탐험 선택으로</button>
-      <div style="font-weight:900">${esc(run.world_name||run.world_id)} / ${esc(run.site_name||run.site_id)}</div>
+      <div style="font-weight:900">${esc(run.world_name||run.world_id||'세계')} / ${esc(run.site_name||run.site_id||'장소')}</div>
+      <div class="text-dim" style="margin-left:auto;font-size:12px">턴 ${run.turn ?? 0}</div>
     </div>
     <div class="kv-card" style="margin-top:8px">
       <div class="row" style="gap:10px;align-items:center">
@@ -48,10 +71,11 @@ function renderHeader(box, run){
   `;
 }
 
-function eventLineHTML(ev) {
-  const kind = ev.dice?.eventKind || ev.kind || 'narrative';
-  const note = ev.note || '이벤트가 발생했습니다.';
-  
+// 이벤트 라인
+function eventLineHTML(ev){
+  const kind = ev?.dice?.eventKind || ev?.kind || 'narrative';
+  const note = ev?.note || '이벤트가 발생했습니다.';
+
   const styleMap = {
     combat: { border: '#ff5b66', title: '전투 발생' },
     item:   { border: '#f3c34f', title: '아이템 발견' },
@@ -60,49 +84,24 @@ function eventLineHTML(ev) {
     narrative: { border: '#6e7b91', title: '이야기 진행' },
     'combat-retreat': { border: '#ff5b66', title: '후퇴' },
   };
-
   const { border, title } = styleMap[kind] || styleMap.narrative;
-  const formattedNote = esc(note).replace(/(\[선택:.*?\])/g, '<span style="color: #8c96a8;">$1</span>');
-
-  return `<div class="kv-card" style="border-left:3px solid ${border};padding-left:10px">
+  const formatted = esc(note).replace(/(\[선택:.*?\])/g, '<span style="color:#8c96a8">$1</span>');
+  return `
+    <div class="kv-card" style="border-left:3px solid ${border};padding-left:10px">
       <div style="font-weight:800">${title}</div>
-      <div class="text-dim" style="font-size:12px; white-space: pre-wrap; line-height: 1.6;">${formattedNote}</div>
-    </div>`;
+      <div class="text-dim" style="font-size:12px;white-space:pre-wrap;line-height:1.6">${formatted}</div>
+    </div>
+  `;
 }
 
-function calcRunExp(run) {
-  const turn = run.turn || 0;
-  const events = run.events || [];
-  const chestCnt = events.filter(e => e.dice?.eventKind === 'chest').length;
-  const allyCnt  = events.filter(e => e.dice?.eventKind === 'ally').length;
-  return Math.max(0, Math.round(turn * 1.5 + chestCnt + allyCnt));
-}
+// ====== 메인 ======
+function showExploreRun(){
+  // 기존 오버레이가 남아있으면 제거
+  const oldOverlay = document.getElementById('toh-loading-overlay');
+  if (oldOverlay) oldOverlay.remove();
 
-function showLoading(show = true, text = '불러오는 중...') {
-  let overlay = document.getElementById('toh-loading-overlay');
-  if (show) {
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'toh-loading-overlay';
-      overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:9999;color:white;`;
-      document.body.appendChild(overlay);
-    }
-    overlay.innerHTML = `<div>${text}</div>`;
-    overlay.style.display = 'flex';
-  } else {
-    if (overlay) overlay.style.display = 'none';
-  }
-}
+  showLoading(true, '탐험 정보 불러오는 중…');
 
-// ---------- 메인 로직 ----------
-
-export async function showExploreRun() {
-  const loadingOverlay = document.getElementById('toh-loading-overlay');
-  if (loadingOverlay) {
-    loadingOverlay.remove();
-  }
-
-  showLoading(true, '탐험 정보 확인 중...');
   const root = document.getElementById('view');
   const runId = parseRunId();
 
@@ -112,278 +111,216 @@ export async function showExploreRun() {
     return;
   }
 
-  // --- [수정된 로직 시작] ---
+  // 로컬 상태
+  let state = null;
+  let unsub = null;
 
-  let state = await getActiveRun(runId);
-  
-  // 1. 캐릭터 존재 여부 확인
-  const charId = state.charRef.split('/')[1];
-  const charSnap = await fx.getDoc(fx.doc(db, 'chars', charId));
-
-  if (!charSnap.exists()) {
-    showToast('탐험 중인 캐릭터가 삭제되어 탐험을 종료합니다.');
-    // endRun 함수를 직접 호출하여 탐험을 'char_deleted' 상태로 종료
-    await fx.updateDoc(fx.doc(db, 'explore_runs', runId), {
-      status: 'ended',
-      endedAt: fx.serverTimestamp(),
-      reason: 'char_deleted'
-    });
-    // 잠시 후 탐험 선택 화면으로 이동
-    setTimeout(() => location.hash = '#/adventure', 1500);
-    showLoading(false);
-    return;
-  }
-
-  
-  if (state.pending_battle) {
-    location.hash = `#/explore-battle/${runId}`;
-    return;
-  }
-
-  if (state.owner_uid !== auth.currentUser.uid) {
-    root.innerHTML = `<section class="container narrow"><div class="kv-card">이 탐험의 소유자가 아닙니다.</div></section>`;
-    showLoading(false);
-    return;
-  }
-
-  const worldsResponse = await fetch('/assets/worlds.json').catch(() => null);
-  const worldsData = worldsResponse ? await worldsResponse.json() : { worlds: [] };
-  const world = worldsData.worlds.find(w => w.id === state.world_id) || {};
-  const site = (world.detail?.sites || []).find(s => s.id === state.site_id) || {};
-
+  // 렌더
   const render = (runState) => {
     root.innerHTML = `
       <section class="container narrow">
         <div id="runHeader"></div>
+
         <div class="card p16 mt12">
           <div class="kv-label">서사</div>
           <div id="narrativeBox" style="white-space:pre-wrap; line-height:1.6; min-height: 60px;"></div>
           <div id="choiceBox" class="col mt12" style="gap:8px;"></div>
         </div>
+
         <div class="card p16 mt12">
-          <div class="kv-label">이동 로그 (${runState.turn}턴)</div>
-          <div id="logBox" class="col" style="gap:8px; max-height: 200px; overflow-y: auto;"></div>
+          <div class="kv-label">이동 로그 (${runState.turn ?? 0}턴)</div>
+          <div id="logBox" class="col" style="gap:8px; max-height: 240px; overflow-y: auto;"></div>
+        </div>
+
+        <div class="row mt12" style="gap:8px;justify-content:flex-end">
+          <button class="btn ghost" id="btnRetreat">🏳️ 후퇴</button>
+          <button class="btn" id="btnEnd">🛑 탐험 종료</button>
         </div>
       </section>
     `;
 
-    renderHeader(root.querySelector('#runHeader'), runState);
-    root.querySelector('#runHeader #btnBack').onclick = () => location.hash = '#/adventure';
-    root.querySelector('#logBox').innerHTML = (runState.events || []).slice().reverse().map(eventLineHTML).join('');
+    // Header
+    const headerBox   = root.querySelector('#runHeader');
+    const narrativeEl = root.querySelector('#narrativeBox');
+    const choiceBox   = root.querySelector('#choiceBox');
+    const logBox      = root.querySelector('#logBox');
 
-    const narrativeBox = root.querySelector('#narrativeBox');
-    const choiceBox = root.querySelector('#choiceBox');
-    
-    const pendingTurn = runState.pending_choices;
-    if (pendingTurn) {
-      narrativeBox.innerHTML = rt(pendingTurn.narrative_text);
-      choiceBox.innerHTML = pendingTurn.choices.map((label, index) =>
-        `<button class="btn choice-btn" data-index="${index}">${esc(label)}</button>`
-      ).join('');
+    renderHeader(headerBox, runState);
+
+    // 로그
+    const events = Array.isArray(runState.events) ? runState.events : [];
+    logBox.innerHTML = events.map(eventLineHTML).join('');
+
+    // 본문/선택지
+    const pending = runState.pending_choices || null;
+    if (pending) {
+      narrativeEl.innerHTML = rt(pending.narrative_text || '(다음 선택지를 골라 주세요)');
+      if (Array.isArray(pending.choices) && pending.choices.length) {
+        choiceBox.innerHTML = pending.choices.map((label, i) =>
+          `<button class="btn choice-btn" data-index="${i}">${esc(label)}</button>`
+        ).join('');
+      } else {
+        choiceBox.innerHTML = `<div class="text-dim">선택지가 없습니다.</div>`;
+      }
     } else {
-      const lastEvent = runState.events?.slice(-1)[0];
-      narrativeBox.innerHTML = rt(lastEvent?.note || `당신은 ${site.name} 에서의 탐험을 시작했습니다...`);
-      // [수정] 전투 대기 상태일 경우 '전투 시작' 버튼 표시
-      if (runState.battle_pending) {
-        choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn" id="btnStartBattle">⚔️ 전투 시작</button></div>`;
+      const lastEvent = events.slice(-1)[0];
+      narrativeEl.innerHTML = rt(lastEvent?.note || `당신은 ${esc(runState.site_name || runState.site_id || '장소')}에서 탐험을 시작했습니다…`);
+      if (runState.battle_pending || runState.pending_battle) {
+        choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end">
+          <button class="btn" id="btnStartBattle">⚔️ 전투 시작</button>
+        </div>`;
       } else if (runState.status === 'ended') {
         choiceBox.innerHTML = `<div class="text-dim">탐험이 종료되었습니다.</div>`;
       } else {
-        choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end;"><button class="btn ghost" id="btnGiveUp">탐험 포기</button><button class="btn" id="btnMove">계속 탐험</button></div>`;
+        choiceBox.innerHTML = `<div class="row" style="gap:8px;justify-content:flex-end">
+          <button class="btn" id="btnNext">다음 턴 진행</button>
+        </div>`;
       }
     }
-    bindButtons(runState);
+
+    // 버튼 바인딩
+    bindButtons();
   };
 
-  const bindButtons = (runState) => {
-    if (runState.status !== 'ongoing') return;
-    
-    const btnStartBattle = root.querySelector('#btnStartBattle');
-    if (btnStartBattle) {
-      btnStartBattle.onclick = async () => {
-        showLoading(true, '전투 준비 중...');
-        await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-          pending_battle: runState.battle_pending,
-          battle_pending: null,
-        });
-        location.hash = `#/explore-battle/${state.id}`;
-      };
-      return; // 전투 대기 중에는 다른 버튼(탐험 계속 등)은 비활성화
-    }
-    
-    if (runState.pending_choices) {
-      root.querySelectorAll('.choice-btn').forEach(btn => {
-        btn.onclick = () => handleChoice(parseInt(btn.dataset.index, 10));
+  // 버튼 바인딩
+  const bindButtons = () => {
+    const btnBack        = document.getElementById('btnBack');
+    const btnNext        = document.getElementById('btnNext');
+    const btnStartBattle = document.getElementById('btnStartBattle');
+    const btnEnd         = document.getElementById('btnEnd');
+    const btnRetreat     = document.getElementById('btnRetreat');
+
+    btnBack && (btnBack.onclick = () => location.hash = '#/adventure');
+
+    // 선택 버튼들
+    root.querySelectorAll('.choice-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const index = Number(e.currentTarget.getAttribute('data-index'));
+        await handleChoice(index);
       });
-    } else {
-      const btnMove = root.querySelector('#btnMove');
-      if (btnMove) {
-        btnMove.disabled = runState.stamina <= STAMINA_MIN;
-        btnMove.onclick = prepareNextTurn;
-      }
-      const btnGiveUp = root.querySelector('#btnGiveUp');
-      if (btnGiveUp) btnGiveUp.onclick = () => endRun('giveup');
-    }
+    });
+
+    btnNext && (btnNext.onclick = async () => {
+      await prepareNextTurn();
+    });
+
+    btnStartBattle && (btnStartBattle.onclick = () => {
+      // 서버가 battle_pending을 세팅했을 때만 접근
+      location.hash = `#/explore-battle/${state.id}`;
+    });
+
+    btnEnd && (btnEnd.onclick = async () => {
+      await endRun('ended');
+    });
+
+    btnRetreat && (btnRetreat.onclick = async () => {
+      await endRun('retreated');
+    });
   };
 
+  // 다음 턴 준비(서버 호출)
   const prepareNextTurn = async () => {
-    showLoading(true, 'AI가 다음 상황을 생성 중...');
+    if (!state || state.status === 'ended') return;
+    showLoading(true, '다음 턴 준비 중…');
     try {
-      const { nextPrerolls, choices: diceResults } = rollThreeChoices(state);
-      state.prerolls = nextPrerolls;
-      const charInfo = await getCharForAI(state.charRef);
-      const originWorld = worldsData.worlds.find(w => w.id === charInfo.world_id);
-      charInfo.origin_world_info = originWorld ? `${originWorld.name} (${originWorld.intro})` : (charInfo.world_id || '알 수 없음');
-      const lastEvent = state.events?.slice(-1)[0];
-
-      const aiResponse = await requestAdventureNarrative({
-        character: charInfo, world: { name: world.name }, site: { name: site.name }, run: state, dices: diceResults,
-        equippedItems: charInfo.items_equipped || [],
-        prevTurnLog: lastEvent?.note || '(첫 턴)'
-      });
-      
-      const pendingTurnData = { ...aiResponse, diceResults };
-
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-        pending_choices: pendingTurnData,
-        prerolls: state.prerolls
-      });
-      state.pending_choices = pendingTurnData;
-
-      render(state);
+      const { data } = await callStepExplore({ runId });
+      if (!data?.ok) {
+        showToast(data?.reason || '턴 진행 실패');
+        return;
+      }
+      // 서버가 최신 상태를 써주므로, onSnapshot이 곧 갱신을 가져올 것
     } catch (e) {
-      console.error("AI 시나리오 생성 실패:", e);
-      showToast("오류: 시나리오를 생성하지 못했습니다.");
+      console.error('[explore] stepExplore failed', e);
+      showToast('턴 진행 중 오류가 발생했습니다.');
     } finally {
       showLoading(false);
     }
   };
 
-// /public/js/tabs/explore_run.js의 handleChoice 함수를 교체하세요.
-
+  // 선택 처리(서버 호출)
   const handleChoice = async (index) => {
-    showLoading(true, '선택지 처리 중...');
-    const pendingTurn = state.pending_choices;
-    if (!pendingTurn) {
+    if (!state || state.status === 'ended') return;
+    showLoading(true, '선택지 처리 중…');
+    try {
+      const { data } = await callChoose({ runId, index });
+      if (!data?.ok) {
+        showToast(data?.reason || '선택 처리 실패');
+        return;
+      }
+      // 전투 진입 신호가 있으면 화면 이동
+      if (data.gotoBattle || state?.battle_pending || state?.pending_battle) {
+        location.hash = `#/explore-battle/${runId}`;
+        return;
+      }
+      // 상태 갱신은 onSnapshot으로 처리
+    } catch (e) {
+      console.error('[explore] chooseExplore failed', e);
+      showToast('선택 처리 중 오류가 발생했습니다.');
+    } finally {
       showLoading(false);
-      showToast('오류: 선택지 정보가 없습니다. 다시 시도해주세요.');
-      // 상태를 초기화하고 다시 렌더링
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), { pending_choices: null });
-      state.pending_choices = null;
-      render(state);
-      return;
     }
-
-    const chosenDice = pendingTurn.diceResults[index];
-    const chosenOutcome = pendingTurn.choice_outcomes[index];
-    
-    // 1. 전투 발생 시 Firestore에 저장 후 이동 (새로고침 문제 해결)
-    if (chosenOutcome.event_type === 'combat') {
-      const battleInfo = {
-        enemy: chosenOutcome.enemy,
-        narrative: `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`
-      };
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-        pending_battle: battleInfo,
-        pending_choices: null, // 선택지 상태는 초기화
-        prerolls: state.prerolls // preroll 상태도 함께 저장
-      });
-      location.hash = `#/explore-battle/${state.id}`;
-      return; // 로딩은 전투 화면에서 해제
-    }
-
-    const narrativeLog = `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`;
-
-    // [수정] 전투 발생 시 바로 이동하지 않고, 로그만 기록하고 '전투 대기' 상태로 만듦
-    if (chosenOutcome.event_type === 'combat') {
-      const battleInfo = {
-        enemy: chosenOutcome.enemy,
-        narrative: narrativeLog // 전투 시작 서사를 battleInfo에 포함
-      };
-      // battle_pending 상태로 업데이트하고, 이벤트 로그를 추가
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-        battle_pending: battleInfo,
-        pending_choices: null,
-        prerolls: state.prerolls,
-        turn: state.turn + 1,
-        events: fx.arrayUnion({
-          t: Date.now(),
-          note: narrativeLog,
-          dice: chosenDice,
-          deltaStamina: 0, // 전투 돌입 자체는 스태미나 소모 없음
-        })
-      });
-      // 페이지를 새로고침하지 않고, 최신 상태를 다시 불러와 렌더링
-      state = await getActiveRun(state.id);
-      render(state);
-      showLoading(false);
-      return;
-    }
-    
-    let finalDice = { ...chosenDice };
-    let newItem = null;
-    if (chosenOutcome.event_type === 'item' && chosenOutcome.item) {
-        finalDice.item = { ...(chosenDice.item || {}), ...chosenOutcome.item };
-        newItem = finalDice.item;
-        
-        // 2. [핵심 수정] 아이템에 고유 ID 부여 (아이템 저장 문제 해결)
-        if (newItem) {
-          newItem.id = 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-        }
-    }
-
-    // 3. appendEvent 호출 시 newItem 전달
-    const newState = await appendEvent({
-      runId: state.id,
-      runBefore: state,
-      narrative: narrativeLog,
-      choices: pendingTurn.choices,
-      delta: finalDice.deltaStamina,
-      dice: finalDice,
-      summary3: pendingTurn.summary3_update,
-      newItem: newItem // ID가 부여된 아이템 전달
-    });
-    state = newState;
-
-    if (state.stamina <= STAMINA_MIN) {
-      await endRun('exhaust');
-    } else {
-      render(state);
-    }
-    showLoading(false);
   };
 
+  // 종료(서버 호출)
   const endRun = async (reason) => {
-    if (state.status !== 'ongoing') return;
-    showLoading(true, '탐험 종료 중...');
-    const baseExp = calcRunExp(state);
-    const cid = String(state.charRef || '').replace(/^chars\//, '');
+    if (!state || state.status === 'ended') return;
+    showLoading(true, '탐험 종료 중…');
     try {
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-        status: 'ended',
-        endedAt: fx.serverTimestamp(),
-        reason: reason,
-        exp_base: baseExp,
-        updatedAt: fx.serverTimestamp(),
-        pending_choices: null,
-        pending_battle: null,
-      });
-      state.status = 'ended'; 
-      if (baseExp > 0 && cid) {
-        await grantExp(cid, baseExp, 'explore', `site:${state.site_id}`);
+      const { data } = await callEndExplore({ runId, reason });
+      if (!data?.ok) {
+        showToast(data?.reason || '탐험 종료 실패');
+        return;
       }
       showToast('탐험이 종료되었습니다.');
-      render(state);
+      // 상태 갱신은 onSnapshot으로 처리
     } catch (e) {
-      console.error('[explore] endRun failed', e);
+      console.error('[explore] endExplore failed', e);
       showToast('탐험 종료 중 오류가 발생했습니다.');
     } finally {
       showLoading(false);
     }
   };
-  
-  render(state);
-  showLoading(false);
+
+  // 실시간 구독
+  try {
+    const ref = fx.doc(db, 'explore_runs', runId);
+    unsub = fx.onSnapshot(ref, (snap) => {
+      if (!snap.exists()) {
+        showToast('탐험 문서를 찾을 수 없습니다.');
+        root.innerHTML = `<section class="container narrow"><div class="kv-card">탐험이 존재하지 않거나 삭제되었습니다.</div></section>`;
+        showLoading(false);
+        if (unsub) unsub();
+        return;
+      }
+      const data = snap.data();
+      state = { id: snap.id, ...data };
+      // 소유자 검증
+      if (state.owner_uid && auth.currentUser && state.owner_uid !== auth.currentUser.uid) {
+        root.innerHTML = `<section class="container narrow"><div class="kv-card">이 탐험의 소유자가 아닙니다.</div></section>`;
+        showLoading(false);
+        if (unsub) unsub();
+        return;
+      }
+      render(state);
+      showLoading(false);
+    }, (err) => {
+      console.error('[explore] onSnapshot error', err);
+      showToast('탐험 정보를 불러오는 중 오류가 발생했습니다.');
+      showLoading(false);
+    });
+  } catch (e) {
+    console.error('[explore] subscribe failed', e);
+    showToast('탐험 정보를 불러올 수 없습니다.');
+    showLoading(false);
+  }
+
+  // 안전 종료
+  window.addEventListener('hashchange', () => {
+    const h = String(location.hash || '');
+    if (!h.startsWith('#/explore-run')) {
+      if (unsub) unsub();
+    }
+  });
 }
 
 export default showExploreRun;
