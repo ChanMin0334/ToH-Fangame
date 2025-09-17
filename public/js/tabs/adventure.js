@@ -546,7 +546,7 @@ function viewPrep(root, world, site, char){
           fx.collection(db,'explore_runs'),
           fx.where('owner_uid','==', auth.currentUser.uid),
           fx.where('charRef','==', `chars/${char.id}`),
-          fx.where('status','==','ongoing'),
+          fx.where('status','==','running'),
           fx.limit(1)
         );
         const s = await fx.getDocs(q);
@@ -605,7 +605,7 @@ function viewPrep(root, world, site, char){
       const q = fx.query(
         fx.collection(db, 'explore_runs'),
         fx.where('charRef', '==', `chars/${char.id}`),
-        fx.where('status', '==', 'ongoing'),
+        fx.where('status', '==', 'running'),
         fx.limit(1)
       );
       const s = await fx.getDocs(q);
