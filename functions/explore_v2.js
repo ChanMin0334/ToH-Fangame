@@ -108,26 +108,39 @@ function rollThreeChoices(run){
     const eventKind = pickEvent(run.difficulty || 'normal', r1.value);
     const dice = { eventKind, deltaStamina: 0 };
 
-    if(eventKind === 'safe'){
-      dice.deltaStamina = 0;
-    }else if(eventKind === 'narrative'){
-      dice.deltaStamina = -1;
-    }else if(eventKind === 'risk'){
-      dice.deltaStamina = -2;
-    }else if(eventKind === 'item'){
+    // --- 💥 [수정] 클라이언트의 동적 스태미나 계산 로직을 여기에 추가 ---
+    const diff = run.difficulty || 'normal';
+    const sRoll = popRoll({prerolls: next}); next = sRoll.next; // 스태미나용 주사위 하나 더 소모
+    const baseDelta = { safe:[0,1], item:[-1,-1], narrative:[-1,-1], risk:[-3,-1], combat:[-5,-2] }[eventKind] || [0,0];
+    const mul = { easy:.8, normal:1.0, hard:1.15, vhard:1.3, legend:1.5 }[diff] || 1.0;
+    const lo = Math.round(baseDelta[0]*mul), hi = Math.round(baseDelta[1]*mul);
+    const deltaStamina = (lo===hi) ? lo : (lo<0 ? -(((sRoll.value-1)%(-lo+ -hi+1)) + -hi) : ((sRoll.value-1)%(hi-lo+1))+lo);
+    dice.deltaStamina = deltaStamina;
+    // --- 수정 끝 ---
+
+    if(eventKind === 'item'){
       const rrar = popRoll({prerolls: next}); next = rrar.next;
-      const row = pickByTable(rrar.value, RARITY_TABLES_BY_DIFFICULTY[run.difficulty||'normal'] || RARITY_TABLES_BY_DIFFICULTY.normal);
-      dice.item = { rarity: row.rarity, isConsumable: true, uses: 1 };
-      dice.deltaStamina = -1;
+      const row = pickByTable(rrar.value, RARITY_TABLES_BY_DIFFICULTY[diff] || RARITY_TABLES_BY_DIFFICULTY.normal);
+      
+      // --- 💥 [수정] 클라이언트의 아이템 속성 결정 로직 추가 ---
+      const isConsumable = (popRoll({prerolls: next}).value <= 7); // 70% 확률 (10면체 주사위)
+      next = popRoll({prerolls: next}).next; // 주사위 소모
+      const uses = isConsumable ? (popRoll({prerolls: next}).value % 3) + 1 : 1; // 소모성이면 1~3회
+      next = popRoll({prerolls: next}).next; // 주사위 소모
+
+      dice.item = { rarity: row.rarity, isConsumable, uses };
+      // --- 수정 끝 ---
+
     }else if(eventKind === 'combat'){
       const rc = popRoll({prerolls: next}); next = rc.next;
-      dice.combat = { enemyTier: pickCombatTier(run.difficulty||'normal', rc.value) };
-      dice.deltaStamina = 0; // 전투 진입 자체는 소모 없음(서사 처리 후)
+      dice.combat = { enemyTier: pickCombatTier(diff, rc.value) };
+      dice.deltaStamina = 0; // 전투 진입 자체는 소모 없음
     }
     out.push(dice);
   }
   return { choices: out, nextPrerolls: next };
 }
+
 
 // ---- 프롬프트 로딩 + Gemini 호출 ----
 async function loadPrompt(db, id='adventure_narrative_system'){
@@ -265,6 +278,111 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
 
     return { ok:true, pending };
   });
+
+
+// ANCHOR: functions/explore_v2.js
+
+// ... (advPrepareNextV2 함수 아래) ...
+
+  const advApplyChoiceV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
+    const uid = req.auth?.uid;
+    if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
+    const { runId, index } = req.data||{};
+    const idx = Number(index);
+    if(!runId || !Number.isFinite(idx) || idx<0 || idx>2) throw new HttpsError('invalid-argument','index 0..2');
+
+    const ref = db.collection('explore_runs').doc(runId);
+    const s = await ref.get();
+    if(!s.exists) throw new HttpsError('not-found','런 없음');
+    const run = s.data();
+    if(run.owner_uid !== uid) throw new HttpsError('permission-denied','소유자 아님');
+    if(run.status !== 'ongoing') throw new HttpsError('failed-precondition','이미 종료됨');
+
+    const pend = run.pending_choices;
+    if(!pend) throw new HttpsError('failed-precondition','대기 선택 없음');
+
+    const chosenDice = pend.diceResults[idx];
+    const chosenOutcome = pend.choice_outcomes[idx] || { event_type:'narrative' };
+
+    const narrativeLog = `${pend.narrative_text}\n\n> ${pend.choices[idx] || ''}`.trim().slice(0, 2300);
+
+    if (chosenOutcome.event_type === 'combat'){
+      // (기존 전투 처리 로직은 변경 없음)
+      const battleInfo = { enemy: chosenOutcome.enemy || { tier: (chosenDice?.combat?.enemyTier||'normal') }, narrative: narrativeLog };
+      await ref.update({
+        battle_pending: battleInfo,
+        pending_choices: null,
+        turn: (run.turn||0)+1,
+        events: FieldValue.arrayUnion({
+          t: Date.now(),
+          note: narrativeLog,
+          dice: chosenDice,
+          deltaStamina: 0
+        }),
+        updatedAt: Timestamp.now()
+      });
+      const fresh = await ref.get();
+      return { ok:true, state: fresh.data(), battle:true };
+    }
+
+    let newItem = null;
+    if (chosenOutcome.event_type === 'item' && chosenOutcome.item){
+      newItem = {
+        ...(chosenDice?.item||{}),
+        ...chosenOutcome.item,
+        id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2,9)
+      };
+    }
+    
+    // --- 💥 [추가] 아이템이 있으면 유저 인벤토리에 추가 ---
+    if (newItem) {
+      const userInvRef = db.collection('users').doc(uid);
+      await userInvRef.update({
+        items_all: FieldValue.arrayUnion(newItem)
+      }).catch((e) => {
+        // 문서가 없는 경우 등 에러가 나도 탐험은 진행되도록 로깅만 처리
+        logger.error(`[explore_v2] Failed to add item to user inventory for uid: ${uid}`, { error: e.message, newItem });
+      });
+    }
+    // --- 추가 끝 ---
+
+    const delta = Number(chosenDice?.deltaStamina || 0);
+    const staminaNow = Math.max(0, (run.stamina||0) + delta);
+    const updates = {
+      stamina: staminaNow,
+      turn: (run.turn||0)+1,
+      events: FieldValue.arrayUnion({
+        t: Date.now(),
+        note: narrativeLog,
+        dice: { ...(chosenDice||{}), ...(newItem? { item:newItem }: {}) },
+        deltaStamina: delta,
+      }),
+      summary3: (pend.summary3_update || run.summary3 || ''),
+      pending_choices: null,
+      updatedAt: Timestamp.now()
+    };
+    await ref.update(updates);
+
+    if (staminaNow <= 0){
+      // (기존 체력 소진 로직은 변경 없음)
+      await ref.update({
+        status: 'ended',
+        endedAt: Timestamp.now(),
+        reason: 'exhaust',
+        pending_battle: null,
+        pending_choices: null,
+        updatedAt: Timestamp.now()
+      });
+      const endSnap = await ref.get();
+      return { ok:true, state: endSnap.data(), done:true };
+    }
+
+    const snap = await ref.get();
+    return { ok:true, state: snap.data(), battle:false, done:false };
+  });
+
+// ... (파일 끝까지) ...
+  
 
   const advApplyChoiceV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
     const uid = req.auth?.uid;
