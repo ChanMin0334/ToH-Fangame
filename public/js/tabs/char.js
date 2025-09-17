@@ -106,7 +106,7 @@ export function ensureItemCss() {
   .item-card { transition: box-shadow .18s ease, transform .18s ease, filter .18s ease; will-change: transform, box-shadow; outline: none; }
   /* 공통 아이템 카드 베이스 */
 .kv-card.item-card{
-  border:1px solid #fff;
+  border:1px solid #273247;
   border-radius:12px;
   background:rgba(255,255,255,.03);
   padding:10px;
