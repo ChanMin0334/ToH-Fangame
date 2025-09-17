@@ -46,23 +46,7 @@ export async function serverStartBattle(runId){
 export const call = (name) => httpsCallable(func, name);
 
 
-export async function serverPrepareNext(runId){
-  const { data } = await call('advPrepareNextV2')({ runId });
-  if(!data?.ok) throw new Error('advPrepareNextV2 실패');
-  return data.pending;
-}
 
-export async function serverApplyChoice(runId, index){
-  const { data } = await call('advApplyChoiceV2')({ runId, index });
-  if(!data?.ok) throw new Error('advApplyChoiceV2 실패');
-  return data; // { ok, state, battle?, done? }
-}
-
-export async function serverEndRun(runId, reason='ended'){
-  const { data } = await call('endExploreV2')({ runId, reason });
-  if(!data?.ok) throw new Error('endExploreV2 실패');
-  return data.state;
-}
 
 // 진행 중인 내 탐험 1개 찾기
 export async function findMyActiveRun(){
