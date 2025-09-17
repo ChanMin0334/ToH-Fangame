@@ -6,7 +6,7 @@ import { logInfo, logError } from './logs.js';
 
 // 사용할 모델 목록 (RPM이 높은 순서대로 정렬)
 const MODEL_POOL = [
-  'gemini-2.0-flash-lite', // RPM 30 (가장 높음)
+  'gemini-2.5-flash-lite', // RPM 30 (가장 높음)
   'gemini-2.5-flash',      // RPM 10
 ];
 
