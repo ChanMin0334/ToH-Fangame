@@ -143,7 +143,7 @@ export function showItemDetailModal(item, context = {}) {
         </div>
         <button class="btn ghost" id="mCloseDetail">닫기</button>
       </div>
-      <div class="kv-card" style="padding:12px;">
+      <div class="kv-card ${(item.rarity||'').toLowerCase()==='aether' ? 'rarity-aether' : ''}" style="padding:12px;">
         <div style="font-size:14px; line-height:1.6;">${getItemDesc(item) || '상세 설명이 없습니다.'}</div>
         ${item.effects ? `<hr style="margin:12px 0; border-color:#273247;"><div class="kv-label">효과</div><div style="font-size:13px;">${getEffectsHtml(item)}</div>` : ''}
       </div>
@@ -684,7 +684,9 @@ async function renderLoadout(c, view){
       const borderStyle = isAether ? '' : `border-left: 3px solid ${style.border};`; // 에테르 등급은 CSS 클래스가 테두리를 처리하므로 인라인 스타일 제거
 
       return `
-        <button class="item ${isAether ? 'rarity-aether' : ''}" data-item-id="${it.id}" style="text-align:left; cursor:pointer; ${borderStyle} background:${style.bg};">
+        <button class="item ${isAether ? 'rarity-aether' : ''}" data-item-id="${it.id}"
+          style="text-align:left; cursor:pointer; ${borderStyle} ${isAether ? '' : `background:${style.bg};`}">
+
           <div class="name" style="color:${style.text}">${it.name || '아이템'}</div>
           <div class="desc" style="font-size:12px; opacity:0.8;">${esc(it.desc_soft || it.desc || it.description || (it.desc_long ? String(it.desc_long).split('\n')[0] : '-') )}</div>
         </button>`;
