@@ -1,835 +1,242 @@
- // functions/index.js
-const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
+/* === BEGIN: functions/battle/index.js === */
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
 try { admin.app(); } catch { admin.initializeApp(); }
 const db = admin.firestore();
-const { initializeApp } = require('firebase-admin/app');
 
-const crypto = require('crypto');
-const { Timestamp, FieldValue, FieldPath } = require('firebase-admin/firestore');
-
-const { defineSecret } = require('firebase-functions/params');
-const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
-
-
-
-// === [탐험 난이도/룰 테이블 & 헬퍼] ===
-const EXPLORE_CONFIG = {
-  staminaStart: 10,
-  exp: { basePerTurn: 6, min: 10, max: 120 },
-  diff: {
-    easy:  { rewardMult:1.0, prob:{calm:35, find:25, trap:10, rest:20, battle:10}, trap:[1,2], battle:[1,2], rest:[1,2] },
-    normal:{ rewardMult:1.2, prob:{calm:30, find:22, trap:18, rest:15, battle:15}, trap:[1,3], battle:[1,3], rest:[1,2] },
-    hard:  { rewardMult:1.4, prob:{calm:25, find:20, trap:25, rest:10, battle:20}, trap:[2,4], battle:[2,4], rest:[1,1] },
-    vhard: { rewardMult:1.6, prob:{calm:20, find:18, trap:30, rest: 8, battle:24}, trap:[2,5], battle:[3,5], rest:[1,1] },
-    legend:{ rewardMult:1.8, prob:{calm:15, find:15, trap:35, rest: 5, battle:30}, trap:[3,6], battle:[3,6], rest:[1,1] },
-  }
-};
-
-
-
-function isActiveStatus(s) { return s === 'running' || s === 'ongoing'; }
-function isDoneStatus(s)   { return s === 'done'    || s === 'ended'; }
-
-function normalizeStamina(run) {
-  const now   = (run.staminaNow   ?? run.stamina   ?? 0);
-  const start = (run.staminaStart ?? run.stamina_start ?? now);
-  return { now, start };
-}
-
-async function ensureRunning(db, runRef, run) {
-  if (run.status === 'ongoing') {
-    await runRef.update({ status: 'running', updatedAt: Timestamp.now() });
-    run.status = 'running';
-  }
-}
-
-function writeDonePayload(extra={}) {
-  const now = Timestamp.now();
-  return {
-    status: 'done',
-    updatedAt: now,
-    endedAt: now,     // 레거시 호환
-    ended: true,      // 레거시 호환: 있으면 true/없으면 무시
-    ...extra,
+/** ===== 내부 유틸 ===== */
+async function callGeminiServer(model, systemText, userText, temperature=0.6, maxOutputTokens=1200){
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: `${systemText}\n\n${userText}` }]}],
+    generationConfig: { temperature, maxOutputTokens }
   };
+  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  if(!res.ok){ throw new Error(`Gemini ${res.status}: ${(await res.text().catch(()=>''))}`); }
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+const tryJson = s => { try{ return JSON.parse(String(s||'').replace(/^```(?:json)?\s*/,'').replace(/```$/,'')); }catch{ return null; } };
+
+function extractCharTexts(ch){
+  const narr = Array.isArray(ch?.narratives) ? ch.narratives : [];
+  const first = narr[0] || {};
+  const char_min  = first.short || ch?.summary || ch?.name || '';
+  const char_full = [first.long || '', ch?.summary || ''].filter(Boolean).join('\n').trim();
+  return { char_min, char_full };
 }
 
-
-
-
-
-
-
-
-
-
-function pickByProb(prob){
-  const entries = Object.entries(prob);
-  const total = entries.reduce((s,[,p])=>s+p,0) || 1;
-  let r = Math.floor(Math.random()*total)+1;
-  for(const [k,p] of entries){ r-=p; if(r<=0) return k; }
-  return entries[0][0];
-}
-function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
-function nowTs(){ const { Timestamp } = require('firebase-admin/firestore'); return Timestamp.now(); }
-function coolMillis(ts){ try{ return ts?.toMillis?.()||0; }catch{ return 0; } }
-
-
-
-// 캐릭 EXP에 addExp 더하고, 100단위로 코인을 민팅하여 "소유 유저" 지갑에 적립한다.
-// 결과적으로 캐릭 문서에는 exp(0~99), exp_total(누적), updatedAt 이 반영된다.
-async function mintByAddExp(tx, charRef, addExp, note) {
-  addExp = Math.max(0, Math.floor(Number(addExp) || 0));
-  if (addExp <= 0) return { minted: 0, expAfter: null, ownerUid: null };
-
-  const cSnap = await tx.get(charRef);
-  if (!cSnap.exists) throw new Error('char not found');
-  const c = cSnap.data() || {};
-  const ownerUid = c.owner_uid;
-  if (!ownerUid) throw new Error('owner_uid missing');
-
-  const exp0  = Math.floor(Number(c.exp || 0));
-  const exp1  = exp0 + addExp;
-  const mint  = Math.floor(exp1 / 100);
-  const exp2  = exp1 - (mint * 100); // 0~99
-  const userRef = db.doc(`users/${ownerUid}`);
-
-  tx.update(charRef, {
-    exp: exp2,
-    exp_total: admin.firestore.FieldValue.increment(addExp),
-    updatedAt: Timestamp.now(),
-  });
-  tx.set(userRef, { coins: admin.firestore.FieldValue.increment(mint) }, { merge: true });
-
-  // (선택) 로그 남기고 싶으면 주석 해제
-   tx.set(db.collection('exp_logs').doc(), {
-     char_id: charRef.path,
-     owner_uid: ownerUid,
-     add: addExp, minted: mint,
-     note: note || null,
-     at: Timestamp.now(),
-   });
-
-  return { minted: mint, expAfter: exp2, ownerUid };
-}
-
-
-
-
-function pickWeighted(cands, myElo){
-  const bag=[];
-  for(const c of cands){
-    const e = Math.abs((c.elo ?? 1000) - myElo);
-    const w = Math.max(1, Math.ceil(200/(1+e)+1));
-    for(let i=0;i<w;i++) bag.push(c);
-  }
-  return bag.length ? bag[Math.floor(Math.random()*bag.length)] : null;
-}
-
-exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
-  const uid = req.auth?.uid;
-  const { charId, mode } = req.data || {};
-  if(!uid) throw new Error('unauthenticated');
-  if(!charId) throw new Error('charId required');
-  if(mode!=='battle' && mode!=='encounter') throw new Error('bad mode');
-
-  const id = String(charId).replace(/^chars\//,'');
-  const meSnap = await db.doc(`chars/${id}`).get();
-  if(!meSnap.exists) throw new Error('char not found');
-  const me = meSnap.data();
-  if(me.owner_uid !== uid) throw new Error('not owner');
-
-  const myElo = me.elo ?? 1000;
-
-  // 후보군: 내 elo 이상 10명(가까운 순), 이하 10명(가까운 순)
-  const upQ = await db.collection('chars')
-    .where('elo','>=', Math.floor(myElo)).orderBy('elo','asc').limit(10).get();
-  const downQ = await db.collection('chars')
-    .where('elo','<=', Math.ceil(myElo)).orderBy('elo','desc').limit(10).get();
-
-  const pool=[];
-  for(const snap of [...upQ.docs, ...downQ.docs]){
-    if(!snap.exists) continue;
-    if(snap.id===id) continue;
-    const d=snap.data();
-    if(!d?.owner_uid || d.owner_uid===uid) continue;       // 내 소유 제외
-    if(typeof d.name!=='string') continue;                  // 깨진 문서 제외
-    if(d.hidden === true) continue;                         // 숨김 시 제외(옵션)
-    pool.push({ id:snap.id, name:d.name, elo:d.elo??1000, thumb_url:d.thumb_url||d.image_url||'' });
-  }
-  // 중복 제거
-  const uniq = Array.from(new Map(pool.map(x=>[x.id,x])).values());
-  if(!uniq.length) return { ok:false, reason:'no-candidate' };
-
-  // 가중치 추첨(멀수록 확률 낮음)
-  const opp = pickWeighted(uniq, myElo) || uniq[0];
-  const oppOwner = (await db.doc(`chars/${opp.id}`).get()).data()?.owner_uid || null;
-
-  // 세션 기록
-  const token = crypto.randomBytes(16).toString('hex');
-  await db.collection('matchSessions').add({
-    mode,
-    a_char:`chars/${id}`,
-    b_char:`chars/${opp.id}`,
-    a_owner: uid,
-    b_owner: oppOwner,
-    status:'paired',
-    token,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  });
-
-  return { ok:true, token, opponent: opp };
-});
-
-// 전역 쿨타임(초) 설정 — 서버 시간 기준, 기존보다 "연장만" 가능(단축 불가)
-exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
+async function loadWorlds(){
+  // Hosting에서 worlds.json 읽기 (없으면 빈 배열)
+  const host = process.env.HOSTING_BASE || 'https://tale-of-heros---fangame.web.app';
   try{
-    const uid = req.auth?.uid;
-    if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
-
-    const seconds = Math.max(1, Math.min(600, Number(req.data?.seconds || 60)));
-    const userRef = db.doc(`users/${uid}`);
-
-    await db.runTransaction(async (tx)=>{
-      const now = Timestamp.now();
-      const snap = await tx.get(userRef);
-      const exist = snap.exists ? snap.get('cooldown_all_until') : null;
-      const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis()); // 절대 단축 불가
-      const until = Timestamp.fromMillis(baseMs + seconds*1000);
-      tx.set(userRef, { cooldown_all_until: until }, { merge:true });
-    });
-
-    return { ok:true };
-  }catch(err){
-    logger.error('[setGlobalCooldown] fail', err);
-    if (err instanceof HttpsError) throw err;
-    throw new HttpsError('internal','cooldown-internal-error',{message:err?.message||String(err)});
+    const r = await fetch(`${host}/assets/worlds.json`);
+    const j = await r.json();
+    return Array.isArray(j?.worlds) ? j.worlds : [];
+  }catch(e){
+    logger.error('loadWorlds failed', e);
+    return [];
   }
-});
+}
 
-
-
-// === [탐험 시작] onCall ===
-exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
+/** ====== (A) 쿨타임: 예약/조회 ====== */
+exports.reserveBattleCooldown = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
   if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
 
-  const { charId, worldId, siteId, difficulty } = req.data || {};
-  if(!charId || !worldId || !siteId) throw new HttpsError('invalid-argument','필수값 누락');
-
-  const charRef = db.doc(`chars/${charId}`);
+  const seconds = Math.max(30, Math.min(600, Number(req.data?.seconds || 300))); // 30~600초
   const userRef = db.doc(`users/${uid}`);
-  const runRef  = db.collection('explore_runs').doc();
 
-  // [탐험 전용 쿨타임] 1시간 — 시작 시점에 검사
-  const userSnap = await userRef.get();
-  const cd = userSnap.exists ? userSnap.get('cooldown_explore_until') : null;
-  if (cd && cd.toMillis() > Date.now()){
-    return { ok:false, reason:'cooldown', until: cd.toMillis() };
-  }
+  const untilMs = await db.runTransaction(async (tx)=>{
+    const now = Date.now();
+    const snap = await tx.get(userRef);
+    const exist = snap.exists ? snap.get('cooldown_battle_until') : null;
+    const existMs = exist?.toMillis?.() || 0;
 
-  // 캐릭/소유권 검사 + 동시진행 금지
-  const charSnap = await charRef.get();
-  if(!charSnap.exists) throw new HttpsError('failed-precondition','캐릭터 없음');
-  const ch = charSnap.data()||{};
-  if (ch.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 시작 가능');
-  if (ch.explore_active_run) {
-    const oldRef = db.doc(ch.explore_active_run);
-    const old = await oldRef.get();
-    if (old.exists) {
-      const od = old.data() || {};
-      if (od.status === 'ongoing') {
-        await oldRef.update({ status: 'running', updatedAt: Timestamp.now() });
-        od.status = 'running';
-      }
-      return { ok: true, reused: true, runId: old.id, data: od };
-    }
-  }
-
-
-  const diffKey = (EXPLORE_CONFIG.diff[difficulty] ? difficulty : 'normal');
-  const payload = {
-    charRef: charRef.path, owner_uid: uid,
-    worldId, siteId, difficulty: diffKey,
-    status:'running',
-    staminaStart: EXPLORE_CONFIG.staminaStart,
-    staminaNow:  EXPLORE_CONFIG.staminaStart,
-    turn:0, events: [],
-    createdAt: nowTs(), updatedAt: nowTs()
-  };
-
-  await db.runTransaction(async (tx)=>{
-    const cdoc = await tx.get(charRef);
-    const c = cdoc.data()||{};
-    if (c.explore_active_run) throw new HttpsError('aborted','이미 진행중');
-
-    tx.set(runRef, payload);
-    tx.update(charRef, { explore_active_run: runRef.path, updatedAt: Date.now() });
-
-    // [쿨타임 1시간] — 현재 남은 쿨타임보다 “연장만”
-    const baseMs = Math.max(coolMillis(userSnap.get?.('cooldown_explore_until')), Date.now());
-    const until  = require('firebase-admin/firestore').Timestamp.fromMillis(baseMs + 60*60*1000);
-    tx.set(userRef, { cooldown_explore_until: until }, { merge:true });
+    // "연장만" 가능 (단축 금지)
+    const base = Math.max(existMs, now);
+    const until = admin.firestore.Timestamp.fromMillis(base + seconds*1000);
+    tx.set(userRef, { cooldown_battle_until: until }, { merge:true });
+    return until.toMillis();
   });
 
-  return { ok:true, runId: runRef.id, data: payload, cooldownApplied:true };
+  return { ok:true, untilMs };
 });
 
-// === [탐험 한 턴 진행] onCall ===
-// === [탐험 한 턴 진행] core & endpoints ===
-async function stepExploreCore(uid, runId) {
-  if (!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
-  if (!runId) throw new HttpsError('invalid-argument','runId 필요');
-
-  const runRef = db.doc(`explore_runs/${runId}`);
-  const snap = await runRef.get();
-  if (!snap.exists) throw new HttpsError('not-found','run 없음');
-
-  const r = snap.data() || {};
-  if (r.owner_uid !== uid) throw new HttpsError('permission-denied','내 진행만 가능');
-
-  // 하위호환: ongoing 허용 + 최초 호출 시 running 승격
-  if (!(r.status === 'running' || r.status === 'ongoing')) {
-    return { ok:false, reason:'not-running' };
-  }
-  if (r.status === 'ongoing') {
-    await runRef.update({ status: 'running', updatedAt: Timestamp.now() });
-  }
-
-  const DC   = EXPLORE_CONFIG.diff[r.difficulty] || EXPLORE_CONFIG.diff.normal;
-  const kind = pickByProb(DC.prob);
-  const roll = 1 + Math.floor(Math.random()*100);
-  const rnd  = (a,b)=> a + Math.floor(Math.random()*(b-a+1));
-
-  let delta = 0, text = '';
-  if (kind==='calm'){   delta=-1;                             text='고요한 이동… 체력 -1'; }
-  else if (kind==='find'){ delta=-1;                          text='무언가를 발견했어! (임시 보상 후보) 체력 -1'; }
-  else if (kind==='trap'){ delta= -rnd(DC.trap[0], DC.trap[1]);text=`함정! 체력 ${delta}`; }
-  else if (kind==='rest'){ delta=  rnd(DC.rest[0], DC.rest[1]);text=`짧은 휴식… 체력 +${delta}`; }
-  else if (kind==='battle'){delta= -rnd(DC.battle[0], DC.battle[1]); text=`소규모 교전! 체력 ${delta}`; }
-
-  const sNow   = (r.staminaNow   ?? r.stamina   ?? EXPLORE_CONFIG.staminaStart);
-  const sStart = (r.staminaStart ?? r.stamina_start ?? EXPLORE_CONFIG.staminaStart);
-  const staminaNow = clamp(sNow + delta, 0, 999);
-
-  const turn = (r.turn|0) + 1;
-  const ev = { step:turn, kind, deltaStamina:delta, desc:text, roll:{d:'d100', value:roll}, ts: Timestamp.now() };
-  const willEnd = staminaNow <= 0;
-
-  await runRef.update({
-    staminaNow,
-    staminaStart: sStart,
-    turn,
-    events: FieldValue.arrayUnion(ev),
-    status: willEnd ? 'done' : 'running',
-    endedAt: willEnd ? Timestamp.now() : FieldValue.delete(),
-    updatedAt: Timestamp.now()
-  });
-
-  return { ok:true, done:willEnd, step:turn, staminaNow, event: ev };
-}
-
-// (A) 최신 앱에서 httpsCallable로 부르는 엔드포인트 (이름 변경)
-exports.stepExploreCall = onCall({ region:'us-central1' }, async (req) => {
-  try {
-    return await stepExploreCore(req.auth?.uid, req.data?.runId);
-  } catch (err) {
-    logger.error('[stepExploreCall] fail', err);
-    if (err instanceof HttpsError) throw err;
-    throw new HttpsError('internal','step-internal-error',{ message: err?.message || String(err) });
-  }
-});
-
-// (B) 구/직접 HTTP 호출을 위한 엔드포인트 (프론트가 /stepExploreHttp 로 POST하는 경우)
-exports.stepExploreHttp = onRequest({ region:'us-central1' }, async (req, res) => {
-
-  // CORS (sellItemsHttp와 동일 허용 목록 사용)
-  const origin = req.get('origin');
-  const allow = new Set([
-    'https://tale-of-heros---fangame.firebaseapp.com',
-    'https://tale-of-heros---fangame.web.app',
-    'http://localhost:5000',
-    'http://localhost:5173'
-  ]);
-  if (origin && allow.has(origin)) {
-    res.set('Access-Control-Allow-Origin', origin);
-    res.set('Vary', 'Origin');
-    res.set('Access-Control-Allow-Credentials', 'true');
-  }
-  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-  if (req.method === 'OPTIONS') return res.status(204).send('');
-  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method Not Allowed' });
-
-  try {
-    // Authorization: Bearer <idToken> 지원 (있으면 검증)
-    let uid = null;
-    const authHeader = req.get('Authorization') || '';
-    if (authHeader.startsWith('Bearer ')) {
-      const idToken = authHeader.slice(7);
-      const decoded = await admin.auth().verifyIdToken(idToken);
-      uid = decoded.uid;
-    }
-    const runId = (req.body && req.body.runId) || null;
-    const result = await stepExploreCore(uid, runId);
-    return res.json(result);
-  } catch (err) {
-    logger.error('[stepExplore HTTP] fail', err);
-    // HTTP는 200에 에러바디 내려도 되고, 4xx/5xx 내려도 됨. 기존 service.ts 기대치에 맞춰 200으로 통일.
-    return res.status(200).json({ ok:false, error: err?.message || 'internal' });
-  }
-});
-
-
-// === [탐험 종료 & 보상 확정] onCall ===
-// core 로직은 현재 onCall 본문을 그대로 함수로 빼면 돼
-async function endExploreCore(uid, runId) {
-  if (!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
-  if (!runId) throw new HttpsError('invalid-argument','runId 필요');
-
-  const runRef = db.doc(`explore_runs/${runId}`);
-  const snap = await runRef.get();
-  if (!snap.exists) throw new HttpsError('not-found','run 없음');
-  const r = snap.data() || {};
-  if (r.owner_uid !== uid) throw new HttpsError('permission-denied','내 진행만 가능');
-
-  const CFG = EXPLORE_CONFIG, DC = CFG.diff[r.difficulty] || CFG.diff.normal;
-  const turns = (r.turn|0);
-  const runMult = 1 + Math.min(0.6, 0.05*Math.max(0, turns-1));
-  let exp = Math.round(CFG.exp.basePerTurn * turns * DC.rewardMult * runMult);
-  exp = clamp(exp, CFG.exp.min, CFG.exp.max);
-
-  const itemRef = db.collection('char_items').doc();
-  const itemPayload = {
-    owner_uid: r.owner_uid,
-    char_id: r.charRef,
-    item_name: '탐험 더미 토큰',
-    rarity: 'common',
-    uses_remaining: 3,
-    desc_short: '탐험 P0 보상 아이템(더미)',
-    createdAt: Timestamp.now(),
-    source: { type:'explore', runRef: runRef.path, worldId: r.worldId, siteId: r.siteId }
-  };
-
-  await db.runTransaction(async (tx)=>{
-    tx.set(itemRef, itemPayload, { merge:true });
-    tx.update(runRef, {
-      status: 'done',
-      endedAt: Timestamp.now(),
-      ended: true,
-      rewards: { exp, items:[{ id:itemRef.id, rarity:itemPayload.rarity, name:itemPayload.item_name }] },
-      updatedAt: Timestamp.now()
-    });
-    const charId = (r.charRef||'').replace('chars/','');
-    const charRef = db.doc(`chars/${charId}`);
-    await mintByAddExp(tx, charRef, exp, `explore:${runRef.id}`);
-    tx.update(charRef, { explore_active_run: FieldValue.delete() });
-  });
-
-  return { ok:true, exp, itemId: itemRef.id };
-}
-
-exports.endExploreCall = onCall({ region:'us-central1' }, async (req) => {
-  try {
-    return await endExploreCore(req.auth?.uid, req.data?.runId);
-  } catch (err) {
-    logger.error('[endExploreCall] fail', err);
-    if (err instanceof HttpsError) throw err;
-    throw new HttpsError('internal','end-internal-error',{ message: err?.message || String(err) });
-  }
-});
-
-exports.endExploreHttp = onRequest({ region:'us-central1' }, async (req, res) => {
-  const origin = req.get('origin');
-  const allow = new Set([
-    'https://tale-of-heros---fangame.firebaseapp.com',
-    'https://tale-of-heros---fangame.web.app',
-    'http://localhost:5000',
-    'http://localhost:5173'
-  ]);
-  if (origin && allow.has(origin)) {
-    res.set('Access-Control-Allow-Origin', origin);
-    res.set('Vary', 'Origin');
-    res.set('Access-Control-Allow-Credentials', 'true');
-  }
-  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-  if (req.method === 'OPTIONS') return res.status(204).send('');
-  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method Not Allowed' });
-
-  try {
-    let uid = null;
-    const authHeader = req.get('Authorization') || '';
-    if (authHeader.startsWith('Bearer ')) {
-      const idToken = authHeader.slice(7);
-      const decoded = await admin.auth().verifyIdToken(idToken);
-      uid = decoded.uid;
-    }
-    const runId = (req.body && req.body.runId) || null;
-    const result = await endExploreCore(uid, runId);
-    return res.json(result);
-  } catch (err) {
-    logger.error('[endExplore HTTP] fail', err);
-    return res.status(200).json({ ok:false, error: err?.message || 'internal' });
-  }
-});
-// === Backward-compat aliases (keep old callable names alive) ===
-exports.stepExplore = exports.stepExploreCall;
-exports.endExplore  = exports.endExploreCall;
-
-
-// === [일반 EXP 지급 + 코인 민팅] onCall ===
-// 호출: httpsCallable('grantExpAndMint')({ charId, exp, note })
-exports.grantExpAndMint = onCall({ region:'us-central1' }, async (req)=>{
+exports.getBattleCooldown = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
-  if(!uid) throw new Error('unauthenticated');
-
-  const { charId, exp, note } = req.data || {};
-  if(!charId || !Number.isFinite(Number(exp))) throw new Error('bad-args');
-
-  const charRef = db.doc(`chars/${String(charId).replace(/^chars\//,'')}`);
-
-  const res = await db.runTransaction(async (tx)=>{
-    return await mintByAddExp(tx, charRef, Number(exp)||0, note||'misc');
-  });
-
-  return { ok:true, ...res };
+  if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
+  const userRef = db.doc(`users/${uid}`);
+  const snap = await userRef.get();
+  const untilMs = snap.exists ? (snap.get('cooldown_battle_until')?.toMillis?.() || 0) : 0;
+  return { ok:true, untilMs };
 });
 
+/** ====== (B) 전투 본 처리 (러프→리라이트→판정→최종 반영) ====== */
+exports.runBattleTextOnly = onCall(
+  { region: 'us-central1', timeoutSeconds: 60, memory: '1GiB' },
+  async (req) => {
+    const uid = req.auth?.uid || null;
+    if(!uid) throw new HttpsError('unauthenticated', '로그인이 필요해');
 
+    const attackerId = String(req.data?.attackerId||'').replace(/^chars\//,'');
+    const defenderId = String(req.data?.defenderId||'').replace(/^chars\//,'');
+    const worldId    = String(req.data?.worldId||'').trim();
+    if(!attackerId || !defenderId) throw new HttpsError('invalid-argument','캐릭터 ID가 필요해');
 
-
-
-
-
-
-// --- 공통 로직으로 분리 ---
-// 기존 onCall 핸들러 내부 내용을 이 함수에 그대로 둡니다.
-// (차이점: req.auth?.uid → uid, req.data → data 로 바뀝니다)
-async function sellItemsCore(uid, data) {
-  if (!uid) {
-    throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
-  }
-
-  const { itemIds } = data || {};
-  if (!Array.isArray(itemIds) || itemIds.length === 0) {
-    throw new HttpsError('invalid-argument', '판매할 아이템 ID 목록이 올바르지 않습니다.');
-  }
-
-  const userRef = db.doc(`users/${uid}`);
-
-  try {
-    const { goldEarned, itemsSoldCount } = await db.runTransaction(async (tx) => {
-      const userSnap = await tx.get(userRef);
-      if (!userSnap.exists) {
-        throw new HttpsError('not-found', '사용자 정보를 찾을 수 없습니다.');
+    // 1) 서버 쿨타임 집행 (연장만)
+    const seconds = Math.max(30, Math.min(600, Number(req.data?.seconds || 300)));
+    const userRef = db.doc(`users/${uid}`);
+    const now = Date.now();
+    let untilMs = now;
+    await db.runTransaction(async (tx)=>{
+      const snap = await tx.get(userRef);
+      const exist = snap.exists ? snap.get('cooldown_battle_until') : null;
+      const existMs = exist?.toMillis?.() || 0;
+      if (existMs > now) {
+        throw new HttpsError('failed-precondition', 'cooldown-active', { untilMs: existMs });
       }
-
-      const userData = userSnap.data() || {};
-      const currentItems = userData.items_all || [];
-      let totalGold = 0;
-
-      // 판매 가격 정책
-      const prices = {
-        consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100, aether: 250 },
-        non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200, aether: 500 }
-      };
-
-      const itemsToKeep = [];
-      const soldItemIds = new Set(itemIds);
-
-      // 1. 판매될 아이템을 장착한 내 모든 캐릭터를 찾습니다.
-      const charsRef = db.collection('chars');
-      const query = charsRef.where('owner_uid', '==', uid).where('items_equipped', 'array-contains-any', itemIds);
-      const equippedCharsSnap = await tx.get(query);
-
-      // 2. 각 캐릭터의 장착 목록에서 판매될 아이템 ID를 제거합니다.
-      equippedCharsSnap.forEach(doc => {
-        const charData = doc.data();
-        const newEquipped = (charData.items_equipped || []).filter(id => !soldItemIds.has(id));
-        tx.update(doc.ref, { items_equipped: newEquipped });
-      });
-
-      for (const item of currentItems) {
-        if (soldItemIds.has(item.id)) {
-          // 'consume' 속성도 확인하도록 수정된 부분입니다.
-          const isConsumable = item.isConsumable || item.consumable || item.consume;
-          const priceTier = isConsumable ? prices.consumable : prices.non_consumable;
-          const price = priceTier[item.rarity] || 0;
-          totalGold += price;
-        } else {
-          itemsToKeep.push(item);
-        }
-      }
-
-      if (totalGold > 0) {
-        tx.update(userRef, {
-          items_all: itemsToKeep,
-          coins: admin.firestore.FieldValue.increment(totalGold)
-        });
-      }
-
-      const soldCount = currentItems.length - itemsToKeep.length;
-      return { goldEarned: totalGold, itemsSoldCount: soldCount };
+      const until = admin.firestore.Timestamp.fromMillis(now + seconds*1000);
+      tx.set(userRef, { cooldown_battle_until: until }, { merge:true });
+      untilMs = until.toMillis();
     });
 
-    logger.info(`User ${uid} sold ${itemsSoldCount} items for ${goldEarned} gold.`);
-    return { ok: true, goldEarned, itemsSoldCount };
+    // 2) 데이터 로드
+    const [aSnap, bSnap] = await Promise.all([
+      db.doc(`chars/${attackerId}`).get(),
+      db.doc(`chars/${defenderId}`).get(),
+    ]);
+    if(!aSnap.exists) throw new HttpsError('not-found','내 캐릭터가 없어');
+    if(!bSnap.exists) throw new HttpsError('not-found','상대 캐릭터가 없어');
+    const A = { id:aSnap.id, ...aSnap.data() };
+    const B = { id:bSnap.id, ...bSnap.data() };
+    if (A.owner_uid !== uid) throw new HttpsError('permission-denied','내 캐릭만 시작 가능');
 
-  } catch (error) {
-    logger.error(`Error selling items for user ${uid}:`, error);
-    if (error instanceof HttpsError) {
-      throw error;
-    }
-    throw new HttpsError('internal', '아이템 판매 중 오류가 발생했습니다.');
-  }
-}
+    const { char_min: A_min, char_full: A_full } = extractCharTexts(A);
+    const { char_min: B_min, char_full: B_full } = extractCharTexts(B);
 
-// 1) 최신 프론트에서 httpsCallable로 부르는 엔드포인트(이름 변경)
-exports.sellItems = onCall({ region: 'us-central1' }, async (req) => {
+    const worlds = await loadWorlds();
+    const W = worlds.find(w => w.id === worldId) || {};
+    const world_min  = W?.intro || '';
+    const world_full = (W?.detail?.lore_long || W?.detail?.lore || W?.intro || '');
 
-  const uid = req.auth?.uid || req.auth?.token?.uid;
-  return await sellItemsCore(uid, req.data);
-});
+    // 3) === 러프 작성(승패/아이템 "직접" 언급 금지) ===
+    const sys1 = [
+      '너는 전투 기록가야. 다음 정보를 바탕으로 "승패·아이템을 직접 명시하지 말고" 6~10문장 러프를 작성해.',
+      '- 현재 단계에서는 결과를 암시만 해.',
+      '- JSON만 반환: { "rough_text":"...", "signals":["..."] }'
+    ].join('\n');
+    const usr1 = JSON.stringify({ world_min, charA_min:A_min, charB_min:B_min }, null, 2);
+    const roughRaw = await callGeminiServer('gemini-2.0-flash', sys1, usr1, 0.4, 700);
+    const rough = tryJson(roughRaw) || { rough_text:String(roughRaw||'').slice(0,800), signals:[] };
 
-// 2) 옛 코드가 "직접 URL"로 치는 경우를 위한 HTTP 엔드포인트 (CORS 포함)
-exports.sellItemsHttp = onRequest({ region: 'us-central1' }, async (req, res) => {
+    // 4) === 리라이트(문학적, 근거 스팬 포함) ===
+    const sys2 = [
+      '너는 세계관 작가야. 러프/암시/상세정보를 반영해 800~1200자 문학적 전투 기록으로 리라이트.',
+      '- 러프의 행동 순서/암시는 유지.',
+      '- JSON만: { "literary_log":"...", "evidence_spans":["..."] }'
+    ].join('\n');
+    const usr2 = JSON.stringify({
+      rough_text: rough.rough_text,
+      signals: Array.isArray(rough.signals)? rough.signals.slice(0,6) : [],
+      world_full,
+      charA_full: A_full,
+      charB_full: B_full
+    }, null, 2);
+    const litRaw = await callGeminiServer('gemini-2.0-flash', sys2, usr2, 0.65, 1400);
+    const lit = tryJson(litRaw) || { literary_log:String(litRaw||'').slice(0,1800), evidence_spans:[] };
 
-  // CORS 허용 (필요한 출처만 추가)
-  const origin = req.get('origin');
-  const allow = new Set([
-    'https://tale-of-heros---fangame.firebaseapp.com',
-    'https://tale-of-heros---fangame.web.app',
-    'http://localhost:5000',
-    'http://localhost:5173'
-  ]);
-  if (origin && allow.has(origin)) {
-    res.set('Access-Control-Allow-Origin', origin);
-    res.set('Vary', 'Origin');
-    res.set('Access-Control-Allow-Credentials', 'true');
-  }
-  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    // 5) === 판정(승/패/draw, 아이템 사용 추정 + 인용 근거) ===
+    const sys3 = [
+      '문학적 기록만으로 승패와 아이템 사용을 판정.',
+      '- 원문 인용으로 근거 제시.',
+      '- JSON만: { "winner_id":"A|B|draw", "loser_id":"A|B|null", "items_used":[{"who":"A|B","name":"...","evidence":"<원문 인용>"}], "confidence":0.0-1.0, "quotes":["..."] }'
+    ].join('\n');
+    const usr3 = JSON.stringify({ literary_log: lit.literary_log, charA_min:A_min, charB_min:B_min }, null, 2);
+    const judgeRaw = await callGeminiServer('gemini-2.0-flash', sys3, usr3, 0.1, 600);
+    const judge = tryJson(judgeRaw) || { winner_id:'draw', loser_id:null, items_used:[], confidence:0.4, quotes:[] };
 
-  // 프리플라이트 응답
-  if (req.method === 'OPTIONS') return res.status(204).send('');
+    // 6) === Firestore 기록 + Elo/EXP 반영 ===
+    // (EXP/코인 민팅은 게임 규칙에 맞게 저강도 고정치로 처리: 승자+12, 패자+7, 무승부 각+9)
+    const score = judge.winner_id==='A' ? [12,7] : (judge.winner_id==='B' ? [7,12] : [9,9]);
 
-  try {
-    // (선택) Authorization: Bearer <idToken> 헤더가 오면 검증
-    let uid = null;
-    const authHeader = req.get('Authorization') || '';
-    if (authHeader.startsWith('Bearer ')) {
-      const idToken = authHeader.slice(7);
-      const decoded = await admin.auth().verifyIdToken(idToken);
-      uid = decoded.uid;
-    }
-    const result = await sellItemsCore(uid, req.body || {});
-    res.json(result);
-  } catch (e) {
-    console.error('sellItems HTTP error', e);
-    res.status(500).json({ ok: false, error: e?.message || 'internal' });
-  }
-});
+    // Elo 업데이트 & EXP 지급 (트랜잭션)
+    const logRef = db.collection('battle_logs').doc();
+    await db.runTransaction(async (tx)=>{
+      const Aref = db.doc(`chars/${A.id}`);
+      const Bref = db.doc(`chars/${B.id}`);
+      const Acur = await tx.get(Aref);
+      const Bcur = await tx.get(Bref);
+      const a = Acur.data()||{}, b=Bcur.data()||{};
+      const K=32, eloA=a.elo||1000, eloB=b.elo||1000;
+      const expA=1/(1+Math.pow(10,(eloB-eloA)/400));
+      const expB=1/(1+Math.pow(10,(eloA-eloB)/400));
+      const sA = judge.winner_id==='A'?1:(judge.winner_id==='B'?0:0.5);
+      const sB = judge.winner_id==='B'?1:(judge.winner_id==='A'?0:0.5);
+      const newA = Math.round(eloA + K*(sA-expA));
+      const newB = Math.round(eloB + K*(sB-expB));
 
-exports.aiGenerate = onRequest({ region: 'us-central1', secrets: [GEMINI_API_KEY] }, async (req, res) => {
-  res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).send('');
-
-  try{
-    const { model, systemText, userText, temperature, maxOutputTokens } = req.body || {};
-    if(!model || !systemText) return res.status(400).json({ error:'bad-args' });
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY.value()}`;
-    const body = {
-      contents: [{ role: 'user', parts: [{ text: `${systemText}\n\n${userText||''}` }]}],
-      generationConfig: { temperature: temperature ?? 0.9, maxOutputTokens: maxOutputTokens ?? 8192 },
-      safetySettings: []
-    };
-
-    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    const j = await r.json();
-    const text = j?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
-    return res.json({ text });
-  }catch(e){
-    console.error('[aiGenerate]', e);
-    return res.status(500).json({ error: String(e?.message||e) });
-  }
-});
-
-
-
-// Cloud Functions for Firebase (Gen1/Gen2 상관없음 — HTTP 함수)
-// package.json: "firebase-admin", "firebase-functions" 필요
-
-// ===== [메일: 조기 시작 알림] 서버가 관리자 우편함에 1건 작성 =====
-// 관리자 UID는 Firestore configs/admins 문서의 allow[0]에서 뽑음. 없으면 아무 것도 안 함.
-async function _pickAdminUid() {
-  try {
-    const snap = await admin.firestore().doc('configs/admins').get();
-    const d = snap.exists ? snap.data() : {};
-    if (Array.isArray(d?.allow) && d.allow.length) return String(d.allow[0]);
-  } catch (_) {}
-  return null;
-}
-
-
-
-
-
-// === [helper] 오늘/어제 파티션에서 직전 시작 로그 찾기 (색인 불필요) ===
-function __dayStamp(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
-}
-function __yester(d = new Date()) {
-  const t = new Date(d);
-  t.setDate(t.getDate() - 1);
-  return t;
-}
-
-// 색인 없이: when만 정렬해서 가져오고, who/where는 메모리에서 필터
-async function __findPrevStartAt(uid, whereStr, excludePath = null) {
-  const days = [__dayStamp(new Date()), __dayStamp(__yester(new Date()))];
-  const candidates = [];
-  for (const day of days) {
-    try {
-      const col = admin.firestore().collection('logs').doc(day).collection('rows');
-      const snap = await col.orderBy('when', 'desc').limit(50).get(); // 단일 정렬만
-      for (const doc of snap.docs) {
-        if (excludePath && doc.ref.path === excludePath) continue; // 방금 쓴 현재 로그 제외
-        const who = doc.get('who');
-        const where = doc.get('where');
-        const when = doc.get('when');
-        if (when && who === uid && where === whereStr) {
-          candidates.push(when);
-        }
-      }
-    } catch (e) {
-      console.error('[notifyEarlyStart] scan fail for day', day, e);
-    }
-  }
-  if (!candidates.length) return null;
-  candidates.sort((a, b) => b.toMillis() - a.toMillis());
-  return candidates[0];
-}
-
-
-
-
-
-// HTTP: POST /notifyEarlyStart
-// body: { actor_uid?, kind, where, diffMs, context? }
-// Authorization: Bearer <ID_TOKEN> (선택; 있으면 서버에서 검증)
-exports.notifyEarlyStart = onRequest({ region:'us-central1' }, async (req, res) => {
-  // --- CORS (허용 출처) ---
-  const origin = req.get('origin');
-  const allow = new Set([
-    'https://tale-of-heros---fangame.firebaseapp.com',
-    'https://tale-of-heros---fangame.web.app',
-    'https://tale-of-heros-staging.firebaseapp.com',
-    'https://tale-of-heros-staging.web.app',
-    'http://localhost:5000','http://127.0.0.1:5000',
-    'http://localhost:5173','http://127.0.0.1:5173'
-  ]);
-  const okOrigin = origin && (allow.has(origin) || origin.includes('--pr-'));
-  if (okOrigin) {
-    res.set('Access-Control-Allow-Origin', origin);
-    res.set('Vary', 'Origin');
-    res.set('Access-Control-Allow-Credentials', 'true');
-  }
-  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-  if (req.method === 'OPTIONS') return res.status(204).send('');
-  if (req.method !== 'POST') return res.status(405).json({ ok:false, error:'Method Not Allowed' });
-
-  // --- 인증(있으면 신뢰) ---
-  let actorUid = null;
-  const authz = req.get('Authorization') || '';
-  if (authz.startsWith('Bearer ')) {
-    try {
-      const decoded = await admin.auth().verifyIdToken(authz.slice(7));
-      actorUid = decoded.uid;
-    } catch (_) {}
-  }
-  const { actor_uid, kind, where, context } = req.body || {};
-  const uid = actorUid || actor_uid || null;
-  if (!uid || !where) return res.status(200).json({ ok:true, note:'missing-uid-or-where' });
-
-  // --- 서버에서 diff 계산 (오늘/어제 파티션, 색인 불필요) ---
-  const nowTs = admin.firestore.Timestamp.now();
-  const excludePath = (context && context.log_ref) ? String(context.log_ref) : null;
-
-  const prevAt = await __findPrevStartAt(uid, String(where), excludePath);
-  if (!prevAt) {
-    return res.json({ ok: true, note: 'no-prev' }); // 첫 로그거나 과거 기록 없음
-  }
-
-  const diffMs = nowTs.toMillis() - prevAt.toMillis();
-  console.log('[notifyEarlyStart]', { uid, where, prevAt: prevAt.toMillis(), now: nowTs.toMillis(), diffMs });
-
-  const THRESHOLDS = {
-    'battle#start': 4 * 60 * 1000,     // 4분
-    'explore#start': 59 * 60 * 1000    // 59분
-  };
-  const threshold = THRESHOLDS[String(where)] || null;
-  if (!threshold) return res.json({ ok:true, note:'unknown-where' });
-
-  // 임계 이내면 메일 발송
-  if (diffMs >= 0 && diffMs <= threshold) {
-    // 관리자 선택
-    let adminUid = null;
-    try {
-      const snap = await admin.firestore().doc('configs/admins').get();
-      const d = snap.exists ? snap.data() : {};
-      if (Array.isArray(d?.allow) && d.allow.length) adminUid = String(d.allow[0]);
-    } catch (_) {}
-    if (!adminUid) return res.status(200).json({ ok:true, note:'no-admin-configured' });
-
-    const mm = Math.floor(diffMs / 60000);
-    const ss2 = Math.floor((diffMs % 60000) / 1000);
-
-    const title = `[조기 시작 감지] ${where === 'battle#start' ? '배틀' : '탐험'} 시작`;
-    const lines = [
-      `이전 시작 로그 이후 ${mm}분 ${ss2}초 만에 새 시작 로그가 생성됨`,
-      `사용자: ${uid}`,
-      `종류: ${kind || ''}`,
-      `where: ${where}`,
-      context?.title ? `제목: ${context.title}` : '',
-      context?.log_ref ? `ref: ${context.log_ref}` : '',
-      `서버기준 diffMs: ${diffMs}`
-    ].filter(Boolean);
-
-    await admin.firestore()
-      .collection('mail').doc(adminUid).collection('msgs')
-      .add({
-        title,
-        body: lines.join('\n'),
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
-        read: false,
-        extra: { kind, where, diffMs, uid, context: context || null, prevAt: prevAt.toMillis(), now: nowTs.toMillis() }
+      tx.update(Aref, {
+        elo:newA,
+        wins:(a.wins||0)+(sA===1?1:0),
+        losses:(a.losses||0)+(sA===0?1:0),
+        draws:(a.draws||0)+(sA===0.5?1:0),
+        battle_count:(a.battle_count||0)+1
+      });
+      tx.update(Bref, {
+        elo:newB,
+        wins:(b.wins||0)+(sB===1?1:0),
+        losses:(b.losses||0)+(sB===0?1:0),
+        draws:(b.draws||0)+(sB===0.5?1:0),
+        battle_count:(b.battle_count||0)+1
       });
 
-    return res.json({ ok:true, mailed:true, diffMs });
+      // EXP → exp_total 누적(+코인 민팅은 별도 onCall이 이미 있으므로 여기선 exp_total만)
+      tx.update(Aref, {
+        exp_total: admin.firestore.FieldValue.increment(score[0]),
+        exp: ((a.exp||0)+score[0])%100,
+        exp_progress: ((a.exp||0)+score[0])%100
+      });
+      tx.update(Bref, {
+        exp_total: admin.firestore.FieldValue.increment(score[1]),
+        exp: ((b.exp||0)+score[1])%100,
+        exp_progress: ((b.exp||0)+score[1])%100
+      });
+
+      tx.set(logRef, {
+        attacker_uid: uid,
+        attacker_char: `chars/${A.id}`,
+        defender_char: `chars/${B.id}`,
+        attacker_snapshot: { name: A.name, thumb_url: A.thumb_url || null },
+        defender_snapshot: { name: B.name, thumb_url: B.thumb_url || null },
+        world_id: worldId || (A.world_id || B.world_id || null),
+
+        rough_text: rough.rough_text,
+        signals: Array.isArray(rough.signals)? rough.signals.slice(0,8) : [],
+        literary_log: lit.literary_log,
+        evidence_spans: Array.isArray(lit.evidence_spans)? lit.evidence_spans.slice(0,4):[],
+        judge_json: judge,
+
+        winner: judge.winner_id==='A' ? A.id : (judge.winner_id==='B' ? B.id : null),
+        items_used: Array.isArray(judge.items_used) ? judge.items_used : [],
+
+        exp_char0: score[0],
+        exp_char1: score[1],
+        processed: true,
+
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        endedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    });
+
+    return {
+      ok: true,
+      logId: logRef.id,
+      winner: (judge.winner_id==='A'?A.id:(judge.winner_id==='B'?B.id:null)),
+      itemsUsed: Array.isArray(judge.items_used) ? judge.items_used : [],
+      cooldownUntilMs: untilMs
+    };
   }
-
-  return res.json({ ok:true, mailed:false, diffMs, note:'over-threshold' });
-});
-
-
-
-const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
-Object.assign(exports, guildFns);
-exports.kickGuildMember = guildFns.kickFromGuild;
-
-// === BEGIN PATCH: battle module export ===
-const battleFns = require('./battle'); // functions/battle/index.js
-Object.assign(exports, battleFns);
-// === END PATCH ===
-
+);
+/* === END: functions/battle/index.js === */
