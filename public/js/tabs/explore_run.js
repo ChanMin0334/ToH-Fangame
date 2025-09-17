@@ -1,10 +1,9 @@
 // /public/js/tabs/explore_run.js
 import { db, auth, fx } from '../api/firebase.js';
-import { grantExp } from '../api/store.js';
 import { showToast } from '../ui/toast.js';
-import { requestAdventureNarrative } from '../api/ai.js';
-import { getCharForAI } from '../api/store.js';
-import { appendEvent, getActiveRun, rollThreeChoices } from '../api/explore.js';
+import { getActiveRun } from '../api/explore.js';
+import { serverPrepareNext, serverApplyChoice, serverEndRun } from '../api/explore.js';
+import { serverStartBattle } from '../api/explore.js'; // ← 파일 상단 import에 이 줄 추가해줘
 
 const STAMINA_MIN = 0;
 
@@ -22,6 +21,12 @@ function rt(raw) {
   s = s.replace(/\n/g, '<br>');
   return s;
 }
+
+async function prepareNextTurnServer(run){
+  const pending = await serverPrepareNext(run.id);
+  return pending; // { narrative_text, choices[3], choice_outcomes[3], diceResults[3] }
+}
+
 
 function parseRunId(){
   const h = location.hash || '';
@@ -120,19 +125,14 @@ export async function showExploreRun() {
   const charId = state.charRef.split('/')[1];
   const charSnap = await fx.getDoc(fx.doc(db, 'chars', charId));
 
-  if (!charSnap.exists()) {
+    if (!charSnap.exists()) {
     showToast('탐험 중인 캐릭터가 삭제되어 탐험을 종료합니다.');
-    // endRun 함수를 직접 호출하여 탐험을 'char_deleted' 상태로 종료
-    await fx.updateDoc(fx.doc(db, 'explore_runs', runId), {
-      status: 'ended',
-      endedAt: fx.serverTimestamp(),
-      reason: 'char_deleted'
-    });
-    // 잠시 후 탐험 선택 화면으로 이동
+    await serverEndRun(runId, 'char_deleted'); // ✅ 서버 함수로 종료
     setTimeout(() => location.hash = '#/adventure', 1500);
     showLoading(false);
     return;
   }
+
 
   
   if (state.pending_battle) {
@@ -196,191 +196,93 @@ export async function showExploreRun() {
   };
 
   const bindButtons = (runState) => {
-    if (runState.status !== 'ongoing') return;
-    
-    const btnStartBattle = root.querySelector('#btnStartBattle');
-    if (btnStartBattle) {
-      btnStartBattle.onclick = async () => {
-        showLoading(true, '전투 준비 중...');
-        await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-          pending_battle: runState.battle_pending,
-          battle_pending: null,
-        });
-        location.hash = `#/explore-battle/${state.id}`;
-      };
-      return; // 전투 대기 중에는 다른 버튼(탐험 계속 등)은 비활성화
+  if (runState.status !== 'ongoing') return;
+  
+  const btnStartBattle = root.querySelector('#btnStartBattle');
+  if (btnStartBattle) {
+    btnStartBattle.onclick = async () => {
+      showLoading(true, '전투 준비 중...');
+      await serverStartBattle(state.id);   // 서버에서 battle_pending → pending_battle 전환
+      location.hash = `#/explore-battle/${state.id}`;
+    };
+    return; // 전투 대기 중에는 다른 버튼(탐험 계속 등) 비활성화
+  }
+
+  if (runState.pending_choices) {
+    root.querySelectorAll('.choice-btn').forEach(btn => {
+      btn.onclick = () => handleChoice(parseInt(btn.dataset.index, 10));
+    });
+  } else {
+    const btnMove = root.querySelector('#btnMove');
+    if (btnMove) {
+      btnMove.disabled = runState.stamina <= STAMINA_MIN;
+      btnMove.onclick = prepareNextTurn;
     }
-    
-    if (runState.pending_choices) {
-      root.querySelectorAll('.choice-btn').forEach(btn => {
-        btn.onclick = () => handleChoice(parseInt(btn.dataset.index, 10));
-      });
-    } else {
-      const btnMove = root.querySelector('#btnMove');
-      if (btnMove) {
-        btnMove.disabled = runState.stamina <= STAMINA_MIN;
-        btnMove.onclick = prepareNextTurn;
-      }
-      const btnGiveUp = root.querySelector('#btnGiveUp');
-      if (btnGiveUp) btnGiveUp.onclick = () => endRun('giveup');
-    }
-  };
+    const btnGiveUp = root.querySelector('#btnGiveUp');
+    if (btnGiveUp) btnGiveUp.onclick = () => endRun('giveup');
+  }
+};
+
 
   const prepareNextTurn = async () => {
     showLoading(true, 'AI가 다음 상황을 생성 중...');
     try {
-      const { nextPrerolls, choices: diceResults } = rollThreeChoices(state);
-      state.prerolls = nextPrerolls;
-      const charInfo = await getCharForAI(state.charRef);
-      const originWorld = worldsData.worlds.find(w => w.id === charInfo.world_id);
-      charInfo.origin_world_info = originWorld ? `${originWorld.name} (${originWorld.intro})` : (charInfo.world_id || '알 수 없음');
-      const lastEvent = state.events?.slice(-1)[0];
-
-      const aiResponse = await requestAdventureNarrative({
-        character: charInfo, world: { name: world.name }, site: { name: site.name }, run: state, dices: diceResults,
-        equippedItems: charInfo.items_equipped || [],
-        prevTurnLog: lastEvent?.note || '(첫 턴)'
-      });
-      
-      const pendingTurnData = { ...aiResponse, diceResults };
-
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-        pending_choices: pendingTurnData,
-        prerolls: state.prerolls
-      });
-      state.pending_choices = pendingTurnData;
-
+      const pendingTurn = await serverPrepareNext(state.id); // ✅ 서버가 AI 호출 + 선택지 생성
+      state.pending_choices = pendingTurn;
       render(state);
     } catch (e) {
-      console.error("AI 시나리오 생성 실패:", e);
-      showToast("오류: 시나리오를 생성하지 못했습니다.");
+      console.error('[explore] prepareNextTurn failed', e);
+      showToast('오류: 시나리오 생성에 실패했어');
     } finally {
       showLoading(false);
     }
   };
+
 
 // /public/js/tabs/explore_run.js의 handleChoice 함수를 교체하세요.
 
   const handleChoice = async (index) => {
-    showLoading(true, '선택지 처리 중...');
-    const pendingTurn = state.pending_choices;
-    if (!pendingTurn) {
-      showLoading(false);
-      showToast('오류: 선택지 정보가 없습니다. 다시 시도해주세요.');
-      // 상태를 초기화하고 다시 렌더링
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), { pending_choices: null });
-      state.pending_choices = null;
-      render(state);
-      return;
-    }
-
-    const chosenDice = pendingTurn.diceResults[index];
-    const chosenOutcome = pendingTurn.choice_outcomes[index];
-    
-    // 1. 전투 발생 시 Firestore에 저장 후 이동 (새로고침 문제 해결)
-    if (chosenOutcome.event_type === 'combat') {
-      const battleInfo = {
-        enemy: chosenOutcome.enemy,
-        narrative: `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`
-      };
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-        pending_battle: battleInfo,
-        pending_choices: null, // 선택지 상태는 초기화
-        prerolls: state.prerolls // preroll 상태도 함께 저장
-      });
-      location.hash = `#/explore-battle/${state.id}`;
-      return; // 로딩은 전투 화면에서 해제
-    }
-
-    const narrativeLog = `${pendingTurn.narrative_text}\n\n[선택: ${pendingTurn.choices[index]}]\n→ ${chosenOutcome.result_text}`;
-
-    // [수정] 전투 발생 시 바로 이동하지 않고, 로그만 기록하고 '전투 대기' 상태로 만듦
-    if (chosenOutcome.event_type === 'combat') {
-      const battleInfo = {
-        enemy: chosenOutcome.enemy,
-        narrative: narrativeLog // 전투 시작 서사를 battleInfo에 포함
-      };
-      // battle_pending 상태로 업데이트하고, 이벤트 로그를 추가
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-        battle_pending: battleInfo,
-        pending_choices: null,
-        prerolls: state.prerolls,
-        turn: state.turn + 1,
-        events: fx.arrayUnion({
-          t: Date.now(),
-          note: narrativeLog,
-          dice: chosenDice,
-          deltaStamina: 0, // 전투 돌입 자체는 스태미나 소모 없음
-        })
-      });
-      // 페이지를 새로고침하지 않고, 최신 상태를 다시 불러와 렌더링
-      state = await getActiveRun(state.id);
-      render(state);
-      showLoading(false);
-      return;
-    }
-    
-    let finalDice = { ...chosenDice };
-    let newItem = null;
-    if (chosenOutcome.event_type === 'item' && chosenOutcome.item) {
-        finalDice.item = { ...(chosenDice.item || {}), ...chosenOutcome.item };
-        newItem = finalDice.item;
-        
-        // 2. [핵심 수정] 아이템에 고유 ID 부여 (아이템 저장 문제 해결)
-        if (newItem) {
-          newItem.id = 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-        }
-    }
-
-    // 3. appendEvent 호출 시 newItem 전달
-    const newState = await appendEvent({
-      runId: state.id,
-      runBefore: state,
-      narrative: narrativeLog,
-      choices: pendingTurn.choices,
-      delta: finalDice.deltaStamina,
-      dice: finalDice,
-      summary3: pendingTurn.summary3_update,
-      newItem: newItem // ID가 부여된 아이템 전달
-    });
-    state = newState;
-
-    if (state.stamina <= STAMINA_MIN) {
-      await endRun('exhaust');
-    } else {
-      render(state);
-    }
-    showLoading(false);
-  };
-
-  const endRun = async (reason) => {
-    if (state.status !== 'ongoing') return;
-    showLoading(true, '탐험 종료 중...');
-    const baseExp = calcRunExp(state);
-    const cid = String(state.charRef || '').replace(/^chars\//, '');
+    showLoading(true, '선택지 적용 중...');
     try {
-      await fx.updateDoc(fx.doc(db, 'explore_runs', state.id), {
-        status: 'ended',
-        endedAt: fx.serverTimestamp(),
-        reason: reason,
-        exp_base: baseExp,
-        updatedAt: fx.serverTimestamp(),
-        pending_choices: null,
-        pending_battle: null,
-      });
-      state.status = 'ended'; 
-      if (baseExp > 0 && cid) {
-        await grantExp(cid, baseExp, 'explore', `site:${state.site_id}`);
+      const result = await serverApplyChoice(state.id, index); // ✅ 서버에서 이벤트 반영
+      state = result.state;
+
+      if (result.battle) {
+        // 서버가 battle_pending 세팅함
+        location.hash = `#/explore-battle/${state.id}`;
+        return; // 전투 화면에서 로딩 해제
       }
-      showToast('탐험이 종료되었습니다.');
+      if (result.done) {
+        showToast('탐험이 종료되었어');
+      }
       render(state);
     } catch (e) {
-      console.error('[explore] endRun failed', e);
-      showToast('탐험 종료 중 오류가 발생했습니다.');
+      console.error('[explore] handleChoice failed', e);
+      showToast('선택 적용 중 오류가 발생했어');
     } finally {
-      showLoading(false);
+      // 전투 화면 이동 시엔 위에서 return 했으니 여기 도달 안 함
+      const stillHere = location.hash.startsWith('#/explore-run/');
+      if (stillHere) showLoading(false);
     }
   };
+
+
+  const endRun = async (reason) => {
+  if (state.status !== 'ongoing') return;
+  showLoading(true, '탐험 종료 중...');
+  try {
+    const s = await serverEndRun(state.id, reason);
+    state = s || state;
+    showToast('탐험이 종료되었어');
+    render(state);
+  } catch (e) {
+    console.error('[explore] endRun failed', e);
+    showToast('탐험 종료 중 오류가 발생했어');
+  } finally {
+    showLoading(false);
+  }
+};
+
   
   render(state);
   showLoading(false);
