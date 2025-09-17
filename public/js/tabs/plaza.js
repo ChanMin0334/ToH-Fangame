@@ -4,7 +4,7 @@ import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/fireba
 import { showToast } from '../ui/toast.js';
 import { getUserInventory } from '../api/user.js';
 import { uploadGuildBadgeSquare, createGuild, fetchMyChars } from '../api/store.js';
-import { rarityStyle, ensureItemCss, esc } from './char.js';
+import { rarityStyle, ensureItemCss } from './char.js';
 
 
 
