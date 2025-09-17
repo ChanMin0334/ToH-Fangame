@@ -387,13 +387,44 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
 
 }
 
-/* [수정] 에테르 등급 아이템을 위한 그라데이션 배경 스타일 */
+/* [교체] 에테르 등급: 무지개 보더 + 은은한 글로우 + 다크 내부 */
 .item.rarity-aether, .kv-card.rarity-aether {
-  /* 은은한 테두리를 주어 경계를 명확하게 함 */
-  border: 1px solid rgba(255, 255, 255, 0.3);
-
-  /* 어두운 배경 위에 반투명 그라데이션을 겹쳐서 가독성 확보 */
-  background-image: linear-gradient(140deg, rgba(255, 121, 198, 0.2), rgba(139, 233, 253, 0.2), rgba(80, 250, 123, 0.2));
+  /* 무지개 보더를 배경 레이어로 만드는 테크닉 */
+  --hue: 0deg;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background:
+    /* 안쪽(내용) 배경은 어두운 단색으로 고정해 가독성 확보 */
+    linear-gradient(#0e1116, #0e1116) padding-box,
+    /* 바깥쪽(보더)에는 회전하는 콘익 그라디언트 */
+    conic-gradient(from var(--hue),
+      #ff3b30, #ff9500, #ffd60a, #34c759, #00c7be, #007aff, #5856d6, #af52de, #ff3b30) border-box;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.08) inset,
+    0 0 16px rgba(175,82,222,.25);
+  position: relative;
+  overflow: hidden;
+  animation: aether-rot 10s linear infinite; /* 회전 애니메이션 */
 }
 
+/* 바깥쪽에 흐릿한 무지개 빛 번짐 */
+.item.rarity-aether::before, .kv-card.rarity-aether::before {
+  content: "";
+  position: absolute; inset: -2px;
+  border-radius: inherit;
+  background: conic-gradient(from var(--hue),
+    #ff3b30, #ff9500, #ffd60a, #34c759, #00c7be, #007aff, #5856d6, #af52de, #ff3b30);
+  filter: blur(8px);
+  opacity: .35;
+  z-index: -1;
+}
 
+@keyframes aether-rot {
+  to { --hue: 1turn; }
+}
+
+/* (선택) 라벨 칩을 무지개로 */
+.chip.rainbow {
+  background: linear-gradient(135deg, #ff3b30, #ff9500, #ffd60a, #34c759, #00c7be, #007aff, #5856d6, #af52de);
+  color: #0e1116; font-weight: 800;
+}
