@@ -10,6 +10,12 @@ const crypto = require('crypto');
 const { Timestamp, FieldValue, FieldPath } = require('firebase-admin/firestore');
 
 const { defineSecret } = require('firebase-functions/params');
+const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY'); // 이미 있다면 재사용
+
+const exploreV2 = require('./explore_v2')(admin, { onCall, HttpsError, logger, GEMINI_API_KEY });
+
+
+const { defineSecret } = require('firebase-functions/params');
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
 
 
@@ -668,6 +674,11 @@ exports.notifyEarlyStart = onRequest({ region:'us-central1' }, async (req, res) 
   return res.json({ ok:true, mailed:false, diffMs, note:'over-threshold' });
 });
 
+
+exports.startExploreV2   = exploreV2.startExploreV2;
+exports.advPrepareNextV2 = exploreV2.advPrepareNextV2;
+exports.advApplyChoiceV2 = exploreV2.advApplyChoiceV2;
+exports.endExploreV2     = exploreV2.endExploreV2;
 
 
 const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
