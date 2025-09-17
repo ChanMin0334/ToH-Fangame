@@ -7,10 +7,7 @@ import { logInfo, logError } from './logs.js';
 // 사용할 모델 목록 (RPM이 높은 순서대로 정렬)
 const MODEL_POOL = [
   'gemini-2.0-flash-lite', // RPM 30 (가장 높음)
-  'gemini-2.5-flash-lite', // RPM 15
-  'gemini-2.0-flash',      // RPM 15
   'gemini-2.5-flash',      // RPM 10
-  'gemini-1.5-flash-latest', // (추천) 가장 빠르고 비용 효율적인 최신 모델
 ];
 
 // MODEL_POOL에서 랜덤으로 기본 모델과 폴백(대체) 모델을 선택하는 함수
