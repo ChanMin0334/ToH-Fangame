@@ -127,6 +127,8 @@ function cardHtml(doc) {
         </div>` : '' }
     </div>
   `) : '';
+// 뽑기권(ticket) 첨부 여부
+const needPrompt = !!(doc.attachments && doc.attachments.ticket);
 
   const canClaim = (kind===KIND.GENERAL) && hasAttach && !expired && !claimed;
 
@@ -147,7 +149,8 @@ function cardHtml(doc) {
     <div style="margin-top:10px;white-space:pre-wrap;line-height:1.7;color:${theme.text}">${esc(doc.body || '')}</div>
     ${attachHtml}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
-      ${canClaim ? `<button data-act="claim" data-id="${esc(doc.__id)}" class="btn">보상 받기</button>` : ''}
+      ${canClaim ? `<button data-act="claim" data-id="${esc(doc.__id)}" data-needprompt="${needPrompt?'1':'0'}" class="btn">보상 받기</button>` : ''}
+
       ${read ? '' : `<button data-act="read" data-id="${esc(doc.__id)}" class="btn">읽음 처리</button>`}
       ${(!canClaim && claimed) ? `<span style="font-size:12px;color:#10B981">수령 완료</span>` : ''}
       ${(!canClaim && expired && hasAttach && !claimed) ? `<span style="font-size:12px;color:#B91C1C">만료됨</span>` : ''}
@@ -434,26 +437,33 @@ export default async function mountMailTab(viewEl) {
     if (!act || !id) return;
 
     if (act === 'claim') {
-      // 1) 프롬프트 모달 열기 (최대 300자, 비어 있으면 확인 비활성화)
-      const userPrompt = await promptModal({ title:'보상 수령', maxLen: PROMPT_MAX });
-      if (userPrompt == null) return; // 뒤로가기
+  // 버튼에 달아둔 data-needprompt로 판별
+  const need = t.getAttribute('data-needprompt') === '1';
+  let payload = { mailId: id };
 
-      // 2) 수령 호출
-      t.disabled = true;
-      try {
-        const claimMail = httpsCallable(func, 'claimMail');
-        await claimMail({ mailId: id, prompt: userPrompt });
-        alert('보상을 수령했어!');
-        // 로컬 반영: claimed 표시만 즉시 갱신 (서버 컬럼은 다음 로드 때 정확히 동기화)
-        State.cache = State.cache.map(m => m.__id===id ? ({ ...m, claimed:true, read:true }) : m);
-        renderList();
-      } catch (e) {
-        console.warn('[mail] claim failed', e);
-        alert('수령 실패: ' + (e?.message || e));
-        t.disabled = false;
-      }
-      return;
-    }
+  if (need) {
+    // 뽑기권일 때만 프롬프트 받기
+    const userPrompt = await promptModal({ title:'보상 수령', maxLen: PROMPT_MAX });
+    if (userPrompt == null) return; // 뒤로가기
+    payload.prompt = userPrompt;
+  }
+
+  t.disabled = true;
+  try {
+    const claimMail = httpsCallable(func, 'claimMail');
+    await claimMail(payload);
+    alert('보상을 수령했어!');
+    // 로컬 반영
+    State.cache = State.cache.map(m => m.__id===id ? ({ ...m, claimed:true, read:true }) : m);
+    renderList();
+  } catch (e) {
+    console.warn('[mail] claim failed', e);
+    alert('수령 실패: ' + (e?.message || e));
+    t.disabled = false;
+  }
+  return;
+}
+
 
     if (act === 'read') {
       t.disabled = true;
