@@ -1,17 +1,17 @@
+// /public/js/app.js
+
 // /public/js/app.js (최종 수정본)
-import { auth } from './api/firebase.js';
+import { auth, db, fx } from './api/firebase.js';
 import { fetchWorlds, App } from './api/store.js';
 import { ensureUserDoc } from './api/user.js';
 import { routeOnce, highlightTab } from './router.js';
 import { showToast } from './ui/toast.js';
 import { ensureAdmin } from './api/admin.js';
-
+import { showMailbox } from './tabs/mail.js';
 
 
 // firebase-auth 모듈을 미리 import 합니다.
 import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, GoogleAuthProvider, getRedirectResult } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
-
-// /public/js/app.js
 
 // --- Mailbox Logic ---
 let mailUnsubscribe = null;
@@ -34,7 +34,7 @@ function setupMailbox(user) {
     mailDot.style.display = snapshot.empty ? 'none' : 'block';
   });
 
-  // 이제 버튼이 a 태그이므로 onclick 핸들러는 필요 없습니다.
+  btnMail.onclick = null; // a 태그의 기본 동작을 위해 JS 클릭 이벤트를 제거합니다.
 }
 
 function teardownMailbox() {
@@ -50,34 +50,35 @@ async function boot() {
   await fetchWorlds();
 
   // 2. 🔐 Firebase 인증 상태 감시자를 설정합니다.
-  // 이 함수는 Firebase가 사용자의 로그인 상태를 완전히 파악했을 때,
-  // 그리고 그 이후에 로그인/로그아웃 할 때마다 실행됩니다.
   onAuthStateChanged(auth, async (user) => {
     App.state.user = user || null;
     toggleAuthButton(!!user);
     
     if (user) {
-      // ✅ 사용자가 로그인한 것이 "확실히" 확인된 상태!
       console.log('✅ Auth state confirmed. User:', user.uid);
       try {
-        await ensureUserDoc(); // 유저 문서 생성/병합
+        await ensureUserDoc();
+        setupMailbox(user); // ✅ [수정] 로그인 시 우편함 기능 활성화
       } catch (e) {
         console.warn('[ensureUserDoc] 실패', e);
       }
     } else {
-      // ❌ 사용자가 로그아웃했거나, 로그인하지 않은 상태
       console.log('❌ No user is signed in.');
+      teardownMailbox(); // ✅ [수정] 로그아웃 시 우편함 기능 비활성화
     }
-      const ok = await ensureAdmin();
-      ['nav-logs','nav-mail','nav-manage'].forEach(id => {
+
+    // ✅ [수정] 관리자 여부 확인 후 상단 칩과 하단 탭을 모두 제어
+    const isAdmin = await ensureAdmin();
+    const adminChip = document.getElementById('adminChip');
+    if (adminChip) {
+      adminChip.style.display = isAdmin ? 'inline-block' : 'none';
+    }
+    ['nav-logs','nav-mail','nav-manage'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.style.display = ok ? '' : 'none';
+        if (el) el.style.display = isAdmin ? '' : 'none';
     });
 
-
-
     // 3. ✅ 인증 상태가 확정된 후에만 라우팅을 시작합니다.
-    // 이것이 모든 권한 문제의 핵심 해결책입니다.
     routeOnce(); 
     highlightTab();
   });
@@ -91,7 +92,6 @@ async function boot() {
 boot();
 
 // ===== helpers =====
-// (onClickAuthButton, wireAuthButton, toggleAuthButton 함수는 변경사항 없습니다)
 async function onClickAuthButton() {
   try {
     if (auth.currentUser) {
