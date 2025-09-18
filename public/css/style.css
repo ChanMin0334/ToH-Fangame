@@ -429,12 +429,12 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
   color: #0e1116; font-weight: 800;
 }
 
-/* ===== 후원자 전용 테두리 디자인 라이브러리 ===== */
+/* ===== 후원자 전용 테두리 디자인 라이브러리 (수정) ===== */
 
 /* 아바타 래퍼 기본 스타일 */
 .avatar-wrap {
   position: relative;
-  border-color: transparent !important; 
+  /* 덮어쓰기 문제가 발생했던 코드를 여기서 삭제합니다. */
 }
 .avatar-wrap img {
   position: relative;
@@ -445,6 +445,10 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
 @keyframes supporter-spin { to { --angle: 360deg; } }
 
 /* --- 불꽃(flame) 디자인 --- */
+.supporter-flame {
+  border-color: transparent !important; /* 후원자일 때만 테두리를 투명하게 만듭니다. */
+  box-shadow: 0 0 12px 2px rgba(255, 149, 0, 0.7);
+}
 .supporter-flame::before {
   content: '';
   position: absolute;
@@ -457,11 +461,12 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
   );
   animation: supporter-spin 3s linear infinite;
 }
-.supporter-flame {
-  box-shadow: 0 0 12px 2px rgba(255, 149, 0, 0.7);
-}
 
 /* --- 은하수(galaxy) 디자인 --- */
+.supporter-galaxy {
+  border-color: transparent !important;
+  box-shadow: 0 0 12px 2px rgba(88, 86, 214, 0.6);
+}
 .supporter-galaxy::before {
   content: '';
   position: absolute;
@@ -474,11 +479,12 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
   );
   animation: supporter-spin 5s linear infinite;
 }
-.supporter-galaxy {
-  box-shadow: 0 0 12px 2px rgba(88, 86, 214, 0.6);
-}
 
 /* --- 숲(forest) 디자인 --- */
+.supporter-forest {
+  border-color: transparent !important;
+  box-shadow: 0 0 10px 2px rgba(52, 199, 89, 0.6);
+}
 .supporter-forest::before {
   content: '';
   position: absolute;
@@ -490,7 +496,4 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
     #34c759, #a2d4ab, #ffffff, #a2d4ab, #34c759
   );
   animation: supporter-spin 7s linear infinite;
-}
-.supporter-forest {
-  box-shadow: 0 0 10px 2px rgba(52, 199, 89, 0.6);
 }
