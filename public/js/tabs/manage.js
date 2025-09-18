@@ -68,7 +68,8 @@ function tpl() {
   `;
 }
 
-export default async function showManage() {
+// ✅ 이름 있는 export를 위해 함수 선언 방식 사용
+export async function showManage() {
   const root = document.getElementById('view');
 
   // 권한 확인 (캐시 → 실검증)
@@ -168,5 +169,6 @@ export default async function showManage() {
   });
 }
 
-// 라우터 호환용 별칭
+// 보조 별칭들(다른 코드 호환)
 export const showAdmin = showManage;
+export default showManage;
