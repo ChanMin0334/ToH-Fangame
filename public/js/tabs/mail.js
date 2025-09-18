@@ -1,10 +1,15 @@
 // /public/js/tabs/mail.js
-// 기능: 내 우편함 목록 표시, 읽음 처리(read=true) 업데이트
-// 규칙: mail/{uid}/msgs/{id} 읽기 — 본인만, update — read 필드만 변경 가능
+// 기능: 내 우편함 목록 표시, 읽음 처리(read=true), 일반메일 보상 수령(claimMail)
+// 규칙: mail/{uid}/msgs/{id} 읽기 — 본인만, update — read 필드만 변경 가능 (클레임/발송은 서버 함수)
 
-import { auth, db, fx } from '../api/firebase.js';
+import { auth, db, fx, func } from '../api/firebase.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 
-function esc(s) { return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, m => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]
+  ));
+}
 
 function tpl() {
   return `
@@ -19,23 +24,60 @@ function tpl() {
   `;
 }
 
+// 카드 렌더링(첨부/유효기간/클레임 포함)
 function cardHtml(doc) {
-  const sentAt =
-    (typeof doc.sentAt?.toDate === 'function' ? doc.sentAt.toDate().toLocaleString() : '') || '';
-  const read = !!doc.read;
-  const bg = read ? '#fff' : '#f5faff';
-  const border = read ? '#e5e7eb' : '#93c5fd';
+  const sentAt = (typeof doc.sentAt?.toDate === 'function'
+    ? doc.sentAt.toDate().toLocaleString()
+    : '') || '';
+
+  const read    = !!doc.read;
+  const kind    = doc.kind || 'notice';
+  const expiresAtMs = (doc.expiresAt && doc.expiresAt.toDate)
+    ? doc.expiresAt.toDate().getTime()
+    : null;
+  const expired = !!(expiresAtMs && expiresAtMs < Date.now());
+  const claimed = !!doc.claimed;
+
+  const hasAttach =
+    !!(doc.attachments &&
+      (((doc.attachments.coins|0) > 0) ||
+       (Array.isArray(doc.attachments.items) && doc.attachments.items.length)));
+
+  const attachHtml = hasAttach ? (`
+    <div style="margin-top:8px;padding:8px;border-radius:8px;background:#f9fafb;border:1px solid #e5e7eb">
+      <div style="font-weight:700;margin-bottom:6px">첨부</div>
+      ${ (doc.attachments.coins|0) > 0 ? `<div>코인: +${doc.attachments.coins|0}</div>` : '' }
+      ${ Array.isArray(doc.attachments.items) && doc.attachments.items.length ? `
+        <div style="margin-top:4px">
+          아이템:
+          <ul style="margin:6px 0 0 14px">
+            ${doc.attachments.items.map(it =>
+              `<li>${esc(it.name||'아이템')} x${it.count||1} (${esc(it.rarity||'common')}${it.consumable?'·소모':''})</li>`
+            ).join('')}
+          </ul>
+        </div>` : '' }
+      ${ expiresAtMs ? `<div style="margin-top:6px;color:${expired?'#b91c1c':'#6b7280'};font-size:12px">
+          유효기간: ${new Date(expiresAtMs).toLocaleString()} ${expired?'(만료됨)':''}
+        </div>` : '' }
+    </div>
+  `) : '';
+
+  const canClaim = (kind === 'general') && hasAttach && !expired && !claimed;
 
   return `
-  <article class="mail-card" style="border:1px solid ${border};border-radius:12px;padding:12px;background:${bg}">
+  <article class="mail-card" style="border:1px solid ${read?'#e5e7eb':'#93c5fd'};border-radius:12px;padding:12px;background:${read?'#fff':'#f5faff'}">
     <div style="display:flex;gap:8px;align-items:center">
-      <div style="font-weight:700">${esc(doc.title || '(제목 없음)')}</div>
+      <div style="font-weight:700">[${kind}] ${esc(doc.title || '(제목 없음)')}</div>
       <div style="font-size:12px;color:#6b7280">· ${sentAt}</div>
       ${read ? `<span style="margin-left:auto;font-size:12px;color:#6b7280">읽음</span>` : ''}
     </div>
     <div style="margin-top:8px;white-space:pre-wrap;line-height:1.6">${esc(doc.body || '')}</div>
+    ${attachHtml}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+      ${canClaim ? `<button data-act="claim" data-id="${esc(doc.__id)}" style="height:30px;padding:0 10px;cursor:pointer">보상 받기</button>` : ''}
       ${read ? '' : `<button data-act="read" data-id="${esc(doc.__id)}" style="height:30px;padding:0 10px;cursor:pointer">읽음 처리</button>`}
+      ${(!canClaim && claimed) ? `<span style="font-size:12px;color:#10b981">수령 완료</span>` : ''}
+      ${(!canClaim && expired && hasAttach && !claimed) ? `<span style="font-size:12px;color:#b91c1c">만료됨</span>` : ''}
     </div>
   </article>`;
 }
@@ -61,8 +103,7 @@ export default async function mountMailTab(viewEl) {
     if (typeof off === 'function') { try { off(); } catch {} off = null; }
 
     const col = fx.collection(db, 'mail', u.uid, 'msgs');
-    // 최신 순
-    const q = fx.query(col, fx.orderBy('sentAt', 'desc'), fx.limit(100));
+    const q   = fx.query(col, fx.orderBy('sentAt', 'desc'), fx.limit(100));
 
     // 실시간 구독
     off = fx.onSnapshot(q, snap => {
@@ -80,30 +121,48 @@ export default async function mountMailTab(viewEl) {
     });
   }
 
-  // 클릭 핸들러 (읽음 처리)
+  // 클릭 핸들러 (읽음 처리 / 보상 수령)
   $list.addEventListener('click', async (ev) => {
     const t = ev.target;
     if (!(t instanceof HTMLElement)) return;
-    if (t.dataset.act !== 'read') return;
 
-    const id = t.dataset.id;
-    t.disabled = true; // (개선 1) 중복 클릭 방지를 위해 버튼 비활성화
-    try {
-      const ref = fx.doc(db, 'mail', u.uid, 'msgs', id);
-      // 규칙: read 필드만 변경 가능
-      await fx.updateDoc(ref, { read: true });
-      // UI 즉시 반영(색상/버튼 제거)
-      // onSnapshot이 자동으로 뷰를 갱신하지만, 사용자 경험을 위해 즉시 변경합니다.
-      const card = t.closest('.mail-card');
-      if (card) {
-        card.style.background = '#fff';
-        card.style.borderColor = '#e5e7eb';
-        t.remove();
+    // 보상 받기
+    if (t.dataset.act === 'claim') {
+      const id = t.dataset.id;
+      t.disabled = true;
+      try {
+        const claimMail = httpsCallable(func, 'claimMail');
+        await claimMail({ mailId: id });
+        alert('보상을 수령했어!');
+        refresh();
+      } catch (e) {
+        console.warn('[mail] claim failed', e);
+        alert('수령 실패: ' + (e?.message || e));
+        t.disabled = false;
       }
-    } catch (e) {
-      console.warn('[mail] mark read failed', e);
-      alert('읽음 처리 실패: ' + (e?.message || e));
-      t.disabled = false; // (개선 2) 실패 시 버튼을 다시 활성화하여 재시도 유도
+      return;
+    }
+
+    // 읽음 처리
+    if (t.dataset.act === 'read') {
+      const id = t.dataset.id;
+      t.disabled = true;
+      try {
+        const ref = fx.doc(db, 'mail', u.uid, 'msgs', id);
+        await fx.updateDoc(ref, { read: true });
+        // onSnapshot으로 곧 갱신되지만 UX 위해 즉시 반영
+        const card = t.closest('.mail-card');
+        if (card) {
+          card.style.background = '#fff';
+          card.style.borderColor = '#e5e7eb';
+          t.remove();
+        }
+      } catch (e) {
+        console.warn('[mail] mark read failed', e);
+        alert('읽음 처리 실패: ' + (e?.message || e));
+        t.disabled = false;
+      }
+      return;
     }
   });
 
@@ -113,13 +172,10 @@ export default async function mountMailTab(viewEl) {
   refresh();
 }
 
-
-// --- 라우터 호환용: showMailbox (이 파일의 기본 함수 호출) ---
+// 라우터 호환용 별칭
 export async function showMailbox() {
   const view = document.getElementById('view');
   return (await (typeof mountMailTab === 'function' ? mountMailTab(view) : null));
 }
-
-// 혹시 다른 코드에서 showMail을 찾을 수도 있으니 별칭도 제공(선택)
 export const showMail = showMailbox;
 export const showmail = showMailbox;
