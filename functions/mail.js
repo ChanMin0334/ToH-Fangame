@@ -1,150 +1,271 @@
-// pokemonrgby-crypto/toh-fangame/ToH-Fangame-23b32a5f81701f6655ba119074435fa979f65b24/functions/mail.js
+// functions/mail.js
+// 메일: 발송(sendMail) / 수령(claimMail)
+// - 발송: 공지/경고/일반 지원. 일반은 첨부 { ticket: { weights } } 또는 기존 coins/items도 허용
+// - 만료시각: expiresAt(ms) 직접 지정 가능(없으면 null)
+// - 수령: ticket이 있으면 서버에서 가중치 추첨 → Firestore configs/prompts.gacha_item_system 로 시스템 프롬프트 로딩
+//         → functions/index.js에 정의된 HTTP 함수 aiGenerate 호출로 아이템 생성(JSON) → 유저 인벤토리에 추가
+//         (아이템 스키마: {id, name, rarity, isConsumable, uses, description})
+
 module.exports = (admin, { onCall, HttpsError, logger }) => {
   const db = admin.firestore();
+  const fetch = (...args)=>import('node-fetch').then(({default:fetch})=>fetch(...args)); // ESM 호환
 
-  // Helper: 어드민인지 확인
-  async function isAdmin(uid) {
-    if (!uid) return false;
-    try {
+  async function isAdmin(uid){
+    if(!uid) return false;
+    try{
       const snap = await db.doc('configs/admins').get();
-      const data = snap.exists() ? snap.data() : {};
-      const allow = Array.isArray(data.allow) ? data.allow : [];
-      const user = await admin.auth().getUser(uid);
-      const allowEmails = Array.isArray(data.allowEmails) ? data.allowEmails : [];
-      return allow.includes(uid) || (user.email && allowEmails.includes(user.email));
-    } catch (e) {
-      logger.error('isAdmin check failed', e);
-      return false;
-    }
-  }
-
-  // Callable Function: 관리자가 우편 발송
-  const sendMail = onCall({ region: 'us-central1' }, async (req) => {
-  const db = admin.firestore();
-  const uid = req.auth?.uid;
-
-  // 관리자 판정
-  async function isAdmin(uid) {
-    if (!uid) return false;
-    try {
-      const snap = await db.doc('configs/admins').get();
-      const data = snap.exists ? snap.data() : {};
-      const allow = Array.isArray(data.allow) ? data.allow : [];
-      const allowEmails = Array.isArray(data.allowEmails) ? data.allowEmails : [];
+      const d = snap.exists ? snap.data() : {};
+      const allow = Array.isArray(d.allow) ? d.allow : [];
+      const allowEmails = Array.isArray(d.allowEmails) ? d.allowEmails : [];
       if (allow.includes(uid)) return true;
-      const user = await admin.auth().getUser(uid);
-      return !!(user?.email && allowEmails.includes(user.email));
-    } catch {
+      const u = await admin.auth().getUser(uid);
+      return !!(u?.email && allowEmails.includes(u.email));
+    }catch(e){
+      logger.error('[mail] isAdmin fail', e);
       return false;
     }
   }
-  if (!await isAdmin(uid)) throw new HttpsError('permission-denied', '관리자 권한이 필요합니다.');
 
-  // 입력
-  const { target, title, body, kind, expiresDays, prizeCoins, prizeItems } = req.data || {};
-  if (!target || !title || !body) throw new HttpsError('invalid-argument', 'target, title, body는 필수입니다.');
-
-  const now = admin.firestore.Timestamp.now();
-  const isGeneral = (String(kind||'') === 'general');
-  const expiresAt = isGeneral
-    ? admin.firestore.Timestamp.fromMillis(now.toMillis() + Math.max(1, Number(expiresDays||7)) * 24*60*60*1000)
-    : null;
-
-  const attachments = {
-    coins: Math.max(0, Math.floor(Number(prizeCoins||0))),
-    items: Array.isArray(prizeItems) ? prizeItems.map(it => ({
-      name: String(it?.name||''),
-      rarity: String(it?.rarity||'common'),
-      consumable: !!it?.consumable,
-      count: Math.max(1, Math.floor(Number(it?.count||1)))
-    })).filter(x => x.name) : []
-  };
-
-  const mailData = {
-    kind: (['warning','notice','general'].includes(kind)) ? kind : 'notice',
-    title: String(title).slice(0, 100),
-    body: String(body).slice(0, 1500),
-    sentAt: admin.firestore.FieldValue.serverTimestamp(),
-    read: false,
-    from: 'admin',
-    expiresAt,
-    attachments,
-    claimed: false
-  };
-
-  try {
-    if (target === 'all') {
-      const usersSnap = await db.collection('users').limit(500).get();
-      if (usersSnap.empty) return { ok: true, sentCount: 0 };
-      const batch = db.batch();
-      usersSnap.forEach(u => {
-        const mailRef = db.collection('mail').doc(u.id).collection('msgs').doc();
-        batch.set(mailRef, mailData);
-      });
-      await batch.commit();
-      return { ok: true, sentCount: usersSnap.size };
-    } else {
-      const mailRef = db.collection('mail').doc(String(target)).collection('msgs').doc();
-      await mailRef.set(mailData);
-      return { ok: true, sentCount: 1 };
-    }
-  } catch (e) {
-    throw new HttpsError('internal', '메일 발송 중 오류가 발생했습니다.');
-  }
-});
-// 일반메일 보상 수령
-const claimMail = onCall({ region: 'us-central1' }, async (req) => {
-  const db = admin.firestore();
-  const uid = req.auth?.uid;
-  if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
-  const { mailId } = req.data || {};
-  if (!mailId) throw new HttpsError('invalid-argument', 'mailId 필요');
-
-  const mailRef = db.collection('mail').doc(uid).collection('msgs').doc(String(mailId));
-  const snap = await mailRef.get();
-  if (!snap.exists) throw new HttpsError('not-found', '메일이 없습니다.');
-
-  const m = snap.data() || {};
-  if (m.kind !== 'general') throw new HttpsError('failed-precondition', '보상 대상 메일이 아닙니다.');
-  if (m.claimed) throw new HttpsError('already-exists', '이미 수령 완료');
-  if (m.expiresAt?.toMillis && m.expiresAt.toMillis() < Date.now()) {
-    throw new HttpsError('deadline-exceeded', '유효기간이 지났습니다.');
+  function tsFrom(ms){
+    try{
+      const n = Number(ms);
+      if (Number.isFinite(n) && n>0) return admin.firestore.Timestamp.fromMillis(n);
+    }catch{}
+    return null;
   }
 
-  const userRef = db.doc(`users/${uid}`);
-  await db.runTransaction(async (tx) => {
-    const uSnap = await tx.get(userRef);
-    if (!uSnap.exists) throw new HttpsError('not-found', '유저 문서 없음');
+  // === 발송 ===
+  const sendMail = onCall({ region:'us-central1' }, async (req)=>{
+    const uid = req.auth?.uid;
+    if (!await isAdmin(uid)) throw new HttpsError('permission-denied','관리자만 가능');
 
-    const coins = Math.max(0, Math.floor(Number(m?.attachments?.coins||0)));
-    const items = Array.isArray(m?.attachments?.items) ? m.attachments.items : [];
+    const {
+      target, title, body, kind,
+      expiresAt,          // ms (선택)
+      attachments,        // { ticket?:{weights}, coins?, items? }
+      // 구버전 호환
+      expiresDays, prizeCoins, prizeItems
+    } = req.data || {};
 
-    if (coins > 0) {
-      tx.update(userRef, { coins: admin.firestore.FieldValue.increment(coins) });
+    if (!target || !title || !body) throw new HttpsError('invalid-argument','target/title/body 필수');
+
+    // 만료 계산
+    let expires = null;
+    if (expiresAt) {
+      expires = tsFrom(expiresAt);
+    } else if (String(kind||'')==='general' && (expiresDays||0)>0) {
+      const now = admin.firestore.Timestamp.now();
+      expires = admin.firestore.Timestamp.fromMillis(now.toMillis() + Number(expiresDays)*24*60*60*1000);
     }
-    if (items.length) {
-      const cur = Array.isArray(uSnap.get('items_all')) ? uSnap.get('items_all') : [];
-      const add = items.map((it) => ({
-        id: `mail_${snap.id}_${Math.random().toString(36).slice(2,8)}`,
-        name: String(it.name||'Gift'),
-        rarity: String(it.rarity||'common'),
-        isConsumable: !!it.consumable,
-        count: Math.max(1, Math.floor(Number(it.count||1))),
-        source: { type:'mail', mailId: snap.id }
-      }));
-      tx.update(userRef, { items_all: [...cur, ...add] });
+
+    // 첨부 정규화
+    let attach = { coins:0, items:[], ticket:null };
+    if (attachments?.ticket) {
+      const w = attachments.ticket.weights || {};
+      attach.ticket = {
+        weights: {
+          normal: Math.max(0, Number(w.normal||0)|0),
+          rare:   Math.max(0, Number(w.rare||0)|0),
+          epic:   Math.max(0, Number(w.epic||0)|0),
+          legend: Math.max(0, Number(w.legend||0)|0),
+          myth:   Math.max(0, Number(w.myth||0)|0),
+          aether: Math.max(0, Number(w.aether||0)|0),
+        }
+      };
+    }
+    if (Number(prizeCoins)>0) attach.coins = Math.floor(Number(prizeCoins));
+    if (Array.isArray(prizeItems)) {
+      attach.items = prizeItems.map(it=>({
+        name: String(it?.name||''),
+        rarity: String(it?.rarity||'normal'),
+        consumable: !!it?.consumable,
+        count: Math.max(1, Math.floor(Number(it?.count||1)))
+      })).filter(x=>x.name);
+    }
+    if (attachments?.coins) attach.coins = Math.max(attach.coins, Math.floor(Number(attachments.coins)||0));
+    if (attachments?.items) {
+      const arr = Array.isArray(attachments.items) ? attachments.items : [];
+      attach.items = arr.map(it=>({
+        name: String(it?.name||''),
+        rarity: String(it?.rarity||'normal'),
+        consumable: !!it?.consumable,
+        count: Math.max(1, Math.floor(Number(it?.count||1)))
+      })).filter(x=>x.name);
     }
 
-    tx.update(mailRef, {
-      claimed: true,
-      claimedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    const doc = {
+      kind: (['notice','warning','general'].includes(kind)) ? kind : 'notice',
+      title: String(title).slice(0,100),
+      body:  String(body).slice(0,1500),
+      sentAt: admin.firestore.FieldValue.serverTimestamp(),
+      read: false,
+      from: 'admin',
+      expiresAt: expires,
+      attachments: attach,
+      claimed: false
+    };
+
+    try{
+      if (target === 'all'){
+        const usersSnap = await db.collection('users').limit(500).get();
+        if (usersSnap.empty) return { ok:true, sentCount:0 };
+        const batch = db.batch();
+        usersSnap.forEach(u=>{
+          const ref = db.collection('mail').doc(u.id).collection('msgs').doc();
+          batch.set(ref, doc);
+        });
+        await batch.commit();
+        return { ok:true, sentCount: usersSnap.size };
+      } else {
+        const ref = db.collection('mail').doc(String(target)).collection('msgs').doc();
+        await ref.set(doc);
+        return { ok:true, sentCount: 1 };
+      }
+    }catch(e){
+      logger.error('[mail] send error', e);
+      throw new HttpsError('internal','메일 발송 실패');
+    }
   });
 
-  return { ok: true };
-});
+  // === 수령 ===
+  // 입력: { mailId, prompt? } — prompt는 뽑기권일 때만 사용(사용자 입력 텍스트)
+  const claimMail = onCall({ region:'us-central1' }, async (req)=>{
+    const uid = req.auth?.uid;
+    if(!uid) throw new HttpsError('unauthenticated','로그인이 필요합니다.');
+    const { mailId, prompt } = req.data || {};
+    if(!mailId) throw new HttpsError('invalid-argument','mailId 필요');
 
+    const mailRef = db.collection('mail').doc(uid).collection('msgs').doc(String(mailId));
+    const snap = await mailRef.get();
+    if (!snap.exists) throw new HttpsError('not-found','메일이 없습니다.');
+    const m = snap.data() || {};
 
-return { sendMail, claimMail };
+    if (m.claimed) throw new HttpsError('already-exists','이미 수령 완료');
+    if (m.expiresAt?.toMillis && m.expiresAt.toMillis() < Date.now()) {
+      throw new HttpsError('deadline-exceeded','유효기간이 지났습니다.');
+    }
 
+    // 일반 메일(보상) 로직
+    if (m.kind !== 'general'){
+      // 일반이 아니면 읽음 처리만 허용
+      await mailRef.update({ read:true, claimed:true, claimedAt: admin.firestore.FieldValue.serverTimestamp() });
+      return { ok:true, readOnly:true };
+    }
+
+    const userRef = db.doc(`users/${uid}`);
+
+    // 코인/고정 아이템 처리
+    const coins = Math.max(0, Math.floor(Number(m?.attachments?.coins||0)));
+    const staticItems = Array.isArray(m?.attachments?.items) ? m.attachments.items : [];
+
+    // 뽑기권이 있으면 등급 추첨 + AI 아이템 생성
+    let ticketItem = null;
+    if (m?.attachments?.ticket){
+      const weights = m.attachments.ticket.weights || {};
+      const entries = Object.entries(weights).filter(([k,v])=>Number(v)>0);
+      const total = entries.reduce((s,[,v])=>s+Number(v),0);
+      if (entries.length && total>0){
+        let r = Math.floor(Math.random()*total)+1;
+        let picked = entries[0][0];
+        for (const [rar, w] of entries){ r -= Number(w); if (r<=0){ picked = rar; break; } }
+
+        // 시스템 프롬프트 로드
+        let systemText = '';
+        try{
+          const ps = await db.collection('configs').doc('prompts').get();
+          systemText = String((ps.exists && ps.data()?.gacha_item_system) || '');
+        }catch(err){
+          logger.warn('[mail] prompts load fail', err);
+        }
+
+        // 서버의 aiGenerate HTTP 함수 호출(비공개 키 보관)
+        try{
+          const baseUrl = 'https://us-central1-' + process.env.GCLOUD_PROJECT + '.cloudfunctions.net/aiGenerate';
+          const userText = JSON.stringify({
+            rarity: picked,
+            user_prompt: String(prompt||'').slice(0,500)
+          });
+
+          const res = await fetch(baseUrl, {
+            method:'POST',
+            headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({
+              model: 'gemini-1.5-flash',
+              systemText,
+              userText,
+              temperature: 0.9,
+              maxOutputTokens: 1024
+            })
+          });
+          const j = await res.json().catch(()=>({}));
+          const gen = j?.text ? JSON.parse(j.text) : {}; // aiGenerate는 {text}로 반환
+          // 안전 파싱
+          const name = String(gen?.name || '이름 없는 아이템');
+          const description = String(gen?.description || '').slice(0, 500);
+          const isConsumable = !!gen?.isConsumable;
+          const uses = Math.max(1, Number(gen?.uses||1));
+
+          ticketItem = {
+            id: `item_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+            name,
+            description,
+            rarity: picked,
+            isConsumable,
+            uses
+          };
+        }catch(e){
+          logger.error('[mail] aiGenerate failed', e);
+          // AI 실패시 등급만 반영한 더미 생성
+          ticketItem = {
+            id: `item_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+            name: `${picked.toUpperCase()} 등급 보상`,
+            description: 'AI 생성 실패로 기본 보상이 지급되었습니다.',
+            rarity: picked,
+            isConsumable: false,
+            uses: 1
+          };
+        }
+      }
+    }
+
+    await db.runTransaction(async (tx)=>{
+      const uSnap = await tx.get(userRef);
+      if (!uSnap.exists) throw new HttpsError('not-found','유저 문서 없음');
+
+      const cur = Array.isArray(uSnap.get('items_all')) ? uSnap.get('items_all') : [];
+      const add = [];
+
+      // 코인
+      if (coins>0){
+        tx.update(userRef, { coins: admin.firestore.FieldValue.increment(coins) });
+      }
+      // 고정 아이템
+      for (const it of staticItems){
+        add.push({
+          id: `mail_${snap.id}_${Math.random().toString(36).slice(2,8)}`,
+          name: String(it.name||'Gift'),
+          rarity: String(it.rarity||'normal'),
+          isConsumable: !!(it.consumable||it.isConsumable),
+          uses: Math.max(1, Math.floor(Number(it.count||1))), // count→uses
+          description: String(it.description||'')
+        });
+      }
+      // 뽑기권 결과 아이템
+      if (ticketItem) add.push(ticketItem);
+
+      if (add.length){
+        tx.update(userRef, { items_all: [...cur, ...add] });
+      }
+
+      tx.update(mailRef, {
+        read: true,
+        claimed: true,
+        claimedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    });
+
+    return { ok:true, ticket: ticketItem ? { rarity: ticketItem.rarity, id: ticketItem.id } : null };
+  });
+
+  return { sendMail, claimMail };
 };
