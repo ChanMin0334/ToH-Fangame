@@ -1,9 +1,9 @@
 // /public/js/tabs/manage.js
 // 관리자 도구: [메일 발송] / [검색] 탭 UI
 // - 공지/경고/일반 메일 발송
-//   · 일반: 만료 시각(datetime-local), 코인 지급, [선택] 아이템 JSON, 뽑기권(가중치)
+//   · 일반: 만료 시각(datetime-local), 코인 지급, [선택] 아이템 JSON, 뽑기권(가중치: 토글)
 // - 검색: 캐릭 ID/이름, 유저 → 자산 조회
-// 가시성 강화: 다크 테마여도 입력/카드/버튼은 밝고 선명하게 보이도록 CSS 주입
+// UI 가시성 강화: 다크여도 카드/입력/버튼은 밝고 선명하게
 
 import { func } from '../api/firebase.js';
 import { ensureAdmin, isAdminCached } from '../api/admin.js';
@@ -22,71 +22,32 @@ function stylesOnce(){
   --c-border-soft:#E5E7EB;
   --c-accent:#111827;
 }
-
 @media (prefers-color-scheme: dark){
-  :root{
-    --c-bg:#FFFFFF; /* 카드/입력은 항상 밝게 */
-    --c-fg:#0B1220;
-    --c-muted:#4B5563;
-    --c-border:#9CA3AF;
-    --c-border-soft:#E5E7EB;
-    --c-accent:#111827;
-  }
+  :root{ --c-bg:#FFFFFF; --c-fg:#0B1220; --c-muted:#4B5563; --c-border:#9CA3AF; --c-border-soft:#E5E7EB; --c-accent:#111827; }
 }
-
-/* 레이아웃 */
 .container.narrow{max-width:920px;margin:0 auto}
+.kv-card{background:var(--c-bg)!important;border:1px solid var(--c-border-soft)!important;border-radius:12px!important;padding:12px!important;box-shadow:0 2px 8px rgba(0,0,0,.06)}
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.kv-card{background:var(--c-bg) !important;border:1px solid var(--c-border-soft) !important;border-radius:12px !important;padding:12px !important;box-shadow:0 2px 8px rgba(0,0,0,.06)}
-
-/* 입력/선택 */
-.input, textarea, select{
-  background:#FFFFFF !important;
-  color:var(--c-fg) !important;
-  border:1px solid var(--c-border) !important;
-  border-radius:10px !important;
-  padding:10px !important;
-  font-size:14px !important;
-}
-textarea{min-height:120px;resize:vertical}
-.input::placeholder, textarea::placeholder{ color:var(--c-muted) !important; }
-.input:focus, textarea:focus, select:focus{
-  outline:none !important;
-  border-color:var(--c-accent) !important;
-  box-shadow:0 0 0 3px rgba(17,24,39,.15) !important;
-}
-
-/* 버튼 */
-.btn{
-  height:38px; padding:0 14px; cursor:pointer;
-  border:1px solid var(--c-border) !important;
-  border-radius:10px !important;
-  background:#FFFFFF !important; color:var(--c-fg) !important;
-}
-.btn:hover{ background:#F3F4F6 !important; }
-.btn.primary{
-  background:var(--c-accent) !important; color:#FFFFFF !important;
-  border-color:var(--c-accent) !important;
-}
-.btn.primary:hover{ filter:brightness(1.05) }
-
-/* 탭 */
-.tab{
-  height:34px; padding:0 12px; cursor:pointer;
-  border:1px solid var(--c-border) !important;
-  border-radius:999px !important; background:#FFFFFF !important; color:var(--c-fg) !important;
-}
-.tab.active{ background:var(--c-accent) !important; color:#FFFFFF !important; border-color:var(--c-accent) !important; }
-
-/* 보조 텍스트 */
-.mt8{margin-top:8px}
-.mt12{margin-top:12px}
-.hint{ font-size:12px; color:var(--c-muted) !important; }
-
-/* 라벨-인풋 수평 정렬 */
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .label{font-size:12px;color:var(--c-muted);min-width:110px}
+.input, textarea, select{
+  background:#FFFFFF!important;color:var(--c-fg)!important;border:1px solid var(--c-border)!important;border-radius:10px!important;padding:10px!important;font-size:14px!important;
+}
+textarea{min-height:120px;resize:vertical}
+.input::placeholder, textarea::placeholder{ color:var(--c-muted)!important; }
+.input:focus, textarea:focus, select:focus{ outline:none!important;border-color:var(--c-accent)!important;box-shadow:0 0 0 3px rgba(17,24,39,.15)!important; }
+.btn{height:38px;padding:0 14px;cursor:pointer;border:1px solid var(--c-border)!important;border-radius:10px!important;background:#FFFFFF!important;color:var(--c-fg)!important;}
+.btn:hover{background:#F3F4F6!important}
+.btn.primary{background:var(--c-accent)!important;color:#FFFFFF!important;border-color:var(--c-accent)!important;}
+.btn.primary:hover{filter:brightness(1.05)}
+.tab{height:34px;padding:0 12px;cursor:pointer;border:1px solid var(--c-border)!important;border-radius:999px!important;background:#FFFFFF!important;color:var(--c-fg)!important;}
+.tab.active{background:var(--c-accent)!important;color:#FFFFFF!important;border-color:var(--c-accent)!important;}
+.mt8{margin-top:8px}.mt12{margin-top:12px}.hint{font-size:12px;color:var(--c-muted)!important}
+.switch{position:relative;width:46px;height:26px;border-radius:999px;background:#E5E7EB;border:1px solid #D1D5DB;cursor:pointer;display:inline-block;vertical-align:middle}
+.switch[data-on="1"]{background:#111827;border-color:#111827}
+.switch i{position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:999px;background:#fff;transition:left .15s}
+.switch[data-on="1"] i{left:22px}
 .small{font-size:12px}
 `;
   const el = document.createElement('style');
@@ -125,16 +86,16 @@ function sendTpl(){
 
     <!-- 대상/종류 -->
     <div class="grid2">
-      <div class="row" style="gap:8px">
+      <div class="row">
         <span class="label">대상</span>
         <input id="mail-target" class="input" placeholder="UID 입력 (전체: all)">
       </div>
-      <div class="row" style="gap:8px">
+      <div class="row">
         <span class="label">종류</span>
         <select id="mail-kind" class="input">
           <option value="notice">공지</option>
           <option value="warning">경고</option>
-          <option value="general">일반(보상/만료)</option>
+          <option value="general">일반(보상/만료/뽑기권)</option>
         </select>
       </div>
     </div>
@@ -162,26 +123,33 @@ function sendTpl(){
           <span class="hint">숫자만, 0이면 미지급</span>
         </div>
 
-        <details class="mt8">
+        <details class="mt8" id="items-json-wrap">
           <summary class="small">아이템 JSON (선택)</summary>
           <textarea id="mail-items" class="input" rows="3" placeholder='예시:
 [{"name":"포션","rarity":"normal","consumable":true,"count":2}]'></textarea>
           <div class="hint">형식 오류면 발송이 취소돼.</div>
         </details>
 
-        <details class="mt8">
-          <summary class="small">뽑기권(가중치) — 선택</summary>
-          <div class="grid2 mt8">
-            <label>normal <input id="w-normal" type="number" class="input" value="0" min="0"></label>
-            <label>rare <input id="w-rare" type="number" class="input" value="0" min="0"></label>
-            <label>epic <input id="w-epic" type="number" class="input" value="0" min="0"></label>
-            <label>legend <input id="w-legend" type="number" class="input" value="0" min="0"></label>
-            <label>myth <input id="w-myth" type="number" class="input" value="0" min="0"></label>
-            <label>aether <input id="w-aether" type="number" class="input" value="0" min="0"></label>
+        <div class="mt8">
+          <div class="row">
+            <span class="label">뽑기권</span>
+            <span id="gacha-switch" class="switch" data-on="1" role="switch" aria-checked="true" tabindex="0"><i></i></span>
+            <span class="hint">켜면 가중치로 등급을 추첨해 AI 아이템 생성</span>
           </div>
-          <div class="hint mt8">정수 가중치의 합으로 확률 계산(예: normal=2, rare=1 ⇒ 2/3, 1/3). 모두 0이면 뽑기권 미포함.</div>
-          <div class="hint">AI 프롬프트 템플릿: Firestore <code>configs/prompts.gacha_item_system</code></div>
-        </details>
+
+          <div id="gacha-panel" class="mt8">
+            <div class="grid2">
+              <label>normal <input id="w-normal" type="number" class="input" value="2" min="0"></label>
+              <label>rare   <input id="w-rare"   type="number" class="input" value="1" min="0"></label>
+              <label>epic   <input id="w-epic"   type="number" class="input" value="0" min="0"></label>
+              <label>legend <input id="w-legend" type="number" class="input" value="0" min="0"></label>
+              <label>myth   <input id="w-myth"   type="number" class="input" value="0" min="0"></label>
+              <label>aether <input id="w-aether" type="number" class="input" value="0" min="0"></label>
+            </div>
+            <div class="hint mt8">정수 가중치의 합으로 확률 계산(예: normal=2, rare=1 ⇒ 2/3, 1/3). 꺼져 있으면 뽑기권 미포함.</div>
+            <div class="hint">AI 프롬프트 템플릿: Firestore <code>configs/prompts.gacha_item_system</code></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -251,6 +219,19 @@ export async function showManage(){
     root.querySelector('#tab-search').style.display = (which==='search') ? '' : 'none';
   });
 
+  // ===== 뽑기권 스위치 =====
+  const $switch = root.querySelector('#gacha-switch');
+  const $panel  = root.querySelector('#gacha-panel');
+  const setSwitch = (on)=>{
+    $switch.dataset.on = on ? '1' : '0';
+    $switch.setAttribute('aria-checked', on ? 'true' : 'false');
+    $panel.style.display = on ? '' : 'none';
+  };
+  // 기본 ON
+  setSwitch(true);
+  $switch.addEventListener('click', ()=> setSwitch($switch.dataset.on!=='1'));
+  $switch.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' ') { e.preventDefault(); setSwitch($switch.dataset.on!=='1'); } });
+
   // =====================[ 발송 ]=====================
   const $sendBtn = root.querySelector('#btn-send-mail');
   const $status  = root.querySelector('#mail-send-status');
@@ -277,6 +258,7 @@ export async function showManage(){
 
       // 코인
       const coins = Math.max(0, Number(root.querySelector('#mail-coins').value || 0) | 0);
+
       // 아이템 JSON(선택)
       let items = [];
       const rawItems = (root.querySelector('#mail-items').value || '').trim();
@@ -291,22 +273,30 @@ export async function showManage(){
         }
       }
 
-      // 뽑기권 가중치 (모두 0이면 포함하지 않음)
-      const weights = {
-        normal: Number(root.querySelector('#w-normal').value || 0) | 0,
-        rare:   Number(root.querySelector('#w-rare').value || 0) | 0,
-        epic:   Number(root.querySelector('#w-epic').value || 0) | 0,
-        legend: Number(root.querySelector('#w-legend').value || 0) | 0,
-        myth:   Number(root.querySelector('#w-myth').value || 0) | 0,
-        aether: Number(root.querySelector('#w-aether').value || 0) | 0,
-      };
-      const weightSum = Object.values(weights).reduce((s,v)=>s+(Number(v)||0),0);
+      // 뽑기권 가중치 (스위치 ON일 때만)
+      let ticket = null;
+      if ($switch.dataset.on === '1'){
+        const weights = {
+          normal: Number(root.querySelector('#w-normal').value || 0) | 0,
+          rare:   Number(root.querySelector('#w-rare').value   || 0) | 0,
+          epic:   Number(root.querySelector('#w-epic').value   || 0) | 0,
+          legend: Number(root.querySelector('#w-legend').value || 0) | 0,
+          myth:   Number(root.querySelector('#w-myth').value   || 0) | 0,
+          aether: Number(root.querySelector('#w-aether').value || 0) | 0,
+        };
+        const sum = Object.values(weights).reduce((s,v)=>s+(Number(v)||0),0);
+        if (sum > 0) ticket = { weights };
+        else {
+          // 켜놨는데 전부 0이면 경고
+          if (!confirm('뽑기권이 켜져 있지만 가중치 합계가 0이야. 뽑기권 없이 발송할까?')) return;
+        }
+      }
 
       // attachments 조립
       payload.attachments = {};
       if (coins > 0) payload.attachments.coins = coins;
       if (items.length) payload.attachments.items = items;
-      if (weightSum > 0) payload.attachments.ticket = { weights };
+      if (ticket) payload.attachments.ticket = ticket;
     }
 
     try {
