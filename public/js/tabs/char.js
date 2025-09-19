@@ -359,7 +359,13 @@ async function render(c){
 
   // [추가] 후원자 FX 부착 (3D 포털 + 실시간 파티클)
 const wrap = root.querySelector('.avatar-wrap');
-if (wrap) attachSupporterFX(wrap, (supporterTier || 'flame'), { tilt: true, particles: 260 });
+const prefersReduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const particleBudget = prefersReduced ? 0 : (window.devicePixelRatio > 1 ? 120 : 160);
+if (wrap && !wrap.dataset.fxAttached) {
+  wrap.dataset.fxAttached = '1';
+  attachSupporterFX(wrap, (supporterTier || 'flame'), { tilt: true, particles: particleBudget });
+}
+
 
 
   getCharMainImageUrl(c.id, {cacheFirst:true}).then(url=>{
