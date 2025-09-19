@@ -368,16 +368,17 @@ if (wrap && supporterTier && !wrap.dataset.fxAttached) {
   // 바깥 오비트(얇은 선 + 위성 꼬리 + 드문 트윙클), 성능 매우 가볍게
   attachSupporterFX(wrap, 'orbits', {
   mode:'orbits',
-  haloPx:40,          // 프레임 밖 여백
+  haloPx:40,          // 프레임 바깥 여백
   orbits:2,           // 궤도 수
-  satsPerOrbit:2,     // 궤도당 위성 수(=점)
-  speed:0.9,          // 회전 속도 ↑
+  satsPerOrbit:2,     // 궤도당 위성 2개(더 풍성)
+  speed:0.9,          // 회전 속도 ↑ (0.9~1.4 권장)
+  tailLen:48,         // 꼬리 길이(샘플 수)
+  tailWidth:2.0,      // 꼬리 두께
   twinkles:6,
-  tilt:true,          // 틸트 활성
-  tailLength:14,      // 꼬리 길이
-  tailFade:0.82,      // 꼬리 감쇠
-  tailWidth:1.6       // 꼬리 두께
+  color:'#ffffff',
+  tilt:true
 });
+
 // [tilt] 마우스 위치 기반 실감 각도(최대 10도)
 if (wrap) {
   wrap.dataset.tilt = '1';
