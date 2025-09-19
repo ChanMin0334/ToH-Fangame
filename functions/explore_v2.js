@@ -415,8 +415,8 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       };
 
       const baseHp = (hpTableByDiff[diff]?.[tier]) ?? 8;
-      // 턴 수에 비례하여 체력 증가 (턴당 5%)
-      const turnBonusRatio = (run.turn || 0) * 0.5;
+      // 턴 수에 비례하여 체력 증가 (턴당 20%)
+      const turnBonusRatio = (run.turn || 0) * 0.2;
       const finalHp = Math.max(1, Math.round(baseHp * (1 + turnBonusRatio)));
 
 
