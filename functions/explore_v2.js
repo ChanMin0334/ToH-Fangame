@@ -60,6 +60,47 @@ const COMBAT_TIER = {
   legend: [{p:80, t:'trash'},{p:380,t:'normal'},{p:800,t:'elite'},{p:1000,t:'boss'}],
 };
 
+// [추가] 적 등급 기반 희귀도 표(1000 스케일)
+const TIER_RARITY_TABLE = {
+  trash: [
+    { upto: 600, rarity: 'normal' },
+    { upto: 900, rarity: 'rare'   },
+    { upto: 990, rarity: 'epic'   },
+    { upto: 1000, rarity: 'legend' },
+  ],
+  normal: [
+    { upto: 500, rarity: 'normal' },
+    { upto: 850, rarity: 'rare'   },
+    { upto: 970, rarity: 'epic'   },
+    { upto: 995, rarity: 'legend' },
+    { upto: 1000, rarity: 'myth'  },
+  ],
+  elite: [
+    { upto: 300, rarity: 'normal' },
+    { upto: 700, rarity: 'rare'   },
+    { upto: 930, rarity: 'epic'   },
+    { upto: 990, rarity: 'legend' },
+    { upto: 1000, rarity: 'myth'  },
+  ],
+  boss: [
+    { upto: 100, rarity: 'normal' },
+    { upto: 400, rarity: 'rare'   },
+    { upto: 850, rarity: 'epic'   },
+    { upto: 970, rarity: 'legend' },
+    { upto: 995, rarity: 'myth'   },
+    { upto: 1000, rarity: 'aether' },
+  ],
+};
+
+// [추가] 희귀도 서열(더 큰 값이 더 희귀)
+const RARITY_RANK = { normal:1, rare:2, epic:3, legend:4, myth:5, aether:6 };
+
+// [추가] 더 좋은 희귀도 뽑기(둘 중 최댓값)
+function betterRarity(a, b){
+  return (RARITY_RANK[a]||0) >= (RARITY_RANK[b]||0) ? a : b;
+}
+
+
 // ---- 유틸 ----
 const STAMINA_BASE = 10;
 function makePrerolls(n=50, mod=1000){
@@ -519,6 +560,27 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
 
         const tier = run?.pending_battle?.enemy?.tier || 'normal';
         const diff = run?.difficulty || 'normal';
+
+        // [추가] 보상 희귀도: 난이도표 1회 + 등급표 1회 뽑아서 더 높은 쪽 선택
+                let nextPrerolls = Array.isArray(run.prerolls) ? run.prerolls.slice() : [];
+        const r1 = popRoll({prerolls: nextPrerolls}); nextPrerolls = r1.next; // 난이도용
+        const r2 = popRoll({prerolls: nextPrerolls}); nextPrerolls = r2.next; // 등급용
+
+        const diffRow = pickByTable(r1.value, RARITY_TABLES_BY_DIFFICULTY[diff] || RARITY_TABLES_BY_DIFFICULTY.normal);
+        const tierRow = pickByTable(r2.value, TIER_RARITY_TABLE[tier] || TIER_RARITY_TABLE.normal);
+
+        const rewardRarity = betterRarity(diffRow.rarity, tierRow.rarity);
+
+
+
+
+
+
+
+
+
+
+      
         const promptKey = `battle_turn_system_${diff}_${tier}`;
         let systemPromptRaw = await loadPrompt(db, promptKey);
 
@@ -537,7 +599,7 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         const systemPrompt = systemPromptRaw
             .replace(/{min_damage}/g, baseRange.min)
             .replace(/{max_damage}/g, maxDamageClamped)
-            .replace(/{reward_rarity}/g, rarityMap[run.difficulty] || 'rare');
+            .replace(/{reward_rarity}/g, rewardRarity);
 
         const userPrompt = `## 전투 컨텍스트\n- 장소 난이도: ${run.difficulty}\n- 플레이어: ${character.name} (현재 HP: ${battle.playerHp - staminaCost})\n- 적: ${battle.enemy.name} (등급: ${battle.enemy.tier}, 현재 HP: ${battle.enemy.hp})\n\n## 플레이어 행동\n${JSON.stringify(actionDetail, null, 2)}`;
         
@@ -592,7 +654,9 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                           description: `${battle.enemy.name}을 쓰러뜨려 얻은 파편. 장소의 기운이 스며 있다.`,
                           isConsumable: false, uses: 1
                       };
-                      const reward = aiResult.reward_item && typeof aiResult.reward_item === 'object' ? aiResult.reward_item : fallbackItem;
+                      const reward = (aiResult.reward_item && typeof aiResult.reward_item === 'object')
+                        ? { ...aiResult.reward_item, rarity: rewardRarity } // AI가 다른 등급을 써도 서버에서 강제 통일
+                        : fallbackItem;
                       const newItem = { ...reward, id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2,9) };
                       tx.update(userRef, { items_all: FieldValue.arrayUnion(newItem) });
                   }
@@ -600,21 +664,25 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                   tx.update(runRef, {
                       pending_battle: null,
                       stamina: newPlayerHp,
-                      events: FieldValue.arrayUnion({ t: Date.now(), note: `${battle.enemy.name}을(를) 처치했다! (경험치 +${exp})`, kind:'combat-win', exp })
+                      events: FieldValue.arrayUnion({ t: Date.now(), note: `${battle.enemy.name}을(를) 처치했다! (경험치 +${exp})`, kind:'combat-win', exp }),
+                      prerolls: nextPrerolls,
+
+                      
                   });
 
                } else { // 패배 또는 무승부
                   battleResult.outcome = 'loss';
                   tx.update(runRef, {
                       status: 'ended',
-                       reason: 'battle_lost',
+                      reason: 'battle_lost',
                       endedAt: Timestamp.now(),
                       pending_battle: null,
                       stamina: 0,
+                      prerolls: nextPrerolls,
                   });
               }
           } else { // 전투 계속
-              tx.update(runRef, { pending_battle: battle, stamina: newPlayerHp });
+              tx.update(runRef, { pending_battle: battle, stamina: newPlayerHp, prerolls: nextPrerolls });
           }
   
           return battleResult;
