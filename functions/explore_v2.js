@@ -60,6 +60,22 @@ const COMBAT_TIER = {
   legend: [{p:80, t:'trash'},{p:380,t:'normal'},{p:800,t:'elite'},{p:1000,t:'boss'}],
 };
 
+const MODEL_POOL = [
+  'gemini-2.0-flash-lite', // 가장 빠르고 저렴한 모델을 우선으로
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-2.5-flash',
+  
+];
+
+function pickModels() {
+  const shuffled = [...MODEL_POOL].sort(() => 0.5 - Math.random());
+  const primary = shuffled[0];
+  const fallback = shuffled[1] || shuffled[0];
+  return { primary, fallback };
+}
+
+
 // [추가] 적 등급 기반 희귀도 표(1000 스케일)
 const TIER_RARITY_TABLE = {
   trash: [
@@ -199,8 +215,10 @@ async function loadPrompt(db, id='adventure_narrative_system'){
 }
 // ANCHOR: functions/explore_v2.js -> callGemini 함수
 
-async function callGemini({ apiKey, systemText, userText, logger }) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+async function callGemini({ apiKey, systemText, userText, logger, modelName }) {
+  if (!modelName) throw new Error("callGemini에 modelName이 제공되지 않았습니다.");
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+  // ...
   const body = {
     systemInstruction: { role: 'system', parts: [{ text: String(systemText || '') }] },
     contents: [{ role: 'user', parts: [{ text: String(userText || '') }] }],
@@ -319,7 +337,16 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       '---','## 다음 상황을 생성하라:', dicePrompts,
     ].join('\n');
     
-    const parsed = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText, userText, logger }) || {};
+    ].join('\n');
+    
+    const { primary, fallback } = pickModels();
+    let parsed = {};
+    try {
+      parsed = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText, userText, logger, modelName: primary }) || {};
+    } catch(e) {
+      logger.warn(`[explore/prepare] 1차 모델(${primary}) 호출 실패, 대체 모델(${fallback})로 재시도합니다.`, { error: e.message });
+      parsed = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText, userText, logger, modelName: fallback }) || {};
+    }
 
     const narrative_text = String(parsed?.narrative_text || parsed?.narrative || '').slice(0, 2000);
     const choicesText = Array.isArray(parsed?.choices) ? parsed.choices.slice(0,3).map(c=>String(c).slice(0,100)) : ['선택지 A','선택지 B','선택지 C'];
@@ -648,7 +675,14 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         ].join('\\n');
 
         
-        const aiResult = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText: systemPrompt, userText: userPrompt, logger }) || {};
+        const { primary, fallback } = pickModels();
+        let aiResult = {};
+        try {
+          aiResult = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText: systemPrompt, userText: userPrompt, logger, modelName: primary }) || {};
+        } catch(e) {
+          logger.warn(`[explore/battle] 1차 모델(${primary}) 호출 실패, 대체 모델(${fallback})로 재시도합니다.`, { error: e.message });
+          aiResult = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText: systemPrompt, userText: userPrompt, logger, modelName: fallback }) || {};
+        }
 
         // [PATCH] 플레이어 피해 동적 상한 (난이도/등급 + 시작HP 40% 캡)
         let playerHpChange = Math.round(Number(aiResult.playerHpChange) || 0);
