@@ -466,106 +466,192 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
 }
 
 
-/* ===== 후원자 전용 테두리 디자인 라이브러리 (v4, 3D frame) ===== */
+/* ===== 후원자 전용 테두리 디자인 라이브러리 (v5 - 드라마틱 효과) ===== */
 
-/* 공통: supporter-로 시작하는 티어가 붙은 아바타에 3D 프레임 부여 */
-.avatar-wrap[class*="supporter-"]{
-  /* 입체감/광택 기본값 */
-  --hue: 0turn;               /* 회전 각(애니메이션용) */
-  --frame-w: 6px;             /* 링 두께 */
-  --round: 18px;              /* 모서리 라운드(avatar-wrap와 동일) */
-  --bevel-top: rgba(255,255,255,.18);
-  --bevel-bot: rgba(0,0,0,.55);
-  --frame-grad: conic-gradient(from var(--hue), #7aa1ff, #b18cff, #7aa1ff); /* 디폴트 */
+/* 아바타 래퍼 기본 스타일 */
+.avatar-wrap {
+  position: relative;
+  perspective: 1000px; /* 깊이감을 더 주기 위해 perspective 값 증가 */
+  overflow: hidden; /* 파티클이 테두리를 벗어나지 않도록 설정 */
+}
 
-  border: 0;                  /* 기존 테두리는 숨김 */
-  border-radius: var(--round);
-  box-shadow: 0 8px 28px rgba(0,0,0,.45);     /* 외곽 그림자(살짝 띄워 보이게) */
+/* 후원자 테두리가 적용될 때만 기존 랭크 테두리를 투명하게 만듭니다. */
+.supporter-flame,
+.supporter-galaxy,
+.supporter-forest {
+  border-color: transparent !important;
   transform-style: preserve-3d;
+  /* 부드러운 호버 효과 추가 */
+  transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.avatar-wrap:hover .supporter-flame,
+.avatar-wrap:hover .supporter-galaxy,
+.avatar-wrap:hover .supporter-forest {
+  transform: scale(1.05); /* 마우스 호버 시 살짝 확대 */
 }
 
-/* 1) 링(바깥 그라디언트 테두리) */
-.avatar-wrap[class*="supporter-"]::before{
-  content:"";
-  position:absolute; inset:0;
-  border-radius: var(--round);
-  padding: var(--frame-w);
-  background: var(--frame-grad);
-  /* "테두리만" 보이도록 마스크 */
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0) padding-box;
-  -webkit-mask-composite: xor;
-          mask-composite: exclude;
-  filter: saturate(120%);
-  animation: supporterSpin 18s linear infinite; /* 아주 천천히 회전 */
+
+/* 이미지와 버튼 z-index 설정 (기존과 동일) */
+.avatar-wrap img {
+  position: relative;
+  z-index: 2;
+  display: block;
+}
+.avatar-wrap .top-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+}
+.avatar-wrap .fab-circle {
+  background: rgba(26, 26, 26, 0.7);
 }
 
-/* 2) 빛줄기(sweep) – 링 위로 반짝이는 하이라이트가 스치게 */
-.avatar-wrap[class*="supporter-"]::after{
-  content:"";
-  position:absolute; inset:0;
-  border-radius: var(--round);
-  padding: var(--frame-w);
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
-  background-size: 200% 100%;
-  transform: translateX(-120%);
-  mix-blend-mode: screen;
-  /* 링 부분만 보이도록 동일 마스크 */
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0) padding-box;
-  -webkit-mask-composite: xor;
-          mask-composite: exclude;
-  pointer-events: none;
-  animation: supporterSweep 3.6s ease-in-out infinite;
-  opacity: .65;
+
+/* --- 🔥 불꽃(flame) 디자인 - 격렬한 화염처럼 --- */
+.supporter-flame {
+  box-shadow: 0 0 30px 5px rgba(255, 100, 0, 0.8),
+              inset 0 0 20px 2px rgba(255, 80, 0, 0.7);
 }
 
-/* 3) 내부 비벨: 이미지 가장자리에 살짝 입체감 */
-.avatar-wrap[class*="supporter-"] img{
-  position: relative; /* 비벨이 이미지와 겹쳐 보이게 */
-  box-shadow:
-    inset 0 2px 3px var(--bevel-top),
-    inset 0 -3px 8px var(--bevel-bot),
-    inset 0 0 0 1px rgba(255,255,255,.05);
-  border-radius: calc(var(--round) - 2px);
+/* 여러 개의 ::before/::after 유사 요소를 겹쳐 불꽃의 깊이감을 만듭니다. */
+.supporter-flame::before,
+.supporter-flame::after {
+  content: '';
+  position: absolute;
+  inset: -8px; /* 테두리 범위를 더 넓게 */
+  z-index: 1;
+  border-radius: 24px;
+  background: radial-gradient(circle, transparent 50%, #ff8c00),
+              linear-gradient(0deg, #ff4d00, #ffb400);
+  background-blend-mode: screen;
+  animation: flame-flicker 1.5s infinite alternate, supporter-spin 3s linear infinite;
+  transform: translateZ(-25px);
+}
+/* 두 번째 레이어는 더 빠르고 밝게 움직여 깊이감을 더합니다. */
+.supporter-flame::after {
+  inset: -4px;
+  background: radial-gradient(circle, transparent 60%, #ffdd00),
+              linear-gradient(45deg, #ff2200, #ffaa00);
+  animation: flame-flicker 1s infinite alternate-reverse, supporter-spin 2s linear infinite reverse;
+  filter: blur(5px);
 }
 
-/* 호버 시 살짝 틸트(입체감 강조) */
-.avatar-wrap[class*="supporter-"]:hover{
-  transform: translateY(-2px) rotateX(.6deg) rotateY(-.6deg);
+/* 흩날리는 불꽃 파티클 (더 많고, 역동적으로) */
+@keyframes flame-particles {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-150px) scale(0.5); opacity: 0; }
+}
+.supporter-flame .avatar-wrap::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 4px; height: 4px;
+    background: #ffd700;
+    border-radius: 50%;
+    box-shadow: /* 15개의 파티클 생성 */
+      -20px 10px 5px, 30px -5px 7px, -50px 30px 6px, 10px 60px 8px, -40px 90px 5px,
+      50px 50px 6px, -60px -20px 7px, 70px 10px 5px, -80px 40px 8px, 90px -30px 6px,
+      -100px 70px 7px, 110px 0px 5px, -120px -50px 8px, 130px 30px 6px, -140px 60px 7px;
+    animation: flame-particles 3s infinite ease-out;
+    filter: blur(1.5px);
+    z-index: 3;
+}
+@keyframes flame-flicker {
+  0% { opacity: 0.8; transform: translateZ(-25px) scale(1); }
+  100% { opacity: 1; transform: translateZ(-25px) scale(1.03); }
 }
 
-/* 티어별 색(원하는 문자열을 supporter_tier로 저장하면 됨) */
-.avatar-wrap.supporter-bronze { 
-  --frame-grad: conic-gradient(from var(--hue), #5a2d14, #a46b35, #ffd6a0, #a46b35, #5a2d14);
+
+/* --- ✨ 은하수(galaxy) 디자인 - 신비로운 우주처럼 --- */
+.supporter-galaxy {
+  box-shadow: 0 0 30px 5px rgba(150, 100, 255, 0.7);
 }
-.avatar-wrap.supporter-silver { 
-  --frame-grad: conic-gradient(from var(--hue), #7a7f86, #c8d0dc, #ffffff, #c8d0dc, #7a7f86);
+/* 1. 가장 깊은 우주 배경 */
+.supporter-galaxy::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 18px;
+  background-image:
+    /* 성운 효과 */
+    radial-gradient(ellipse at 70% 20%, rgba(173, 53, 235, 0.4) 0%, transparent 50%),
+    radial-gradient(ellipse at 30% 80%, rgba(0, 150, 255, 0.3) 0%, transparent 50%),
+    /* 깊은 우주 배경 */
+    linear-gradient(160deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+  animation: galaxy-drift 30s linear infinite;
 }
-.avatar-wrap.supporter-gold { 
-  --frame-grad: conic-gradient(from var(--hue), #806000, #f4d26a, #ffe89a, #f4d26a, #806000);
+/* 2. 더 가까운 별들 (작고 반짝임) */
+.supporter-galaxy::after {
+    content: '';
+    position: absolute;
+    inset: -10px;
+    background-image: /* CSS Paint API 대신 box-shadow로 별 생성 */
+      radial-gradient(1px 1px at 20% 30%, white, white),
+      radial-gradient(1px 1px at 80% 70%, white, white),
+      radial-gradient(2px 2px at 50% 50%, white, white),
+      radial-gradient(1px 1px at 10% 90%, white, white),
+      radial-gradient(1px 1px at 90% 10%, white, white);
+    background-repeat: no-repeat;
+    animation: twinkle-stars-dramatic 4s infinite ease-in-out;
+    z-index: 1;
 }
-.avatar-wrap.supporter-diamond { 
-  --frame-grad: conic-gradient(from var(--hue), #71eaff, #8aa8ff, #b18cff, #ff86d7, #71eaff);
+@keyframes galaxy-drift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
 }
-.avatar-wrap.supporter-galaxy { 
-  --frame-grad: conic-gradient(from var(--hue), #3a1c6b, #5b2ca1, #0a84ff, #00c7be, #3a1c6b);
+@keyframes twinkle-stars-dramatic {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
 }
 
-/* 모션 민감 사용자 배려 */
-@media (prefers-reduced-motion: reduce){
-  .avatar-wrap[class*="supporter-"]::before,
-  .avatar-wrap[class*="supporter-"]::after{ animation: none; }
-  .avatar-wrap[class*="supporter-"]:hover{ transform: none; }
+
+/* --- 🌳 숲(forest) 디자인 - 생명의 기운처럼 --- */
+.supporter-forest {
+  box-shadow: 0 0 25px 4px rgba(80, 220, 120, 0.7);
+}
+/* 1. 배경: 깊은 숲과 햇살 */
+.supporter-forest::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  z-index: 0;
+  border-radius: 22px;
+  background:
+    /* 빛줄기 (God rays) */
+    radial-gradient(ellipse at 50% -20%, rgba(255, 250, 220, 0.5), transparent 60%),
+    /* 숲 배경 */
+    linear-gradient(30deg, #1A4314 0%, #2E8B57 60%, #556B2F 100%);
+  animation: forest-light-sweep 10s infinite ease-in-out;
+}
+/* 2. 반짝이는 요정 가루 (파티클) */
+.supporter-forest::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: transparent;
+    --particle-color: #c3f7c3;
+    box-shadow:
+      20px 30px 2px var(--particle-color), 80px 120px 1px var(--particle-color),
+      140px 60px 2px var(--particle-color), 180px 100px 1px var(--particle-color),
+      40px 160px 2px var(--particle-color), 100px 10px 1px var(--particle-color);
+    animation: fairy-dust 8s infinite linear;
+    opacity: 0;
+    z-index: 1;
+}
+@keyframes forest-light-sweep {
+  0%, 100% { background-position: 0% 0%, 0% 0%; }
+  50% { background-position: 100% 50%, 0% 0%; }
+}
+@keyframes fairy-dust {
+  0%, 100% { opacity: 0; transform: translateY(20px); }
+  20%, 80% { opacity: 0.8; }
+  50% { transform: translateY(-20px) translateX(10px); }
 }
 
-/* 키프레임 */
-@keyframes supporterSpin { to { --hue: 1turn; } }
-@keyframes supporterSweep {
-  0%   { transform: translateX(-120%); }
-  50%  { transform: translateX(0%); }
-  100% { transform: translateX(120%); }
-}
 
+/* 공통 키프레임 */
+@keyframes supporter-spin { to { transform: translateZ(-25px) rotate(360deg); } }
