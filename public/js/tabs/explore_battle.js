@@ -168,10 +168,6 @@ const render = () => {
       } else {
         render();
       }
-      if (result.battle_over) {
-        showToast(result.outcome === 'win' ? '전투에서 승리했습니다!' : '전투에서 패배했습니다.');
-        setTimeout(() => location.hash = `#/explore-run/${runId}`, 2000);
-      }
     } catch (err) {
       console.error('Battle action failed', err);
       showToast(err.message || '행동 처리에 실패했습니다.');
