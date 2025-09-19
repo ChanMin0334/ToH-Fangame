@@ -501,17 +501,35 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         if (!itemToConsume) throw new HttpsError('not-found', '사용하려는 아이템을 찾을 수 없습니다.');
         actionDetail = { type: 'item', name: itemToConsume.name, description: itemToConsume.description || '' };
       }
+      // [추가] 보스 상호작용 금지
+      if (actionType === 'interact' && (run?.pending_battle?.enemy?.tier === 'boss')) {
+        throw new HttpsError('failed-precondition', '보스에게는 상호작용을 사용할 수 없어');
+      }
+ 
 
       if (battle.playerHp < staminaCost) {
         throw new HttpsError('failed-precondition', '스킬을 사용하기 위한 스태미나가 부족합니다.');
       }
 
-      const systemPromptRaw = await loadPrompt(db, 'battle_turn_system');
+      // [교체] 난이도/등급별 프롬프트 키 자동 선택
+      const tier = run?.pending_battle?.enemy?.tier || 'normal';     // trash|normal|elite|boss
+      const diff = run?.difficulty || 'normal';                       // easy|normal|hard|vhard|legend
+      const promptKey = `battle_turn_system_${diff}_${tier}`;         // 예: battle_turn_system_hard_elite
+      let systemPromptRaw = await loadPrompt(db, promptKey);
+
+      // 없으면 기본 프롬프트 폴백
+      if (!systemPromptRaw) {
+        systemPromptRaw = await loadPrompt(db, 'battle_turn_system');
+      }
       const playerExp = character.exp_total || 0;
       const damageRanges = { easy:{min:1, max:3}, normal:{min:2, max:4}, hard:{min:2, max:5}, vhard:{min:3, max:6}, legend:{min:4, max:8} };
       const baseRange = damageRanges[run.difficulty] || damageRanges.normal;
       const expBonusDamage = Math.floor(playerExp / 500);
       const finalMaxDamage = baseRange.max + expBonusDamage;
+      // [추가] 적 등급에 따른 보정치 (최대치 상향만, 최솟값은 그대로)
+      const tierBump = { trash:0, normal:0, elite:1, boss:2 }[run?.pending_battle?.enemy?.tier || 'normal'] || 0;
+      const maxDamageClamped = finalMaxDamage + tierBump;
+
       const rarityMap = {easy:'normal', normal:'rare', hard:'rare', vhard:'epic', legend:'epic'};
       
       const systemPrompt = systemPromptRaw
