@@ -92,9 +92,13 @@ const render = () => {
             <section class="container narrow" id="battleRoot">
                 <div class="card p12">
                     <div class="row" style="justify-content:space-between; align-items:center;">
-                        <div id="enemyName" style="font-weight:800;"></div>
-                        <div id="enemyHpText" class="text-dim" style="font-size:12px;"></div>
+                      <div>
+                        <span id="enemyName" style="font-weight:800;"></span>
+                        <span id="enemyTierChip" class="chip chip-tier" style="margin-left:6px;"></span>
+                      </div>
+                      <div id="enemyHpText" class="text-dim" style="font-size:12px;"></div>
                     </div>
+
                     <div class="hp-bar-outer"><div id="enemyHpBar" class="hp-bar-inner enemy"></div></div>
                     <div id="enemySkills" class="text-dim" style="font-size:12px; margin-top:6px"></div>
                 </div>
@@ -145,6 +149,15 @@ if (!document.getElementById('battle-ui-styles')) {
     @keyframes shake{
       0%{transform:translateX(0)}25%{transform:translateX(-3px)}50%{transform:translateX(3px)}
       75%{transform:translateX(-2px)}100%{transform:translateX(0)}
+
+
+    /* 등급 칩 */
+    .chip-tier{font-size:11px;font-weight:800;border:1px solid transparent;padding:2px 6px;border-radius:8px;vertical-align:1px}
+    .chip-tier.trash  { background:#2a2f3a; color:#c8d0dc; border-color:#5f6673; }
+    .chip-tier.normal { background:#0f2742; color:#cfe4ff; border-color:#3b78cf; }
+    .chip-tier.elite  { background:#20163a; color:#e6dcff; border-color:#7e5cff; }
+    .chip-tier.boss   { background:#000;    color:#ff4d4f; border-color:#ff4d4f; text-transform:uppercase; letter-spacing:.5px; }
+
     }
   `;
   document.head.appendChild(st);
@@ -161,6 +174,16 @@ if (!document.getElementById('battle-ui-styles')) {
     root.querySelector('#enemyName').textContent = esc(battleState.enemy.name);
     root.querySelector('#enemyHpText').textContent = `${battleState.enemy.hp} / ${battleState.enemy.maxHp}`;
     root.querySelector('#enemyHpBar').style.width = `${enemyHpPercent}%`;
+
+
+    // 등급 라벨 표시
+    const chip = root.querySelector('#enemyTierChip');
+    if (chip){
+      const tier = String(battleState.enemy.tier || 'normal').toLowerCase();
+      chip.textContent = tier;
+      chip.className = `chip chip-tier ${tier}`;
+    }
+
     
     root.querySelector('#playerName').textContent = esc(character.name);
     root.querySelector('#playerHpText').textContent = `${battleState.playerHp} / ${runState.stamina_start}`;
