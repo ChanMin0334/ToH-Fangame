@@ -361,9 +361,9 @@ async function render(c){
 const wrap = root.querySelector('.avatar-wrap');
 const prefersReduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const particleBudget = prefersReduced ? 0 : (window.devicePixelRatio > 1 ? 120 : 160);
-if (wrap && !wrap.dataset.fxAttached) {
+if (wrap && supporterTier && !wrap.dataset.fxAttached) {
   wrap.dataset.fxAttached = '1';
-  attachSupporterFX(wrap, (supporterTier || 'flame'), { tilt: true, particles: particleBudget });
+  attachSupporterFX(wrap, supporterTier, { tilt: true, particles: particleBudget });
 }
 
 
