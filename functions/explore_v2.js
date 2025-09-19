@@ -379,10 +379,20 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       const character = charSnap.exists ? charSnap.data() : {};
       const playerExp = character.exp_total || 0;
 
-      const hpMap = { trash: 10, normal: 15, elite: 25, boss: 40 };
-      const baseHp = hpMap[tier] || 15;
-      const expBonusRatio = Math.floor(playerExp / 200) * 0.10;
-      const finalHp = Math.round(baseHp * (1 + expBonusRatio));
+      // [PATCH] 난이도별 적 체력 테이블(기본 HP=10 기준으로 재설계)
+      // Easy는 trash: 2~4, normal: 3~4 느낌으로 낮게 고정
+      const hpTableByDiff = {
+        easy:   { trash: 2,  normal: 3,  elite: 5,  boss: 9 },
+        normal: { trash: 6,  normal: 8,  elite: 14, boss: 22 },
+        hard:   { trash: 8,  normal: 12, elite: 20, boss: 32 },
+        vhard:  { trash: 10, normal: 15, elite: 25, boss: 40 },
+        legend: { trash: 12, normal: 18, elite: 30, boss: 50 },
+      };
+
+      const baseHp = (hpTableByDiff[diff]?.[tier]) ?? 8;
+      // 고레벨 캐릭 보정은 너무 급해지지 않게 완만하게
+      const expBonusRatio = Math.floor((playerExp || 0) / 400) * 0.10;
+      const finalHp = Math.max(1, Math.round(baseHp * (1 + expBonusRatio)));
 
       const battleInfo = {
         enemy: {
@@ -596,12 +606,41 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         const maxDamageClamped = finalMaxDamage + tierBump;
         const rarityMap = {easy:'normal', normal:'rare', hard:'rare', vhard:'epic', legend:'epic'};
         
-        const systemPrompt = systemPromptRaw
+        const systemPrompt = [
+          systemPromptRaw
             .replace(/{min_damage}/g, baseRange.min)
             .replace(/{max_damage}/g, maxDamageClamped)
-            .replace(/{reward_rarity}/g, rewardRarity);
+            .replace(/{reward_rarity}/g, rewardRarity),
+          '',
+          '## 추가 규칙(중요)',
+          '- 이번 호출은 "한 턴"만 처리한다.',
+          '- 플레이어/적 HP가 0 이하가 되는 경우가 아니면 battle_over는 절대 true가 될 수 없다.',
+          '- 과도한 피해로 한 턴에 전투가 끝나지 않도록 데미지는 {min_damage}~{max_damage} 안에서 신중히 산정한다.',
+          '- narrative는 1~2문장으로 짧고 팽팽하게. 적의 스킬명을 1회 언급하되 수식은 절제한다.',
+        ].join('\\n');
 
-        const userPrompt = `## 전투 컨텍스트\n- 장소 난이도: ${run.difficulty}\n- 플레이어: ${character.name} (현재 HP: ${battle.playerHp - staminaCost})\n- 적: ${battle.enemy.name} (등급: ${battle.enemy.tier}, 현재 HP: ${battle.enemy.hp})\n\n## 플레이어 행동\n${JSON.stringify(actionDetail, null, 2)}`;
+        // [PATCH] 캐릭터 최신 서사(long) + 직전 장면을 함께 전달
+        const narratives = Array.isArray(character.narratives) ? character.narratives.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)) : [];
+        const latestNarr = narratives[0] || {};
+        const lastScene  = (battle.log && battle.log.length > 0) ? battle.log[battle.log.length - 1] 
+                          : ((run.events || []).slice(-1)[0]?.note || '(없음)');
+
+        const userPrompt = [
+          '## 전투 컨텍스트',
+          `- 장소 난이도: ${run.difficulty}`,
+          `- 플레이어: ${character.name} (현재 HP: ${battle.playerHp - staminaCost})`,
+          `- 적: ${battle.enemy.name} (등급: ${battle.enemy.tier}, 현재 HP: ${battle.enemy.hp})`,
+          '',
+          '## 캐릭터 서사(최신)',
+          String(latestNarr.long || character.summary || '(없음)'),
+          '',
+          '## 직전 장면 요약',
+          String(lastScene),
+          '',
+          '## 플레이어 행동',
+          JSON.stringify(actionDetail, null, 2)
+        ].join('\\n');
+
         
         const aiResult = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText: systemPrompt, userText: userPrompt, logger }) || {};
 
@@ -685,7 +724,6 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                         { t: Date.now(), kind:'combat-log',  note: (battle.log || []).join('\n'), lines: (battle.log || []).length },
                         { t: Date.now(), kind:'combat-win',  note: `${battle.enemy.name}을(를) 처치했다! (경험치 +${exp})`, exp }
                       ),
-
                       prerolls: nextPrerolls,
 
                       
