@@ -37,8 +37,10 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   fxBack.appendChild(cvsB); fxFront.appendChild(cvsF);
 
   // 이미지 앞뒤에 삽입
-  const img = root.querySelector('img') || root.firstElementChild;
-  if (img) root.insertBefore(fxBack, img);
+  // 레이어 삽입: .avatar-clip 앞(직계)으로 안전하게 넣고, front는 맨 뒤
+  const anchor = root.querySelector('.avatar-clip') || root.firstElementChild;
+  if (anchor) root.insertBefore(fxBack, anchor);
+  else root.appendChild(fxBack);
   root.appendChild(fxFront);
 
   // ----- 캔버스/크기 -----
