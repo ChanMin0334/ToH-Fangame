@@ -529,6 +529,29 @@ const advBattleActionV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
       }).filter(x => x.uses>0 || !(x.isConsumable||x.consumable||x.consume));
 
       // uses==0이면 인벤토리에서 제거 + 장착 해제
+            if (uses === 0) {
+        // 1) 유저 인벤토리에서 해당 아이템 제거
+        const newItems = items.filter(x => x.id !== useItemId);
+
+        // 2) 이 아이템을 장착 중인 내 모든 캐릭에서 장착 해제
+        const charsQ = await db.collection('chars')
+          .where('owner_uid', '==', uid)
+          .where('items_equipped', 'array-contains', useItemId)
+          .get();
+        for (const doc of charsQ.docs) {
+          const data = doc.data() || {};
+          const newEquipped = (data.items_equipped || []).filter(id => id !== useItemId);
+          await doc.ref.update({ items_equipped: newEquipped }).catch(()=>{});
+        }
+
+        // 3) 유저 문서에 반영
+        await userRef.update({ items_all: newItems }).catch(()=>{});
+      } else {
+        // 남은 사용횟수만 감소 반영
+        const newItems = items.map(x => x.id === useItemId ? { ...x, uses } : x);
+        await userRef.update({ items_all: newItems }).catch(()=>{});
+      }
+
       if(uses===0){
         const newEquipped = eqItemIds.filter(id => id !== useItemId);
         await db.runTransaction(async(tx)=>{
