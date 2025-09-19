@@ -368,7 +368,7 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
 
     const resultText = String(chosenOutcome.result_text || '아무 일도 일어나지 않았다.').trim();
     const narrativeLog = `${pend.narrative_text}\n\n[선택: ${pend.choices[idx] || ''}]\n→ ${resultText}`.trim().slice(0, 2300);
-
+    const diff = run.difficulty || 'normal';
     // [수정] 전투 발생 시 로직 강화
     if (chosenOutcome.event_type === 'combat'){
       const enemyBase = chosenOutcome.enemy || {};
