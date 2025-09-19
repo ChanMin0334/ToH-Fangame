@@ -138,7 +138,7 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
       let ox=Math.cos(s.a)*rx, oy=Math.sin(s.a)*ry;
       const x2 = ox*cosT - oy*sinT;
       const y2 = ox*sinT + oy*cosT;
-      const z  = Math.sin(s.a);  // 깊이 (앞 + / 뒤 -)
+      const z  = y2;             // y2(회전 후 y). 아래(+)=앞, 위(-)=뒤
       const x  = cx + x2, y = cy + y2;
 
       // 꼬리 버퍼에 현재 위치 밀어넣고 길이 유지
