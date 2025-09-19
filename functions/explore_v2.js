@@ -367,45 +367,59 @@ const advApplyChoiceV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
     const resultText = String(chosenOutcome.result_text || '아무 일도 일어나지 않았다.').trim();
     const narrativeLog = `${pend.narrative_text}\n\n[선택: ${pend.choices[idx] || ''}]\n→ ${resultText}`.trim().slice(0, 2300);
 
-    // [수정] 전투 발생 시
-    if (chosenOutcome.event_type === 'combat'){
-      const enemyBase = chosenOutcome.enemy || {};
-      const tier = chosenDice?.combat?.enemyTier || 'normal';
-      
-      // 적 등급에 따른 기본 HP 설정
-      const hpMap = { trash: 10, normal: 15, elite: 25, boss: 40 };
-      const enemyHp = hpMap[tier] || 15;
+// [수정] 전투 발생 시
+if (chosenOutcome.event_type === 'combat'){
+  const enemyBase = chosenOutcome.enemy || {};
+  const tier = chosenDice?.combat?.enemyTier || 'normal';
 
-      const battleInfo = {
-        enemy: {
-          name: enemyBase.name || `${tier} 등급의 적`,
-          description: enemyBase.description || '',
-          skills: enemyBase.skills || [],
-          tier: tier,
-          hp: enemyHp,
-          maxHp: enemyHp,
-        },
-        narrative: narrativeLog,
-        playerHp: run.stamina,
-        turn: 0,
-        log: [narrativeLog]
-      };
+  // --- ▼▼▼ exp_total 기반 보정 로직 추가 ▼▼▼ ---
+  const charId = String(run.charRef || '').replace(/^chars\//, '');
+  const charSnap = await db.collection('chars').doc(charId).get();
+  const character = charSnap.exists ? charSnap.data() : {};
 
-      await runRef.update({
-        pending_battle: battleInfo, // 💥 battle_pending 대신 pending_battle 사용
-        pending_choices: null,
-        turn: FieldValue.increment(1),
-        events: FieldValue.arrayUnion({
-          t: Date.now(),
-          note: narrativeLog,
-          dice: chosenDice,
-          deltaStamina: 0
-        }),
-        updatedAt: Timestamp.now()
-      });
-      const fresh = await runRef.get();
-      return { ok:true, state: fresh.data(), battle:true };
-    }
+  // 캐릭터의 누적 경험치를 가져옵니다.
+  const playerExp = character.exp_total || 0;
+
+  // 적 등급에 따른 기본 HP 설정
+  const hpMap = { trash: 10, normal: 15, elite: 25, boss: 40 };
+  const baseHp = hpMap[tier] || 15;
+
+  // 누적 경험치에 따라 HP 보너스 적용 (예: 200 exp당 10%씩 증가)
+  const expBonusRatio = Math.floor(playerExp / 200) * 0.10;
+  const finalHp = Math.round(baseHp * (1 + expBonusRatio));
+  // --- ▲▲▲ 로직 추가 끝 ▲▲▲ ---
+
+  const battleInfo = {
+    enemy: {
+      name: enemyBase.name || `${tier} 등급의 적`,
+      description: enemyBase.description || '',
+      skills: enemyBase.skills || [],
+      tier: tier,
+      hp: finalHp,
+      maxHp: finalHp,
+    },
+    narrative: narrativeLog,
+    playerHp: run.stamina,
+    turn: 0,
+    log: [narrativeLog]
+  };
+
+  await runRef.update({
+    pending_battle: battleInfo,
+    pending_choices: null,
+    turn: FieldValue.increment(1),
+    events: FieldValue.arrayUnion({
+      t: Date.now(),
+      note: narrativeLog,
+      dice: chosenDice,
+      deltaStamina: 0
+    }),
+    updatedAt: Timestamp.now()
+  });
+  const fresh = await runRef.get();
+  return { ok:true, state: fresh.data(), battle:true };
+}
+
 
     // 아이템 지급(선택지에서 item 발생 시)
     let newItem = null;
@@ -538,14 +552,23 @@ const advApplyChoiceV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
         actionDetail.item = itemToConsume;
       }
 
-      // 1. AI 프롬프트 구성 및 호출
-      const systemPromptRaw = await loadPrompt(db, 'battle_turn_system');
-      const damageRanges = { normal: {min:1, max:3}, hard:{min:1, max:4}, vhard:{min:2, max:5}, legend:{min:2, max:6} };
-      const range = damageRanges[run.difficulty] || damageRanges.normal;
-      const systemPrompt = systemPromptRaw
-        .replace(/{min_damage}/g, range.min)
-        .replace(/{max_damage}/g, range.max)
-        .replace(/{reward_rarity}/g, 'rare'); // 예시: 보상은 레어로 고정 (나중에 동적으로 변경 가능)
+// 1. AI 프롬프트 구성 및 호출
+const systemPromptRaw = await loadPrompt(db, 'battle_turn_system');
+
+// --- ▼▼▼ exp_total 기반 데미지 범위 설정 ▼▼▼ ---
+const playerExp = character.exp_total || 0;
+const damageRanges = { normal: {min:1, max:3}, hard:{min:1, max:4}, vhard:{min:2, max:5}, legend:{min:2, max:6} };
+const baseRange = damageRanges[run.difficulty] || damageRanges.normal;
+
+// 누적 경험치에 따라 데미지 상한선 증가 (예: 500 exp당 1씩)
+const expBonusDamage = Math.floor(playerExp / 500);
+const finalMaxDamage = baseRange.max + expBonusDamage;
+// --- ▲▲▲ 설정 끝 ▲▲▲ ---
+
+const systemPrompt = systemPromptRaw
+  .replace(/{min_damage}/g, baseRange.min)
+  .replace(/{max_damage}/g, finalMaxDamage)
+  .replace(/{reward_rarity}/g, 'rare');
 
       const userPrompt = `
         ## 전투 컨텍스트
@@ -603,15 +626,22 @@ const advApplyChoiceV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
         battleResult.battle_over = true;
         
         if (newEnemyHp <= 0) { // 승리
-            battleResult.outcome = 'win';
-            const exp = { trash: 5, normal: 10, elite: 20, boss: 50 }[battle.enemy.tier] || 10;
-            tx.update(runRef, {
-                status: 'ongoing', // 탐험은 계속
-                pending_battle: null,
-                stamina: newPlayerHp,
-                exp_total: FieldValue.increment(exp),
-                events: FieldValue.arrayUnion({ t: Date.now(), note: `${battle.enemy.name}을(를) 처치했다!`, kind:'combat-win', exp })
-            });
+    battleResult.outcome = 'win';
+    const exp = { trash: 5, normal: 10, elite: 20, boss: 50 }[battle.enemy.tier] || 10;
+
+    // --- ▼▼▼ [핵심 수정] 경험치를 '캐릭터'에게 지급 ---
+    tx.update(charRef.doc(charId), {
+        exp_total: FieldValue.increment(exp)
+    });
+    // --- ▲▲▲ 수정 끝 ▲▲▲ ---
+
+    tx.update(runRef, {
+        status: 'ongoing',
+        pending_battle: null,
+        stamina: newPlayerHp,
+        // 'run' 문서의 exp_total은 제거
+        events: FieldValue.arrayUnion({ t: Date.now(), note: `${battle.enemy.name}을(를) 처치했다! (경험치 +${exp})`, kind:'combat-win', exp })
+    });
 
             // 보상 아이템 지급
             if(aiResult.reward_item) {
