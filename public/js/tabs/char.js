@@ -365,47 +365,55 @@ const particleBudget = prefersReduced ? 0 : (window.devicePixelRatio > 1 ? 120 :
 if (wrap && supporterTier && !wrap.dataset.fxAttached) {
   wrap.dataset.fxAttached = '1';
 
-  // 바깥 오비트(얇은 선 + 위성 꼬리 + 드문 트윙클), 성능 매우 가볍게
-  attachSupporterFX(wrap, 'orbits', {
+attachSupporterFX(wrap, 'orbits', {
   mode:'orbits',
-  haloPx:40,          // 프레임 바깥 여백
-  orbits:2,           // 궤도 수
-  satsPerOrbit:2,     // 궤도당 위성 2개(더 풍성)
-  speed:0.9,          // 회전 속도 ↑ (0.9~1.4 권장)
-  tailLen:48,         // 꼬리 길이(샘플 수)
-  tailWidth:2.0,      // 꼬리 두께
+  haloPx:40,
+  orbits:2,
+  satsPerOrbit:2,
+  speed:1.2,      // 더 빠르게(원하면 1.4~1.6도 가능)
+  tailLen:64,     // 꼬리 길이 늘림
+  tailWidth:2.0,
   twinkles:6,
   color:'#ffffff',
-  tilt:true
+  tilt:false      // ← 라이브러리 틸트 비활성화 (아래 커스텀 틸트만 사용)
 });
 
-// [tilt] 마우스 위치 기반 실감 각도(최대 10도)
-if (wrap) {
+
+  /* [tilt] 커스텀 틸트(부드러운 관성, 포인터/터치 공통) */
+if (!prefersReduced && wrap) {
   wrap.dataset.tilt = '1';
   const clamp=(v,min,max)=> v<min?min: v>max?max:v;
-  let rafId = 0, ax=0, ay=0, tx=0, ty=0;
+  let rafId=0, ax=0, ay=0, tx=0, ty=0;
 
-  const apply = ()=>{
-    ax += (tx - ax) * 0.18;
-    ay += (ty - ay) * 0.18;
+  const apply=()=>{
+    ax += (tx - ax) * 0.16;   // 관성 보간
+    ay += (ty - ay) * 0.16;
     wrap.style.transform = `rotateX(${ay}deg) rotateY(${ax}deg)`;
     rafId = requestAnimationFrame(apply);
   };
-  const onMove = (e)=>{
+
+  const onMove=(e)=>{
     const r = wrap.getBoundingClientRect();
-    const rx = ((e.clientX - r.left)/r.width) - 0.5;
-    const ry = ((e.clientY - r.top)/r.height) - 0.5;
-    tx = clamp(-rx*10, -10, 10);
+    const ex = 'clientX' in e ? e.clientX : (e.touches?.[0]?.clientX ?? 0);
+    const ey = 'clientY' in e ? e.clientY : (e.touches?.[0]?.clientY ?? 0);
+    const rx = (ex - r.left)/r.width  - 0.5;
+    const ry = (ey - r.top )/r.height - 0.5;
+    tx = clamp(-rx*10, -10, 10);   // 최대 ±10도
     ty = clamp( ry*10, -10, 10);
     if(!rafId) rafId = requestAnimationFrame(apply);
   };
-  const onLeave = ()=>{
+
+  const onLeave=()=>{
     tx = ty = 0;
     if(!rafId) rafId = requestAnimationFrame(apply);
   };
-  wrap.addEventListener('mousemove', onMove);
-  wrap.addEventListener('mouseleave', onLeave);
+
+  wrap.addEventListener('pointermove', onMove,  {passive:true});
+  wrap.addEventListener('pointerleave', onLeave, {passive:true});
+  wrap.addEventListener('touchmove',  onMove,  {passive:true});
+  wrap.addEventListener('touchend',   onLeave, {passive:true});
 }
+
 
 
 
