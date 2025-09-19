@@ -137,3 +137,15 @@ export function attachSupporterFX(root, theme = 'flame', opts = {}) {
     root.addEventListener('pointerleave', onLeave);
   }
 }
+                                /* === Reset legacy supporter-* particles to avoid double-render === */
+.avatar-wrap.supporter-flame::before,
+.avatar-wrap.supporter-flame::after,
+.avatar-wrap.supporter-galaxy::before,
+.avatar-wrap.supporter-galaxy::after,
+.avatar-wrap.supporter-forest::before,
+.avatar-wrap.supporter-forest::after {
+  content: none !important;
+  animation: none !important;
+  box-shadow: none !important;
+}
+
