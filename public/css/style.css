@@ -430,3 +430,11 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
   color: #0e1116; font-weight: 800;
 }
 
+/* (기존 내용) */
+
+/* [수정] 캐릭터 이미지 1:1 비율 유지를 위한 스타일 오버라이드 */
+.avatar-wrap .avatar-clip img {
+  width: 100%;
+  height: 100%; /* 높이를 컨테이너에 100% 맞춤 */
+  object-fit: cover; /* 비율을 유지하며 컨테이너를 가득 채움 */
+}
