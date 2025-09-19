@@ -1,5 +1,6 @@
 // /public/js/tabs/char.js
 import { db, auth, fx } from '../api/firebase.js';
+import { attachSupporterFX } from '../ui/supporter_fx.js';
 // [추가] getDocFromServer와 getDocsFromServer 함수를 직접 가져옵니다.
 import { startAfter, getDocFromServer, getDocsFromServer } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js';
 import {
@@ -322,7 +323,7 @@ async function render(c){
           {/* ✨ --- [수정] --- ✨
               버튼을 포함한 div가 img 태그 바로 다음에 오도록 위치를 조정합니다.
               CSS에서 이 버튼 그룹의 z-index를 가장 높게 설정할 것입니다. */}
-          <div class="top-actions"> 
+          <div class="top-actions" style="z-index:99">
             <button class="fab-circle" id="btnLike" title="좋아요">♥</button>
             ${isOwner? `<button class="fab-circle" id="btnUpload" title="이미지 업로드">⤴</button>`:''}
           </div>
@@ -355,6 +356,11 @@ async function render(c){
       <div class="bookview" id="bookview"></div>
     </div>
   </section>`;
+
+  // [추가] 후원자 FX 부착 (3D 포털 + 실시간 파티클)
+const wrap = root.querySelector('.avatar-wrap');
+if (wrap) attachSupporterFX(wrap, (supporterTier || 'flame'), { tilt: true, particles: 260 });
+
 
   getCharMainImageUrl(c.id, {cacheFirst:true}).then(url=>{
     if(url){ const img=document.getElementById('charAvatar'); if(img) img.src=url; }
