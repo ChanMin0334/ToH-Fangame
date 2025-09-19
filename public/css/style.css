@@ -432,10 +432,11 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
 
 /* ===== 후원자 전용 테두리 디자인 라이브러리 (v8 - 파티클 최종 수정) ===== */
 
-/* 아바타 래퍼 기본 스타일 */
+/* 아바타 래퍼 기본 스타일: overflow:hidden 제거가 핵심! */
 .avatar-wrap {
   position: relative;
   perspective: 1000px;
+  /* overflow: hidden; <- 이 속성을 제거하여 파티클이 보이도록 합니다. */
 }
 
 /* 후원자 테두리 기본 스타일 */
@@ -580,7 +581,7 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
   pointer-events: none;
 }
 .supporter-forest::after {
-    content: '🌿';
+    content: '🌿'; /* 이모지를 파티클로 사용 */
     position: absolute;
     top: 0; left: 0;
     width: 100%; height: 100%;
