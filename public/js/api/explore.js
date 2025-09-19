@@ -53,7 +53,48 @@ export async function serverBattleFlee(runId) {
 export const call = (name) => httpsCallable(func, name);
 
 
+// [신규] V2 API 호출 함수들
+export async function serverStartRun({ char, world, site, staminaStart }){
+  const { data } = await call('startExploreV2')({ charId: char.id, worldId: world.id, worldName: world.name, siteId: site.id,   siteName: site.name, difficulty: site.difficulty || 'normal', staminaStart });
+  if(!data?.ok) throw new Error('startExploreV2 실패');
+  return data.runId;
+}
 
+export async function serverPrepareNext(runId){
+  const { data } = await call('advPrepareNextV2')({ runId });
+  if(!data?.ok) throw new Error('advPrepareNextV2 실패');
+  return data.pending;
+}
+
+export async function serverApplyChoice(runId, index){
+  const { data } = await call('advApplyChoiceV2')({ runId, index });
+  if(!data?.ok) throw new Error('advApplyChoiceV2 실패');
+  return data;
+}
+
+export async function serverEndRun(runId, reason='ended'){
+  const { data } = await call('endExploreV2')({ runId, reason });
+  if(!data?.ok) throw new Error('endExploreV2 실패');
+  return data.state;
+}
+
+// [신규] 전투 행동 서버 호출 함수
+export async function serverBattleAction(runId, actionType, actionIndex) {
+  const { data } = await call('advBattleActionV2')({ runId, actionType, actionIndex });
+  if (!data?.ok) {
+    // 서버에서 보낸 에러 메시지가 있다면 표시
+    const message = data?.error?.message || 'advBattleActionV2 실패';
+    throw new Error(message);
+  }
+  return data;
+}
+
+// [신규] 전투 후퇴 서버 호출 함수
+export async function serverBattleFlee(runId) {
+  const { data } = await call('advBattleFleeV2')({ runId });
+  if (!data?.ok) throw new Error('advBattleFleeV2 실패');
+  return data;
+}
 
 // 진행 중인 내 탐험 1개 찾기
 export async function findMyActiveRun(){
