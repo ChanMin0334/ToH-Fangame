@@ -10,12 +10,15 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   // ----- 옵션 -----
   const mode   = (opts.mode || theme || 'orbits');
   const HALO   = Number.isFinite(opts.haloPx) ? opts.haloPx : 32;
-  const ORBITS = 2;   
-  const SATS   = 1; 
-  const SPEED  = Number.isFinite(opts.speed) ? opts.speed : 0.36;
+  const ORBITS = 2;
+  const SATS   = 1;
+  // [수정] 속도 증가
+  const SPEED  = Number.isFinite(opts.speed) ? opts.speed : 0.6;
   const TAIL_N = Math.max(12, Math.min(96, opts.tailLen ?? 64));      // 꼬리 샘플 개수
-  const TAIL_W = Math.max(1.0, Math.min(3.2, opts.tailWidth ?? 2.2)); // 머리쪽 굵기(px)
-  const TWINKS = Math.max(0, Math.min(12, opts.twinkles ?? 4));
+  // [수정] 꼬리 시작점 두께 증가
+  const TAIL_W = Math.max(1.0, Math.min(5.0, opts.tailWidth ?? 3.5)); // 머리쪽 굵기(px)
+  // [수정] 별 이펙트 개수 증가
+  const TWINKS = Math.max(0, Math.min(20, opts.twinkles ?? 10));
   const COLOR  = (opts.color || '#ffffff'); // 기본 흰색
 
   const dprCap = Math.min(1.75, window.devicePixelRatio || 1);
@@ -37,7 +40,6 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   fxBack.appendChild(cvsB); fxFront.appendChild(cvsF);
 
   // 이미지 앞뒤에 삽입
-  // 레이어 삽입: .avatar-clip 앞(직계)으로 안전하게 넣고, front는 맨 뒤
   const anchor = root.querySelector('.avatar-clip') || root.firstElementChild;
   if (anchor) root.insertBefore(fxBack, anchor);
   else root.appendChild(fxBack);
@@ -70,10 +72,10 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   const rgba = (a)=>`rgba(${RGB.r},${RGB.g},${RGB.b},${a})`;
 
   // ----- 오비트/위성/별빛 -----
-  // (바깥 큰 타원, 안쪽 작은 타원) — 장축 수평, 기울기 0°
+  // [수정] 타원 단축(rY) 줄이기 및 방향(dir) 시계방향으로 통일
   const Orbits = [
-    { rX: 0.92, rY: 0.62, tilt: 0, dir:  1 },
-    { rX: 0.78, rY: 0.52, tilt: 0, dir: -1 }
+    { rX: 0.92, rY: 0.32, tilt: 0, dir:  1 }, // rY: 0.62 -> 0.32
+    { rX: 0.78, rY: 0.28, tilt: 0, dir:  1 }  // rY: 0.52 -> 0.28, dir: -1 -> 1
   ].slice(0, ORBITS);
 
 
@@ -84,7 +86,8 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
         orbit:i,
         a: (k/SATS)*TAU + rnd(0,TAU/SATS),
         sp: (SPEED + rnd(-0.06,0.06)) * o.dir,
-        size: rnd(1.2, 1.9)*dpr,
+        // [수정] 위성 크기 증가
+        size: rnd(1.8, 2.5)*dpr, // 1.2, 1.9 -> 1.8, 2.5
         trail: [], // {x,y,z} 최근 위치 버퍼
       });
     }
@@ -92,7 +95,8 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
 
   const Stars = [];
   for(let i=0;i<TWINKS;i++){
-    Stars.push({ x:rnd(0.06,0.94), y:rnd(0.06,0.94), t:rnd(0,1), life:rnd(1.8,3.2), zrand: Math.random()<.5 });
+    // [수정] 별 이펙트 더 밝고 크게
+    Stars.push({ x:rnd(0.05,0.95), y:rnd(0.05,0.95), t:rnd(0,1), life:rnd(1.5,2.8), size: rnd(1.2, 2.2) * dpr, zrand: Math.random()<.5 });
   }
 
   // ----- 러닝 가드 -----
@@ -132,23 +136,19 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
       const o = Orbits[s.orbit];
       s.a = (s.a + s.sp * dt) % TAU;
 
-      // 타원 좌표 + 기울기 회전
       const rx=o.rX*base*.5, ry=o.rY*base*.5;
       const cosT=Math.cos(o.tilt), sinT=Math.sin(o.tilt);
       let ox=Math.cos(s.a)*rx, oy=Math.sin(s.a)*ry;
       const x2 = ox*cosT - oy*sinT;
       const y2 = ox*sinT + oy*cosT;
-      const z  = y2;             // y2(회전 후 y). 아래(+)=앞, 위(-)=뒤
+      const z  = y2;
       const x  = cx + x2, y = cy + y2;
 
-      // 꼬리 버퍼에 현재 위치 밀어넣고 길이 유지
       s.trail.push({ x, y, z });
       if (s.trail.length > TAIL_N) s.trail.shift();
 
-      // 두 레이어로 나눠서 그리기 (각 세그먼트를 z 기준으로 분리)
       drawTrailSplit(s.trail, bctx, fctx, TAIL_W, rgba);
 
-      // 머리(작은 점) — 현재 z에 맞는 레이어에
       const headCtx = (z>=0) ? fctx : bctx;
       headCtx.fillStyle = rgba(.95);
       headCtx.beginPath(); headCtx.arc(x, y, s.size, 0, TAU); headCtx.fill();
@@ -158,23 +158,22 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
     for (let i=0;i<Stars.length;i++){
       const st = Stars[i];
       st.t += dt;
-      if (st.t > st.life) { st.x=rnd(0.06,0.94); st.y=rnd(0.06,0.94); st.t=0; st.life=rnd(1.8,3.2); st.zrand=!st.zrand; }
-      const p = st.t/st.life, a = p<.5 ? p*2 : (1-p)*2; // 가운데 가장 밝게
+      if (st.t > st.life) { st.x=rnd(0.05,0.95); st.y=rnd(0.05,0.95); st.t=0; st.life=rnd(1.5,2.8); st.size = rnd(1.2, 2.2) * dpr; st.zrand=!st.zrand; }
+      const p = st.t/st.life, a = p<.5 ? p*2 : (1-p)*2;
       const sx = HALO + st.x*(bw-2*HALO);
       const sy = HALO + st.y*(bh-2*HALO);
       const ctx = st.zrand ? fctx : bctx;
-      ctx.fillStyle = rgba(0.35 + 0.55*a);
-      ctx.beginPath(); ctx.arc(sx, sy, 1.2*dpr, 0, TAU); ctx.fill();
+      // [수정] 별 이펙트 밝기 증가
+      ctx.fillStyle = rgba(0.55 + 0.45*a);
+      ctx.beginPath(); ctx.arc(sx, sy, st.size * a, 0, TAU); ctx.fill();
     }
 
     requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
 
-  // 곡선 꼬리: 세그먼트마다 굵기/투명도 감쇠 + 앞/뒤 분리
   function drawTrailSplit(trail, back, front, headW, rgbaFn){
     if (trail.length < 2) return;
-    // 뒤 먼저, 앞 나중 (자연스러운 겹침)
     for (const pass of ['back','front']){
       const ctx = (pass==='back' ? back : front);
       for (let i=1;i<trail.length;i++){
@@ -183,9 +182,9 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
         const isFront = zMid >= 0;
         if ((pass==='front') !== isFront) continue;
 
-        const t = i / (trail.length-1);         // 머리(1) -> 꼬리(0)
-        const w = Math.max(0.6, headW * (1 - t));      // 점점 가늘게
-        const a = Math.max(0, 0.42 * (1 - t));         // 점점 투명하게
+        const t = i / (trail.length-1);
+        const w = Math.max(0.6, headW * t); // [수정] 꼬리 굵기 반대로 (머리가 두껍게)
+        const a = Math.max(0, 0.6 * t); // [수정] 꼬리 투명도 반대로 (머리가 진하게)
 
         ctx.strokeStyle = rgbaFn(a);
         ctx.lineWidth   = w;
@@ -198,6 +197,7 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   }
 
   // ----- 3D 틸트 -----
+  // [수정] 틸트 효과가 앞쪽 레이어(fxFront)에만 적용되도록 변경
   if (opts.tilt !== false) {
     root.dataset.tilt = '1';
     const onMove=(e)=>{
@@ -205,9 +205,15 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
       const ex=('touches' in e? e.touches[0].clientX : e.clientX);
       const ey=('touches' in e? e.touches[0].clientY : e.clientY);
       const x=(ex-r.left)/r.width, y=(ey-r.top)/r.height;
-      root.style.transform = `rotateX(${(0.5-y)*30}deg) rotateY(${(x-0.5)*30}deg)`;
+      const tx = (x-0.5)*30;
+      const ty = (0.5-y)*30;
+      fxFront.style.transform = `rotateX(${ty}deg) rotateY(${tx}deg)`;
+      root.style.transform = `rotateX(${ty*0.5}deg) rotateY(${tx*0.5}deg)`; // 카드 자체는 살짝만 기울게
     };
-    const onLeave=()=>{ root.style.transform=''; };
+    const onLeave=()=>{
+      root.style.transform='';
+      fxFront.style.transform='';
+    };
     root.addEventListener('pointermove', onMove, { passive:true });
     root.addEventListener('pointerleave', onLeave);
   }
