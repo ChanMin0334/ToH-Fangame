@@ -708,11 +708,26 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                   
                   // [수정] 난이도별 경험치 보상 테이블
                   const baseExp = { trash: 10, normal: 20, elite: 40, boss: 100 }[battle.enemy.tier] || 20;
-                  const difficultyMultiplier = { easy: 0.8, normal: 1.0, hard: 1.5, vhard: 5.0, legend: 10.0 }[run.difficulty] || 1.0;
+                  const difficultyMultiplier = { easy: 0.8, normal: 1.0, hard: 1.2, vhard: 1.5, legend: 2.0 }[run.difficulty] || 1.0;
                   const exp = Math.round(baseExp * difficultyMultiplier);
 
-                  tx.update(charRef, { exp_total: FieldValue.increment(exp) });
+                  // [교체] grantExpAndMint와 동일한 경험치/코인 지급 로직을 여기에 직접 구현합니다.
+                  const currentExp = Number(character.exp || 0);
+                  const newTotalExp = currentExp + exp;
+                  const coinsToMint = Math.floor(newTotalExp / 100);
+                  const finalExp = newTotalExp % 100;
 
+                  tx.update(charRef, { 
+                      exp_total: FieldValue.increment(exp),
+                      exp: finalExp
+                  });
+                  
+                  if (coinsToMint > 0) {
+                      tx.set(userRef, { coins: FieldValue.increment(coinsToMint) }, { merge: true });
+                  }
+                  // --- 로직 교체 끝 ---
+
+                  // [수정] 상호작용 성공 시에는 보상 아이템을 지급하지 않도록 조건 추가
                   if (aiResult.reward_item && aiResult.interaction_success !== true) {
                       const baseRarity = ({ easy:'normal', normal:'rare', hard:'rare', vhard:'epic', legend:'epic' })[run.difficulty] || 'rare';
                       const fallbackItem = {
