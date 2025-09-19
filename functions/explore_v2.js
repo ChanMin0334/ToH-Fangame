@@ -222,7 +222,7 @@ async function callGemini({ apiKey, systemText, userText, logger, modelName }) {
   const body = {
     systemInstruction: { role: 'system', parts: [{ text: String(systemText || '') }] },
     contents: [{ role: 'user', parts: [{ text: String(userText || '') }] }],
-    generationConfig: { temperature: 0.9, maxOutputTokens: 2048, responseMimeType: "application/json" }
+    generationConfig: { temperature: 0.9, maxOutputTokens: 8192, responseMimeType: "application/json" }
   };
   const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
 
