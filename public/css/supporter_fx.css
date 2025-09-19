@@ -5,6 +5,8 @@
   overflow: hidden;
   border-radius: var(--round, 18px);
 }
+.avatar-wrap{ position: relative; perspective: 1000px; }
+
 .avatar-wrap .avatar-clip > img{
   display:block; width:100%; height:100%; object-fit:cover;
 }
