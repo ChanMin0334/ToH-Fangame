@@ -59,7 +59,7 @@ export async function showExploreBattle() {
 
   // [수정] 전투 시작 시 유저의 전체 아이템 목록을 한 번만 가져옵니다.
   const userSnap = await fx.getDoc(fx.doc(db, 'users', auth.currentUser.uid));
-  const allUserItems = userSnap.exists() ? userSnap.data().items_all || [] : [];
+  let allUserItems = userSnap.exists() ? userSnap.data().items_all || [] : [];
 
 const render = () => {
     if (!root.querySelector('#battleRoot')) {
@@ -159,10 +159,15 @@ const render = () => {
       }
 
       battleState = result.battle_state;
-      runState.stamina = battleState.playerHp; // 플레이어 HP가 스태미나이므로 동기화
-      
-      render();
+      runState.stamina = battleState ? battleState.playerHp : runState.stamina;
 
+      // 전투 종료 시 분기
+      if (result.battle_over) {
+        showToast(result.outcome === 'win' ? '전투에서 승리했습니다!' : '전투에서 패배했습니다.');
+        setTimeout(() => location.hash = `#/explore-run/${runId}`, 500);
+      } else {
+        render();
+      }
       if (result.battle_over) {
         showToast(result.outcome === 'win' ? '전투에서 승리했습니다!' : '전투에서 패배했습니다.');
         setTimeout(() => location.hash = `#/explore-run/${runId}`, 2000);
