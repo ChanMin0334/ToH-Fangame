@@ -61,15 +61,41 @@ export async function showExploreBattle() {
   const userSnap = await fx.getDoc(fx.doc(db, 'users', auth.currentUser.uid));
   const allUserItems = userSnap.exists() ? userSnap.data().items_all || [] : [];
 
-  const render = () => {
+const render = () => {
     if (!root.querySelector('#battleRoot')) {
-      root.innerHTML = `
-        <section class="container narrow" id="battleRoot">
-          </section>
-      `;
-      bindEvents();
-    }
+        // [수정] 비어있던 section 내부에 전체 HTML 구조를 추가합니다.
+        root.innerHTML = `
+            <section class="container narrow" id="battleRoot">
+                <div class="card p12">
+                    <div class="row" style="justify-content:space-between; align-items:center;">
+                        <div id="enemyName" style="font-weight:800;"></div>
+                        <div id="enemyHpText" class="text-dim" style="font-size:12px;"></div>
+                    </div>
+                    <div class="hp-bar-outer"><div id="enemyHpBar" class="hp-bar-inner enemy"></div></div>
+                </div>
 
+                <div class="kv-label mt16">전투 기록</div>
+                <div id="battleLog" class="card p16" style="min-height:150px; max-height: 250px; overflow-y:auto; font-size:14px; line-height:1.6;"></div>
+
+                <div class="card p12 mt16">
+                    <div class="row" style="justify-content:space-between; align-items:center;">
+                        <div id="playerName" style="font-weight:800;"></div>
+                        <div id="playerHpText" class="text-dim" style="font-size:12px;"></div>
+                    </div>
+                    <div class="hp-bar-outer"><div id="playerHpBar" class="hp-bar-inner player"></div></div>
+
+                    <div class="kv-label mt12">행동 선택</div>
+                    <div id="actionBox" class="grid2" style="gap:8px;"></div>
+                </div>
+
+                <div style="text-align:right; margin-top:16px;">
+                    <button id="fleeBtn" class="btn ghost">후퇴</button>
+                </div>
+            </section>
+        `;
+        bindEvents();
+    }
+    // ... 이하 업데이트 로직은 정상적으로 동작합니다.
 
     // 데이터 업데이트
     const enemyHpPercent = Math.max(0, (battleState.enemy.hp / battleState.enemy.maxHp) * 100);
@@ -170,8 +196,6 @@ export async function showExploreBattle() {
   };
 
   // --- 초기 실행 ---
-  const userSnap = await fx.getDoc(fx.doc(db, 'users', auth.currentUser.uid));
-  character.allItems = userSnap.exists() ? userSnap.data().items_all || [] : []; // 아이템 정보 주입
   
   render();
   showLoading(false);
