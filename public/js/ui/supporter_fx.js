@@ -12,13 +12,13 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   const HALO   = Number.isFinite(opts.haloPx) ? opts.haloPx : 32;
   const ORBITS = 2;
   const SATS   = 1;
-  // [수정] 속도 증가
-  const SPEED  = Number.isFinite(opts.speed) ? opts.speed : 0.6;
+  // [수정] 속도 추가 증가
+  const SPEED  = Number.isFinite(opts.speed) ? opts.speed : 0.8;
   const TAIL_N = Math.max(12, Math.min(96, opts.tailLen ?? 64));      // 꼬리 샘플 개수
   // [수정] 꼬리 시작점 두께 증가
   const TAIL_W = Math.max(1.0, Math.min(5.0, opts.tailWidth ?? 3.5)); // 머리쪽 굵기(px)
   // [수정] 별 이펙트 개수 증가
-  const TWINKS = Math.max(0, Math.min(20, opts.twinkles ?? 10));
+  const TWINKS = Math.max(0, Math.min(20, opts.twinkles ?? 12));
   const COLOR  = (opts.color || '#ffffff'); // 기본 흰색
 
   const dprCap = Math.min(1.75, window.devicePixelRatio || 1);
@@ -39,7 +39,6 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   const cvsF = document.createElement('canvas'); cvsF.className = 'fx-canvas fx-front';
   fxBack.appendChild(cvsB); fxFront.appendChild(cvsF);
 
-  // 이미지 앞뒤에 삽입
   const anchor = root.querySelector('.avatar-clip') || root.firstElementChild;
   if (anchor) root.insertBefore(fxBack, anchor);
   else root.appendChild(fxBack);
@@ -119,17 +118,7 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
 
     const cx=bw/2, cy=bh/2, base=Math.min(bw,bh);
 
-    // --- 얇은 궤도선 (뒤 레이어에 아주 미세) ---
-    bctx.save();
-    bctx.strokeStyle = rgba(.18);
-    bctx.lineWidth = Math.max(1, 0.6*dpr);
-    Orbits.forEach(o=>{
-      const rx=o.rX*base*.5, ry=o.rY*base*.5;
-      bctx.beginPath();
-      bctx.ellipse(cx, cy, rx, ry, o.tilt, 0, TAU);
-      bctx.stroke();
-    });
-    bctx.restore();
+    // [수정] 타원 궤도선 그리기 코드 삭제
 
     // --- 위성 + 곡선 꼬리 ---
     for (const s of Sats){
@@ -197,7 +186,7 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   }
 
   // ----- 3D 틸트 -----
-  // [수정] 틸트 효과가 앞쪽 레이어(fxFront)에만 적용되도록 변경
+  // [수정] 틸트 효과가 앞쪽 레이어(fxFront)와 카드 자체에만 적용되도록 변경
   if (opts.tilt !== false) {
     root.dataset.tilt = '1';
     const onMove=(e)=>{
@@ -207,8 +196,10 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
       const x=(ex-r.left)/r.width, y=(ey-r.top)/r.height;
       const tx = (x-0.5)*30;
       const ty = (0.5-y)*30;
+      // 앞쪽 캔버스와 카드 자체만 기울입니다.
+      // fxBack (뒷배경 캔버스)는 움직이지 않아 궤도와 위성이 고정됩니다.
       fxFront.style.transform = `rotateX(${ty}deg) rotateY(${tx}deg)`;
-      root.style.transform = `rotateX(${ty*0.5}deg) rotateY(${tx*0.5}deg)`; // 카드 자체는 살짝만 기울게
+      root.style.transform = `rotateX(${ty*0.5}deg) rotateY(${tx*0.5}deg)`;
     };
     const onLeave=()=>{
       root.style.transform='';
