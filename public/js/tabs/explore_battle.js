@@ -149,7 +149,7 @@ if (!document.getElementById('battle-ui-styles')) {
     @keyframes shake{
       0%{transform:translateX(0)}25%{transform:translateX(-3px)}50%{transform:translateX(3px)}
       75%{transform:translateX(-2px)}100%{transform:translateX(0)}
-
+    }
 
     /* 등급 칩 */
     .chip-tier{font-size:11px;font-weight:800;border:1px solid transparent;padding:2px 6px;border-radius:8px;vertical-align:1px}
@@ -158,7 +158,7 @@ if (!document.getElementById('battle-ui-styles')) {
     .chip-tier.elite  { background:#20163a; color:#e6dcff; border-color:#7e5cff; }
     .chip-tier.boss   { background:#000;    color:#ff4d4f; border-color:#ff4d4f; text-transform:uppercase; letter-spacing:.5px; }
 
-    }
+    
   `;
   document.head.appendChild(st);
 }
