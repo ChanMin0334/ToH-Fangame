@@ -10,8 +10,8 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   // ----- 옵션 -----
   const mode   = (opts.mode || theme || 'orbits');
   const HALO   = Number.isFinite(opts.haloPx) ? opts.haloPx : 32;
-  const ORBITS = Math.max(1, Math.min(3,  opts.orbits ?? 2));
-  const SATS   = Math.max(1, Math.min(2,  opts.satsPerOrbit ?? 1));
+  const ORBITS = 2;   
+  const SATS   = 1; 
   const SPEED  = Number.isFinite(opts.speed) ? opts.speed : 0.36;
   const TAIL_N = Math.max(12, Math.min(96, opts.tailLen ?? 64));      // 꼬리 샘플 개수
   const TAIL_W = Math.max(1.0, Math.min(3.2, opts.tailWidth ?? 2.2)); // 머리쪽 굵기(px)
@@ -70,12 +70,12 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   const rgba = (a)=>`rgba(${RGB.r},${RGB.g},${RGB.b},${a})`;
 
   // ----- 오비트/위성/별빛 -----
-  const Orbits = Array.from({length: ORBITS}).map((_,i)=>({
-    rX: 0.56 + i*0.10,          // 가로 반경 비율
-    rY: 0.43 + i*0.08,          // 세로 반경 비율
-    tilt: rnd(-18,18)*Math.PI/180,
-    dir: (i%2===0? 1 : -1),
-  }));
+  // (바깥 큰 타원, 안쪽 작은 타원) — 장축 수평, 기울기 0°
+  const Orbits = [
+    { rX: 0.92, rY: 0.62, tilt: 0, dir:  1 },
+    { rX: 0.78, rY: 0.52, tilt: 0, dir: -1 }
+  ].slice(0, ORBITS);
+
 
   const Sats = [];
   Orbits.forEach((o,i)=>{
@@ -205,7 +205,7 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
       const ex=('touches' in e? e.touches[0].clientX : e.clientX);
       const ey=('touches' in e? e.touches[0].clientY : e.clientY);
       const x=(ex-r.left)/r.width, y=(ey-r.top)/r.height;
-      root.style.transform = `rotateX(${(0.5-y)*6}deg) rotateY(${(x-0.5)*6}deg)`;
+      root.style.transform = `rotateX(${(0.5-y)*30}deg) rotateY(${(x-0.5)*30}deg)`;
     };
     const onLeave=()=>{ root.style.transform=''; };
     root.addEventListener('pointermove', onMove, { passive:true });
