@@ -318,7 +318,11 @@ async function render(c){
       <div class="char-header">
         
         <div class="avatar-wrap ${supporterTier ? `supporter-${supporterTier}` : ''}" style="border-color:${tier.color}">
-          <img id="charAvatar" src="${c.thumb_url||c.image_b64||c.image_url||''}" alt="" onerror="this.src=''; this.classList.add('noimg')"/>
+          <div class="avatar-clip">
+            <img id="charAvatar" src="${c.thumb_url||c.image_b64||c.image_url||''}" alt=""
+                 onerror="this.src=''; this.classList.add('noimg')" />
+          </div>
+
           
           <div class="top-actions" style="z-index:99">
             <button class="fab-circle" id="btnLike" title="좋아요">♥</button>
@@ -362,7 +366,46 @@ if (wrap && supporterTier && !wrap.dataset.fxAttached) {
   wrap.dataset.fxAttached = '1';
 
   // 바깥 오비트(얇은 선 + 위성 꼬리 + 드문 트윙클), 성능 매우 가볍게
-  attachSupporterFX(wrap, 'orbits', { mode:'orbits', haloPx:36, orbits:2, satsPerOrbit:1, speed:0.38, twinkles:6, tilt:true });
+  attachSupporterFX(wrap, 'orbits', {
+  mode:'orbits',
+  haloPx:40,          // 프레임 밖 여백
+  orbits:2,           // 궤도 수
+  satsPerOrbit:2,     // 궤도당 위성 수(=점)
+  speed:0.9,          // 회전 속도 ↑
+  twinkles:6,
+  tilt:true,          // 틸트 활성
+  tailLength:14,      // 꼬리 길이
+  tailFade:0.82,      // 꼬리 감쇠
+  tailWidth:1.6       // 꼬리 두께
+});
+// [tilt] 마우스 위치 기반 실감 각도(최대 10도)
+if (wrap) {
+  wrap.dataset.tilt = '1';
+  const clamp=(v,min,max)=> v<min?min: v>max?max:v;
+  let rafId = 0, ax=0, ay=0, tx=0, ty=0;
+
+  const apply = ()=>{
+    ax += (tx - ax) * 0.18;
+    ay += (ty - ay) * 0.18;
+    wrap.style.transform = `rotateX(${ay}deg) rotateY(${ax}deg)`;
+    rafId = requestAnimationFrame(apply);
+  };
+  const onMove = (e)=>{
+    const r = wrap.getBoundingClientRect();
+    const rx = ((e.clientX - r.left)/r.width) - 0.5;
+    const ry = ((e.clientY - r.top)/r.height) - 0.5;
+    tx = clamp(-rx*10, -10, 10);
+    ty = clamp( ry*10, -10, 10);
+    if(!rafId) rafId = requestAnimationFrame(apply);
+  };
+  const onLeave = ()=>{
+    tx = ty = 0;
+    if(!rafId) rafId = requestAnimationFrame(apply);
+  };
+  wrap.addEventListener('mousemove', onMove);
+  wrap.addEventListener('mouseleave', onLeave);
+}
+
 
 
 }
