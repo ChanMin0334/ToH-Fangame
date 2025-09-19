@@ -365,56 +365,7 @@ const particleBudget = prefersReduced ? 0 : (window.devicePixelRatio > 1 ? 120 :
 if (wrap && supporterTier && !wrap.dataset.fxAttached) {
   wrap.dataset.fxAttached = '1';
 
-attachSupporterFX(wrap, 'orbits', {
-  mode:'orbits',
-  haloPx:40,
-  orbits:2,
-  satsPerOrbit:2,
-  speed:1.2,      // 더 빠르게(원하면 1.4~1.6도 가능)
-  tailLen:64,     // 꼬리 길이 늘림
-  tailWidth:2.0,
-  twinkles:6,
-  color:'#ffffff',
-  tilt:false      // ← 라이브러리 틸트 비활성화 (아래 커스텀 틸트만 사용)
-});
-
-
-  /* [tilt] 커스텀 틸트(부드러운 관성, 포인터/터치 공통) */
-if (!prefersReduced && wrap) {
-  wrap.dataset.tilt = '1';
-  const clamp=(v,min,max)=> v<min?min: v>max?max:v;
-  let rafId=0, ax=0, ay=0, tx=0, ty=0;
-
-  const apply=()=>{
-    ax += (tx - ax) * 0.16;   // 관성 보간
-    ay += (ty - ay) * 0.16;
-    wrap.style.transform = `rotateX(${ay}deg) rotateY(${ax}deg)`;
-    rafId = requestAnimationFrame(apply);
-  };
-
-  const onMove=(e)=>{
-    const r = wrap.getBoundingClientRect();
-    const ex = 'clientX' in e ? e.clientX : (e.touches?.[0]?.clientX ?? 0);
-    const ey = 'clientY' in e ? e.clientY : (e.touches?.[0]?.clientY ?? 0);
-    const rx = (ex - r.left)/r.width  - 0.5;
-    const ry = (ey - r.top )/r.height - 0.5;
-    tx = clamp(-rx*10, -20, 20);   // 최대 ±10도
-    ty = clamp( ry*10, -20, 20);
-    if(!rafId) rafId = requestAnimationFrame(apply);
-  };
-
-  const onLeave=()=>{
-    tx = ty = 0;
-    if(!rafId) rafId = requestAnimationFrame(apply);
-  };
-
-  wrap.addEventListener('pointermove', onMove,  {passive:true});
-  wrap.addEventListener('pointerleave', onLeave, {passive:true});
-  wrap.addEventListener('touchmove',  onMove,  {passive:true});
-  wrap.addEventListener('touchend',   onLeave, {passive:true});
-}
-
-
+attachSupporterFX(wrap, 'orbits');  // 옵션은 supporter_fx.js 기본값이 책임짐
 
 
 }
@@ -422,8 +373,13 @@ if (!prefersReduced && wrap) {
 
 
   getCharMainImageUrl(c.id, {cacheFirst:true}).then(url=>{
-    if(url){ const img=document.getElementById('charAvatar'); if(img) img.src=url; }
+    const img = document.getElementById('charAvatar');
+    if(!url || !img) return;
+    const pre = new Image();
+    pre.onload = ()=> { img.src = url; };   // 로딩 끝나면 한 번에 교체
+    pre.src = url;
   }).catch(()=>{ /* keep thumbnail */ });
+
 
   mountFixedActions(c, isOwner);
 
