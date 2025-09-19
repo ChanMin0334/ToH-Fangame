@@ -24,8 +24,12 @@
 
 
 .avatar-wrap .avatar-clip img{
-  display:block; width:100%; height:auto; /* 자연 비율 */
+  display:block;
+  width:100%;
+  height:auto;          /* 자연 비율 */
+  object-fit:contain;   /* 로딩 순간에도 비율 틀어짐 방지 */
 }
+
 
 
 .avatar-wrap[data-tilt="1"]{
@@ -43,14 +47,16 @@
   pointer-events: none;
   overflow: visible;
 }
-.supporter-fx-back  { z-index: 1; }
-/* 살짝 입체감(과하지 않게) */
-.supporter-fx-back  { transform: translateZ(-0.5px); }
+.supporter-fx{ position:absolute; inset:calc(-1 * var(--halo,32px)); pointer-events:none; overflow:visible; }
+.supporter-fx .fx-canvas{ display:block; width:100%; height:100%; }
+.supporter-fx-back{ z-index:1; } .supporter-fx-front{ z-index:3; }
+
 .supporter-fx-front { transform: translateZ( 0.5px); }
 
 .avatar-wrap img    { position: relative; z-index: 2; display:block; }
 .supporter-fx-front { z-index: 3; }
 .avatar-wrap .top-actions { position:absolute; top:16px; right:16px; z-index:99; }
+.char-card{ overflow: visible; }
 
 /* 캔버스는 HALO까지 확장 */
 .supporter-fx .fx-canvas {
