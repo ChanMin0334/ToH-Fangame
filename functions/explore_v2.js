@@ -124,12 +124,17 @@ function rollThreeChoices(run){
       const row = pickByTable(rrar.value, RARITY_TABLES_BY_DIFFICULTY[diff] || RARITY_TABLES_BY_DIFFICULTY.normal);
       
       // --- 💥 [수정] 클라이언트의 아이템 속성 결정 로직 추가 ---
-      const isConsumable = (popRoll({prerolls: next}).value <= 7); // 70% 확률 (10면체 주사위)
-      next = popRoll({prerolls: next}).next; // 주사위 소모
-      const uses = isConsumable ? (popRoll({prerolls: next}).value % 3) + 1 : 1; // 소모성이면 1~3회
-      next = popRoll({prerolls: next}).next; // 주사위 소모
+      // --- [교체] 소모성/사용횟수 정확 계산 (주사위 소비 포함) ---
+      // 소모성: 10면체에서 1~7 → 70%
+      const rConsum = popRoll({ prerolls: next }, 10); next = rConsum.next;
+      const isConsumable = (rConsum.value <= 7);
+
+      // 사용횟수: 3면체 1~3 → 균등
+      const rUses = popRoll({ prerolls: next }, 3); next = rUses.next;
+      const uses = isConsumable ? rUses.value : 1;
 
       dice.item = { rarity: row.rarity, isConsumable, uses };
+
       // --- 수정 끝 ---
 
     }else if(eventKind === 'combat'){
@@ -153,32 +158,35 @@ async function loadPrompt(db, id='adventure_narrative_system'){
 }
 // ANCHOR: functions/explore_v2.js -> callGemini 함수
 
-async function callGemini({ apiKey, systemText, userText, logger }){ // logger를 인자로 추가
+async function callGemini({ apiKey, systemText, userText, logger }) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const body = {
     systemInstruction: { role: 'system', parts: [{ text: String(systemText || '') }] },
     contents: [{ role: 'user', parts: [{ text: String(userText || '') }] }],
-    generationConfig: {
-      temperature: 0.9,
-      maxOutputTokens: 2048,
-      responseMimeType: "application/json"
-    }
+    generationConfig: { temperature: 0.9, maxOutputTokens: 2048, responseMimeType: "application/json" }
   };
   const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+
   if(!res.ok) {
-    const errorText = await res.text();
-    logger.error("Gemini API Error", { status: res.status, text: errorText });
+    const errorText = await res.text().catch(()=> '');
+    logger?.error?.("Gemini API Error", { status: res.status, text: errorText });
     throw new Error(`Gemini API Error: ${res.status}`);
   }
-  const j = await res.json();
+
+  const j = await res.json().catch(e=>{
+    logger?.error?.("Gemini JSON decode failed", { error: String(e?.message||e) });
+    return {};
+  });
+
   const text = j?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   try {
     return JSON.parse(text);
   } catch (e) {
-    logger.error("Gemini JSON parse failed", { rawText: text, error: e.message });
+    logger?.error?.("Gemini JSON parse failed", { rawText: text.slice(0, 500) , error: String(e?.message||e) });
     return {};
   }
 }
+
 
 
 module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
@@ -270,7 +278,8 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       '---','## 다음 상황을 생성하라:', dicePrompts,
     ].join('\n');
     
-    const parsed = await callGemini({ apiKey: process.env.GEMINI_API_KEY, systemText, userText }) || {};
+    const parsed = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText, userText, logger }) || {};
+
     const narrative_text = String(parsed?.narrative_text || parsed?.narrative || '').slice(0, 2000);
     const choicesText = Array.isArray(parsed?.choices) ? parsed.choices.slice(0,3).map(c=>String(c).slice(0,100)) : ['선택지 A','선택지 B','선택지 C'];
     const outcomes = Array.isArray(parsed?.choice_outcomes)? parsed.choice_outcomes.slice(0,3) : [{event_type:'narrative'},{event_type:'narrative'},{event_type:'narrative'}];
@@ -534,7 +543,7 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       
       const systemPrompt = systemPromptRaw
         .replace(/{min_damage}/g, baseRange.min)
-        .replace(/{max_damage}/g, finalMaxDamage)
+        .replace(/{max_damage}/g, maxDamageClamped)
         .replace(/{reward_rarity}/g, rarityMap[run.difficulty] || 'rare');
 
       const userPrompt = `## 전투 컨텍스트\n- 장소 난이도: ${run.difficulty}\n- 플레이어: ${character.name} (현재 HP: ${battle.playerHp - staminaCost})\n- 적: ${battle.enemy.name} (등급: ${battle.enemy.tier}, 현재 HP: ${battle.enemy.hp})\n\n## 플레이어 행동\n${JSON.stringify(actionDetail, null, 2)}`;
@@ -542,10 +551,16 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       const aiResult = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText: systemPrompt, userText: userPrompt }) || {};
 
       // 서버 필터링
-      const playerHpChange = Math.max(-5, Math.min(5, Math.round(Number(aiResult.playerHpChange) || 0)));
-      const enemyHpChange = Math.max(-finalMaxDamage, Math.min(0, Math.round(Number(aiResult.enemyHpChange) || 0)));
-      
-      const newPlayerHp = Math.max(0, battle.playerHp - staminaCost + playerHpChange);
+      // 스테미나 변화는 -1~+1로 제한(흡혈 회복 +1까지 허용)
+      const playerHpChange = Math.max(-1, Math.min(1, Math.round(Number(aiResult.playerHpChange) || 0)));
+
+      // 적 HP 감소는 0 ~ maxDamageClamped 사이만 허용(음수: 피해)
+      const rawEnemyDelta = Math.round(Number(aiResult.enemyHpChange) || 0); // 보통 음수
+      const enemyHpChange = Math.max(-maxDamageClamped, Math.min(0, rawEnemyDelta));
+
+      const maxStamina = run.stamina_start || STAMINA_BASE || 10;
+      const newPlayerHp = Math.max(0, Math.min(maxStamina, battle.playerHp - staminaCost + playerHpChange));
+
       const newEnemyHp = Math.max(0, battle.enemy.hp + enemyHpChange);
 
       battle.playerHp = newPlayerHp;
@@ -584,9 +599,20 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
             tx.update(charRef, { exp_total: FieldValue.increment(exp) });
 
             if(aiResult.reward_item) {
-                const newItem = { ...aiResult.reward_item, id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2,9) };
-                tx.update(userRef, { items_all: FieldValue.arrayUnion(newItem) });
-            }
+                  const baseRarity = ({ easy:'normal', normal:'rare', hard:'rare', vhard:'epic', legend:'epic' })[run.difficulty] || 'rare';
+                  const fallbackItem = {
+                        name: `${battle.enemy.name}의 파편`,
+                        rarity: baseRarity,
+                        description: `${battle.enemy.name}을 쓰러뜨려 얻은 파편. 장소의 기운이 스며 있다.`,
+                        isConsumable: false,
+                        uses: 1
+                      };
+                      const reward = aiResult.reward_item && typeof aiResult.reward_item === 'object'
+                        ? aiResult.reward_item
+                        : fallbackItem;
+
+                      const newItem = { ...reward, id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2,9) };
+                      tx.update(userRef, { items_all: FieldValue.arrayUnion(newItem) });
 
             tx.update(runRef, {
                 pending_battle: null,
@@ -637,8 +663,10 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
     const updates = {
       pending_battle: null,
       stamina: newStamina,
+      turn: FieldValue.increment(1),
       events: FieldValue.arrayUnion({ t: Date.now(), note, kind: 'combat-retreat', deltaStamina: -penalty })
     };
+   
 
     if (newStamina <= 0) {
       updates.status = 'ended';
@@ -652,8 +680,6 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
   });
 
   return { startExploreV2, advPrepareNextV2, advApplyChoiceV2, endExploreV2, advBattleActionV2, advBattleFleeV2 };
-};
-
 };
 
 
