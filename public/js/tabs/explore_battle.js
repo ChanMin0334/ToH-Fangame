@@ -60,6 +60,30 @@ export async function showExploreBattle() {
   // [수정] 전투 시작 시 유저의 전체 아이템 목록을 한 번만 가져옵니다.
   const userSnap = await fx.getDoc(fx.doc(db, 'users', auth.currentUser.uid));
   let allUserItems = userSnap.exists() ? userSnap.data().items_all || [] : [];
+  // [PATCH] 이전 HP 저장(피해/회복 팝업용)
+  let prevEnemyHp = battleState.enemy.hp;
+  let prevPlayerHp = battleState.playerHp;
+  // [PATCH] 피격 팝업/흔들림
+  function spawnHitPop(targetEl, text, cls='dmg'){
+    if(!targetEl) return;
+    const box = targetEl.getBoundingClientRect();
+    const pop = document.createElement('div');
+    pop.className = `hit-pop ${cls}`;
+    // 화면 좌표 기준 → body에 고정 배치
+    pop.style.left = (box.left + box.width*0.7) + 'px';
+    pop.style.top  = (box.top  - 6 + window.scrollY) + 'px';
+    pop.textContent = text;
+    document.body.appendChild(pop);
+    setTimeout(()=> pop.remove(), 650);
+  }
+  function shake(el){
+    if(!el) return;
+    el.classList.remove('shake');
+    // 다음 프레임 강제 리플로우 후 다시 추가(중복 애니 재생)
+    void el.offsetWidth;
+    el.classList.add('shake');
+  }
+
 
 const render = () => {
     if (!root.querySelector('#battleRoot')) {
@@ -72,6 +96,7 @@ const render = () => {
                         <div id="enemyHpText" class="text-dim" style="font-size:12px;"></div>
                     </div>
                     <div class="hp-bar-outer"><div id="enemyHpBar" class="hp-bar-inner enemy"></div></div>
+                    <div id="enemySkills" class="text-dim" style="font-size:12px; margin-top:6px"></div>
                 </div>
 
                 <div class="kv-label mt16">전투 기록</div>
@@ -93,6 +118,38 @@ const render = () => {
                 </div>
             </section>
         `;
+      // [PATCH] 전투 UI 스타일(최초 1회만)
+if (!document.getElementById('battle-ui-styles')) {
+  const st = document.createElement('style');
+  st.id = 'battle-ui-styles';
+  st.textContent = `
+    .hp-bar-outer{height:10px;background:#1a2230;border:1px solid #2a3346;border-radius:8px;overflow:hidden}
+    .hp-bar-inner{height:100%;width:0%;transition:width .35s ease}
+    .hp-bar-inner.player{background:#5bd4a5}
+    .hp-bar-inner.enemy{background:#ff7a7a}
+    #battleLog p{margin:0 0 8px 0;opacity:0;animation:fadeInUp .25s forwards}
+    @keyframes fadeInUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+    /* 적 스킬 목록 */
+    .enemy-skill-list{margin:4px 0 0 16px;padding:0}
+    .enemy-skill-list li{margin:2px 0;line-height:1.4}
+
+    /* 피격 팝업 */
+    .hit-pop{position:absolute;pointer-events:none;font-weight:800;animation:popfade .6s ease forwards}
+    .hit-pop.dmg{color:#ff8a8a;text-shadow:0 0 6px rgba(255,80,80,.4)}
+    .hit-pop.heal{color:#8ef7c2;text-shadow:0 0 6px rgba(80,255,160,.3)}
+    @keyframes popfade{from{opacity:0;transform:translateY(6px)}20%{opacity:1}to{opacity:0;transform:translateY(-14px)}}
+
+    /* 흔들림(피격 느낌) */
+    .shake{animation:shake .25s ease}
+    @keyframes shake{
+      0%{transform:translateX(0)}25%{transform:translateX(-3px)}50%{transform:translateX(3px)}
+      75%{transform:translateX(-2px)}100%{transform:translateX(0)}
+    }
+  `;
+  document.head.appendChild(st);
+}
+
         bindEvents();
     }
     // ... 이하 업데이트 로직은 정상적으로 동작합니다.
@@ -109,6 +166,44 @@ const render = () => {
     root.querySelector('#playerHpText').textContent = `${battleState.playerHp} / ${runState.stamina_start}`;
     root.querySelector('#playerHpBar').style.width = `${playerHpPercent}%`;
 
+  // [PATCH] 적 스킬 렌더링
+const skBox = root.querySelector('#enemySkills');
+if (skBox && Array.isArray(battleState?.enemy?.skills)) {
+  const lis = battleState.enemy.skills.map(s => `<li><b>${esc(s.name||'스킬')}</b> — ${esc(s.description||'')}</li>`).join('');
+  skBox.innerHTML = lis ? `<ul class="enemy-skill-list">${lis}</ul>` : '';
+}
+
+// [PATCH] 피해/회복 팝업 + 흔들림
+const enemyBar = root.querySelector('#enemyHpBar');
+const playerBar = root.querySelector('#playerHpBar');
+const enemyCard = enemyBar?.closest('.card');
+const playerCard = playerBar?.closest('.card');
+
+// 적 HP 변화
+const dEnemy = battleState.enemy.hp - prevEnemyHp;
+if (dEnemy !== 0 && enemyBar) {
+  if (dEnemy < 0) { // 데미지
+    spawnHitPop(enemyBar, String(dEnemy), 'dmg');
+    shake(enemyCard);
+  } else { // 회복
+    spawnHitPop(enemyBar, `+${dEnemy}`, 'heal');
+  }
+  prevEnemyHp = battleState.enemy.hp;
+}
+
+// 플레이어 HP 변화
+const dPlayer = battleState.playerHp - prevPlayerHp;
+if (dPlayer !== 0 && playerBar) {
+  if (dPlayer < 0) {
+    spawnHitPop(playerBar, String(dPlayer), 'dmg');
+    shake(playerCard);
+  } else {
+    spawnHitPop(playerBar, `+${dPlayer}`, 'heal');
+  }
+  prevPlayerHp = battleState.playerHp;
+}
+
+
     root.querySelector('#battleLog').innerHTML = battleState.log.map(l => `<p>${esc(l)}</p>`).join('');
     root.querySelector('#battleLog').scrollTop = root.querySelector('#battleLog').scrollHeight;
     
@@ -118,7 +213,8 @@ const render = () => {
     equippedSkills.forEach((skill, i) => {
         // 스킬에 코스트가 있다면 표시
         const costText = skill.stamina_cost > 0 ? ` (S-${skill.stamina_cost})` : '';
-        actionButtonsHTML += `<button class="btn action-btn" data-type="skill" data-index="${equippedSkills.indexOf(skill)}">${esc(skill.name)}${costText}</button>`;
+        actionButtonsHTML += `<button class="btn action-btn" data-type="skill" data-index="${i}">${esc(skill.name)}${costText}</button>`;
+
     });
     
     // 장착된 아이템 ID 목록을 기반으로 전체 아이템 목록에서 정보를 찾아 렌더링
