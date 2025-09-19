@@ -1,0 +1,54 @@
+/* === Supporter FX Base (3D Portal + Particles) === */
+.avatar-wrap { position: relative; perspective: 1000px; }
+
+/* FX 루트: 아바타 영역 위에 겹치되 클릭 방해 X */
+.supporter-fx {
+  position: absolute; inset: -8px; pointer-events: none; z-index: 3;
+  display: grid; place-items: center; border-radius: 20px; overflow: visible;
+  transform-style: preserve-3d;
+}
+
+/* 3D 틸트용: 살짝만 기울여도 깊이감 */
+.avatar-wrap[data-tilt="1"] { transform-style: preserve-3d; }
+.avatar-wrap[data-tilt="1"].is-tilting { transition: transform .08s linear; }
+
+/* 포털(광륜) 글로우 링 */
+.supporter-fx .ring {
+  position: absolute; width: 120%; height: 120%;
+  border-radius: 999px; filter: blur(10px) saturate(120%);
+  transform: translateZ(-15px) rotateX(6deg);
+  opacity: .95;
+}
+
+/* 오로라/성운용 보조 레이어 */
+.supporter-fx .veil {
+  position: absolute; width: 130%; height: 130%;
+  mix-blend-mode: screen; opacity: .65; filter: blur(14px);
+  transform: translateZ(-10px) rotateZ(8deg);
+}
+
+/* 캔버스 파티클 */
+.supporter-fx canvas.fx-canvas {
+  position: absolute; inset: -2px; width: calc(100% + 4px); height: calc(100% + 4px);
+  filter: saturate(115%); opacity: .95;
+}
+
+/* 버튼이 항상 최상단 */
+.avatar-wrap .top-actions { position: absolute; top: 16px; right: 16px; z-index: 99; }
+
+/* === 테마별 링/베이스 색감 === */
+.avatar-wrap.supporter-flame  .ring { background: conic-gradient(from 0turn, #ff4d00, #ffb400, #ff6a00, #ff4d00); box-shadow: 0 0 36px 4px rgba(255,120,0,.55) inset, 0 0 26px rgba(255,120,0,.6); }
+.avatar-wrap.supporter-aurora .ring { background: conic-gradient(from .1turn, #58f5ff, #b18cff, #58f5ff);            box-shadow: 0 0 36px 4px rgba(120,200,255,.5) inset, 0 0 26px rgba(120,200,255,.55); }
+.avatar-wrap.supporter-rune   .ring { background: conic-gradient(from .2turn, #9be7ff, #e1d5ff, #9be7ff);            box-shadow: 0 0 36px 4px rgba(170,170,255,.45) inset, 0 0 26px rgba(170,170,255,.45); }
+.avatar-wrap.supporter-galaxy .ring { background: conic-gradient(from .2turn, #647dff, #a88bff, #647dff);             box-shadow: 0 0 36px 4px rgba(120,80,255,.45) inset, 0 0 26px rgba(120,80,255,.5); }
+.avatar-wrap.supporter-forest .ring { background: conic-gradient(from .2turn, #45ffb8, #59ff7a, #45ffb8);             box-shadow: 0 0 36px 4px rgba(50,200,120,.45) inset, 0 0 26px rgba(50,200,120,.5); }
+
+/* 오로라 베일 */
+.avatar-wrap.supporter-aurora .veil,
+.avatar-wrap.supporter-galaxy .veil { background: radial-gradient(60% 50% at 50% 50%, rgba(160,220,255,.25), transparent 60%); }
+
+/* 접근성: 모션 줄이기 */
+@media (prefers-reduced-motion: reduce) {
+  .avatar-wrap[data-tilt="1"] { transform: none !important; }
+  .supporter-fx .ring, .supporter-fx .veil, .supporter-fx canvas.fx-canvas { animation: none !important; }
+}
