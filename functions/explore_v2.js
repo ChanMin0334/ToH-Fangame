@@ -605,9 +605,26 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         
         const aiResult = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText: systemPrompt, userText: userPrompt, logger }) || {};
 
-        const playerHpChange = Math.max(-1, Math.min(1, Math.round(Number(aiResult.playerHpChange) || 0)));
+        // [PATCH] 플레이어 피해 동적 상한 (난이도/등급 + 시작HP 40% 캡)
+        let playerHpChange = Math.round(Number(aiResult.playerHpChange) || 0);
+
+        const toPlayerBase = ({ easy:1, normal:1, hard:2, vhard:2, legend:3 }[diff] ?? 1);
+        const toPlayerTier = (tier === 'boss') ? 1 : 0;
+        const toPlayerMaxByTable = toPlayerBase + toPlayerTier;
+
+        // 시작 스태미나(기본 HP)의 40%를 초과할 수 없게 캡
+        const toPlayerHpCap = Math.max(1, Math.ceil((run.stamina_start || STAMINA_BASE || 10) * 0.40));
+        const maxToPlayer = Math.min(toPlayerMaxByTable, toPlayerHpCap);
+
+        // 최종 클램프
+        playerHpChange = Math.max(-maxToPlayer, Math.min(+maxToPlayer, playerHpChange));
+
         const rawEnemyDelta = Math.round(Number(aiResult.enemyHpChange) || 0);
-        const enemyHpChange = Math.max(-maxDamageClamped, Math.min(0, rawEnemyDelta));
+        // [PATCH] 적 피해 상한 = (표상한 vs 적 최대HP의 30%) 중 작은 값
+        const hpCap = Math.max(1, Math.ceil((battle.enemy?.maxHp || battle.enemy?.hp || 10) * 0.30));
+        const maxToEnemy = Math.min(maxDamageClamped, hpCap);
+        const enemyHpChange = Math.max(-maxToEnemy, Math.min(0, rawEnemyDelta));
+
         const maxStamina = run.stamina_start || STAMINA_BASE || 10;
         const newPlayerHp = Math.max(0, Math.min(maxStamina, battle.playerHp - staminaCost + playerHpChange));
         const newEnemyHp = Math.max(0, battle.enemy.hp + enemyHpChange);
@@ -664,7 +681,11 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                   tx.update(runRef, {
                       pending_battle: null,
                       stamina: newPlayerHp,
-                      events: FieldValue.arrayUnion({ t: Date.now(), note: `${battle.enemy.name}을(를) 처치했다! (경험치 +${exp})`, kind:'combat-win', exp }),
+                      events: FieldValue.arrayUnion(
+                        { t: Date.now(), kind:'combat-log',  note: (battle.log || []).join('\n'), lines: (battle.log || []).length },
+                        { t: Date.now(), kind:'combat-win',  note: `${battle.enemy.name}을(를) 처치했다! (경험치 +${exp})`, exp }
+                      ),
+
                       prerolls: nextPrerolls,
 
                       
@@ -673,13 +694,18 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                } else { // 패배 또는 무승부
                   battleResult.outcome = 'loss';
                   tx.update(runRef, {
-                      status: 'ended',
-                      reason: 'battle_lost',
-                      endedAt: Timestamp.now(),
-                      pending_battle: null,
-                      stamina: 0,
-                      prerolls: nextPrerolls,
+                    status: 'ended',
+                    reason: 'battle_lost',
+                    endedAt: Timestamp.now(),
+                    pending_battle: null,
+                    stamina: 0,
+                    prerolls: nextPrerolls,
+                    events: FieldValue.arrayUnion(
+                      { t: Date.now(), kind:'combat-log',  note: (battle.log || []).join('\n'), lines: (battle.log || []).length },
+                      { t: Date.now(), kind:'combat-loss', note: `${battle.enemy.name}에게 패배했다.` }
+                    ),
                   });
+
               }
           } else { // 전투 계속
               tx.update(runRef, { pending_battle: battle, stamina: newPlayerHp, prerolls: nextPrerolls });
