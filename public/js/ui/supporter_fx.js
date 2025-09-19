@@ -2,7 +2,7 @@
 // - 사진 "바깥" HALO로 얇은 궤도, 위성이 카드 뒤↔앞 오비트
 // - 곡선 꼬리를 위해 궤적 버퍼를 유지하고 굵기/투명도를 점차 감쇠
 // - opts: { mode:'orbits', haloPx, orbits, satsPerOrbit, speed, tailLen, tailWidth, twinkles, color, tilt }
-
+// public/js/ui/supporter_fx.js
 export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   if (!root || root.__fxAttached) return;
   root.__fxAttached = true;
