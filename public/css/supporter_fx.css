@@ -1,5 +1,20 @@
-/* Supporter Orbit FX — minimal lines & dots */
-.avatar-wrap { position: relative; perspective: 1000px; overflow: visible; }
+
+/* 아바타 내부만 보이도록 클립 */
+.avatar-wrap .avatar-clip{
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--round, 18px);
+}
+.avatar-wrap .avatar-clip > img{
+  display:block; width:100%; height:100%; object-fit:cover;
+}
+
+.avatar-wrap[data-tilt="1"]{
+  transition: transform .12s ease;
+  will-change: transform;
+}
+
+
 
 /* 뒤/앞 레이어 */
 .supporter-fx {
@@ -10,6 +25,10 @@
   overflow: visible;
 }
 .supporter-fx-back  { z-index: 1; }
+/* 살짝 입체감(과하지 않게) */
+.supporter-fx-back  { transform: translateZ(-0.5px); }
+.supporter-fx-front { transform: translateZ( 0.5px); }
+
 .avatar-wrap img    { position: relative; z-index: 2; display:block; }
 .supporter-fx-front { z-index: 3; }
 .avatar-wrap .top-actions { position:absolute; top:16px; right:16px; z-index:99; }
