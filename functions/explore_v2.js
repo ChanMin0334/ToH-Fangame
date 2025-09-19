@@ -743,7 +743,7 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                   
                   // [수정] 난이도별 경험치 보상 테이블
                   const baseExp = { trash: 10, normal: 20, elite: 40, boss: 100 }[battle.enemy.tier] || 20;
-                  const difficultyMultiplier = { easy: 1.0, normal: 2.0, hard: 3.0, vhard: 7.0, legend: 14.0 }[run.difficulty] || 1.0;
+                  const difficultyMultiplier = { easy: 1.0, normal: 4.0, hard: 7.0, vhard: 14.0, legend: 30.0 }[run.difficulty] || 1.0;
                   const exp = Math.round(baseExp * difficultyMultiplier);
 
                   // [교체] grantExpAndMint와 동일한 경험치/코인 지급 로직을 여기에 직접 구현합니다.
