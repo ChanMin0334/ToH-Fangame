@@ -633,7 +633,6 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         
         const tierBump = { trash:0, normal:0, elite:1, boss:2 }[run?.pending_battle?.enemy?.tier || 'normal'] || 0;
         const maxDamageClamped = finalMaxDamage + tierBump;
-        const maxDamageClamped = finalMaxDamage + tierBump;
         const rarityMap = {easy:'normal', normal:'rare', hard:'rare', vhard:'epic', legend:'epic'};
       
 
