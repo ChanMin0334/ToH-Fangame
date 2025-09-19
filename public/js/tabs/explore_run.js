@@ -200,7 +200,7 @@ export async function showExploreRun() {
     showLoading(true, '선택지 적용 중...');
     try {
         const result = await serverApplyChoice(state.id, index); 
-        state = result.state || state;
+        state = result.state ? { id: state.id, ...result.state } : state;
 
         if (result.battle) {
             location.hash = `#/explore-battle/${state.id}`;
