@@ -337,8 +337,6 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       '---','## 다음 상황을 생성하라:', dicePrompts,
     ].join('\n');
     
-    ].join('\n');
-    
     const { primary, fallback } = pickModels();
     let parsed = {};
     try {
