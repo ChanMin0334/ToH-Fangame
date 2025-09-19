@@ -23,12 +23,14 @@
 }
 
 
+/* (수정된 내용) */
 .avatar-wrap .avatar-clip img{
   display:block;
   width:100%;
-  height:auto;          /* 자연 비율 */
-  object-fit:contain;   /* 로딩 순간에도 비율 틀어짐 방지 */
+  height:100%;         /* 수정: 높이를 100%로 고정 */
+  object-fit:cover;    /* 수정: 비율을 유지하며 꽉 채움 */
 }
+/* (기존 내용과 동일) */
 
 
 
