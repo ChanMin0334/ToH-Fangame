@@ -190,16 +190,17 @@ async function callGemini({ apiKey, systemText, userText }){
   }
 }
 
+
 module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
   const db = admin.firestore();
 
+  // ... (startExploreV2, advPrepareNextV2 함수는 기존과 동일하게 유지) ...
   const startExploreV2 = onCall({ secrets: [GEMINI_API_KEY] }, async (req) => {
     const uid = req.auth?.uid;
     if(!uid) throw new HttpsError('unauthenticated', '로그인이 필요해');
-    const { charId, worldId, worldName, siteId, siteName, difficulty='normal', staminaStart=STAMINA_BASE } = req.data||{};
+    const { charId, worldId, worldName, siteId, siteName, difficulty='normal', staminaStart=10 } = req.data||{};
     if(!charId || !worldId || !siteId) throw new HttpsError('invalid-argument','필수값 누락');
 
-    // 동일 캐릭터 진행중 런 막기
     const qs = await db.collection('explore_runs')
       .where('owner_uid','==', uid)
       .where('charRef','==', `chars/${charId}`)
@@ -225,13 +226,9 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       updatedAt: Timestamp.now(),
     };
     const ref = await db.collection('explore_runs').add(payload);
-    // 캐릭터 마킹
     await db.collection('chars').doc(charId).update({ last_explore_startedAt: Timestamp.now() }).catch(()=>{});
     return { ok:true, runId: ref.id };
   });
-  // /functions/explore_v2.js
-
-// ... (파일 상단의 다른 함수들은 그대로 유지) ...
 
   const advPrepareNextV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
     const uid = req.auth?.uid;
@@ -246,36 +243,28 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
     if(run.owner_uid !== uid) throw new HttpsError('permission-denied','소유자 아님');
     if(run.status !== 'ongoing') throw new HttpsError('failed-precondition','이미 종료된 런');
 
-    // 1) 주사위 3개 굴림 + 프리롤 소모
     const { choices, nextPrerolls } = rollThreeChoices(run);
 
-    // 2) 프롬프트 구성 (클라 ai.js 로직과 동일 구조)
     const charId = String(run.charRef||'').replace(/^chars\//,'');
     const charDoc = await db.collection('chars').doc(charId).get().catch(()=>null);
     const character = charDoc?.exists ? charDoc.data() : {};
     
-    // --- ▼▼▼ [수정된 부분 시작] ▼▼▼ ---
-
-    // [수정 1] 장착 스킬 정보를 정확히 가져오도록 수정
     const equippedAbilities = (character.abilities_equipped || [])
       .map(index => (character.abilities_all || [])[index])
-      .filter(Boolean); // null, undefined 등 제거
+      .filter(Boolean);
     const skillsAsText = equippedAbilities.length > 0
       ? equippedAbilities.map(s => `${s.name || '스킬'}: ${s.desc_soft || ''}`).join('\n')
       : '없음';
 
-    // [수정 2] 장착 아이템 이름을 가져오도록 수정 (단, 현재 구조에서는 ID만 있으므로 이름은 가져올 수 없음. battle.js처럼 별도 조회가 필요하나 여기선 간소화)
     const equippedItems = (character?.items_equipped||[]).map(it=>it?.name||it?.id||'').filter(Boolean).join(', ') || '없음';
     
-    // [수정 3] 캐릭터의 최신 서사와 이전 서사 요약을 프롬프트에 추가
     const narratives = Array.isArray(character.narratives) ? character.narratives : [];
     narratives.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     const latestNarrative = narratives[0] || {};
     const previousNarrativeSummary = narratives.slice(1).map(n => n.short).join('; ') || '(없음)';
-
     const prevTurnLog = (run.events||[]).slice(-1)[0]?.note || '(없음)';
 
-    const systemText = await loadPrompt(db,'adventure_narrative_system'); // 동일 ID
+    const systemText = await loadPrompt(db,'adventure_narrative_system');
     
     const dicePrompts = choices.map((d,i)=>{
       let result = `종류=${d.eventKind}, 스태미나변화=${d.deltaStamina}`;
@@ -284,7 +273,6 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       return `선택지 ${i+1} 예상 결과: ${result}`;
     }).join('\n');
 
-    // [수정 4] userText 프롬프트에 수정된 캐릭터 정보 변수를 반영
     const userText = [
       '## 플레이어 캐릭터 컨텍스트',
       `- 출신 세계관: ${character?.world_id || '알 수 없음'}`,
@@ -303,8 +291,6 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       dicePrompts,
     ].join('\n');
     
-    // --- ▲▲▲ [수정된 부분 끝] ▲▲▲ ---
-
     const parsed = await callGemini({ apiKey: process.env.GEMINI_API_KEY, systemText, userText }) || {};
     const narrative_text = String(parsed?.narrative_text || parsed?.narrative || '').slice(0, 2000);
     const choicesText = Array.isArray(parsed?.choices) ? parsed.choices.slice(0,3).map(c=>String(c).slice(0,100)) : ['선택지 A','선택지 B','선택지 C'];
@@ -316,42 +302,28 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
       choices: choicesText,
       choice_outcomes: outcomes,
       diceResults: choices,
-      summary3_update, // ✅ 추가: 다음 턴 요약 반영용
+      summary3_update,
       at: Date.now()
     };
-
 
     await ref.update({
       pending_choices: pending,
       prerolls: nextPrerolls,
       updatedAt: Timestamp.now()
     });
-
     return { ok:true, pending };
   });
 
-
-
-
-// ANCHOR: functions/explore_v2.js
-
-// ... (advPrepareNextV2 함수 아래) ...
-
-// ANCHOR: functions/explore_v2.js -> advApplyChoiceV2 함수
-
-// entire function to be replaced
-// ANCHOR: functions/explore_v2.js -> advApplyChoiceV2 함수
-
-// entire function to be replaced
-const advApplyChoiceV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
+  // [수정] advApplyChoiceV2 함수 전체
+  const advApplyChoiceV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
     const uid = req.auth?.uid;
     if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
     const { runId, index } = req.data||{};
     const idx = Number(index);
     if(!runId || !Number.isFinite(idx) || idx<0 || idx>2) throw new HttpsError('invalid-argument','index 0..2');
 
-    const ref = db.collection('explore_runs').doc(runId);
-    const s = await ref.get();
+    const runRef = db.collection('explore_runs').doc(runId);
+    const s = await runRef.get();
     if(!s.exists) throw new HttpsError('not-found','런 없음');
     const run = s.data();
     if(run.owner_uid !== uid) throw new HttpsError('permission-denied','소유자 아님');
@@ -363,65 +335,55 @@ const advApplyChoiceV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
     const chosenDice = pend.diceResults[idx];
     const chosenOutcome = pend.choice_outcomes[idx] || { event_type:'narrative' };
 
-    // AI가 생성한 '결과' 텍스트를 가져와 로그에 포함
     const resultText = String(chosenOutcome.result_text || '아무 일도 일어나지 않았다.').trim();
     const narrativeLog = `${pend.narrative_text}\n\n[선택: ${pend.choices[idx] || ''}]\n→ ${resultText}`.trim().slice(0, 2300);
 
-// [수정] 전투 발생 시
-if (chosenOutcome.event_type === 'combat'){
-  const enemyBase = chosenOutcome.enemy || {};
-  const tier = chosenDice?.combat?.enemyTier || 'normal';
+    // [수정] 전투 발생 시 로직 강화
+    if (chosenOutcome.event_type === 'combat'){
+      const enemyBase = chosenOutcome.enemy || {};
+      const tier = chosenDice?.combat?.enemyTier || 'normal';
 
-  // --- ▼▼▼ exp_total 기반 보정 로직 추가 ▼▼▼ ---
-  const charId = String(run.charRef || '').replace(/^chars\//, '');
-  const charSnap = await db.collection('chars').doc(charId).get();
-  const character = charSnap.exists ? charSnap.data() : {};
+      const charId = String(run.charRef || '').replace(/^chars\//, '');
+      const charSnap = await db.collection('chars').doc(charId).get();
+      const character = charSnap.exists ? charSnap.data() : {};
+      const playerExp = character.exp_total || 0;
 
-  // 캐릭터의 누적 경험치를 가져옵니다.
-  const playerExp = character.exp_total || 0;
+      const hpMap = { trash: 10, normal: 15, elite: 25, boss: 40 };
+      const baseHp = hpMap[tier] || 15;
+      const expBonusRatio = Math.floor(playerExp / 200) * 0.10;
+      const finalHp = Math.round(baseHp * (1 + expBonusRatio));
 
-  // 적 등급에 따른 기본 HP 설정
-  const hpMap = { trash: 10, normal: 15, elite: 25, boss: 40 };
-  const baseHp = hpMap[tier] || 15;
+      const battleInfo = {
+        enemy: {
+          name: enemyBase.name || `${tier} 등급의 적`,
+          description: enemyBase.description || '',
+          skills: enemyBase.skills || [],
+          tier: tier,
+          hp: finalHp,
+          maxHp: finalHp,
+        },
+        playerHp: run.stamina,
+        turn: 0,
+        log: [narrativeLog]
+      };
 
-  // 누적 경험치에 따라 HP 보너스 적용 (예: 200 exp당 10%씩 증가)
-  const expBonusRatio = Math.floor(playerExp / 200) * 0.10;
-  const finalHp = Math.round(baseHp * (1 + expBonusRatio));
-  // --- ▲▲▲ 로직 추가 끝 ▲▲▲ ---
+      await runRef.update({
+        pending_battle: battleInfo, // battle_pending -> pending_battle로 필드명 통일
+        pending_choices: null,
+        turn: FieldValue.increment(1),
+        events: FieldValue.arrayUnion({
+          t: Date.now(),
+          note: narrativeLog,
+          dice: chosenDice,
+          deltaStamina: 0
+        }),
+        updatedAt: Timestamp.now()
+      });
+      const fresh = await runRef.get();
+      return { ok:true, state: fresh.data(), battle:true };
+    }
 
-  const battleInfo = {
-    enemy: {
-      name: enemyBase.name || `${tier} 등급의 적`,
-      description: enemyBase.description || '',
-      skills: enemyBase.skills || [],
-      tier: tier,
-      hp: finalHp,
-      maxHp: finalHp,
-    },
-    narrative: narrativeLog,
-    playerHp: run.stamina,
-    turn: 0,
-    log: [narrativeLog]
-  };
-
-  await runRef.update({
-    pending_battle: battleInfo,
-    pending_choices: null,
-    turn: FieldValue.increment(1),
-    events: FieldValue.arrayUnion({
-      t: Date.now(),
-      note: narrativeLog,
-      dice: chosenDice,
-      deltaStamina: 0
-    }),
-    updatedAt: Timestamp.now()
-  });
-  const fresh = await runRef.get();
-  return { ok:true, state: fresh.data(), battle:true };
-}
-
-
-    // 아이템 지급(선택지에서 item 발생 시)
+    // 아이템 지급 로직
     let newItem = null;
     if (chosenOutcome.event_type === 'item' && chosenOutcome.item){
       newItem = {
@@ -429,15 +391,11 @@ if (chosenOutcome.event_type === 'combat'){
         ...chosenOutcome.item,
         id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2,9)
       };
-    }
-
-    // 아이템이 있으면 유저 인벤토리에 추가
-    if (newItem) {
       const userInvRef = db.collection('users').doc(uid);
       await userInvRef.update({
         items_all: FieldValue.arrayUnion(newItem)
       }).catch((e) => {
-        logger.error(`[explore_v2] Failed to add item to user inventory for uid: ${uid}`, { error: e.message, newItem });
+        logger.error(`Failed to add item to user inventory for uid: ${uid}`, { error: e.message, newItem });
       });
     }
 
@@ -454,32 +412,28 @@ if (chosenOutcome.event_type === 'combat'){
       }),
       summary3: (pend.summary3_update || run.summary3 || ''),
       pending_choices: null,
-      prerolls: run.prerolls, // prerolls는 advPrepareNextV2에서 이미 갱신되었으므로 여기선 pending에서 가져오지 않음
       updatedAt: Timestamp.now()
     };
-    await ref.update(updates);
 
-    // 체력 소진 시 종료
+    await runRef.update(updates);
+
     if (staminaNow <= 0){
-      await ref.update({
+      await runRef.update({
         status: 'ended',
         endedAt: Timestamp.now(),
         reason: 'exhaust',
-        pending_battle: null,
         pending_choices: null,
         updatedAt: Timestamp.now()
       });
-      const endSnap = await ref.get();
+      const endSnap = await runRef.get();
       return { ok:true, state: endSnap.data(), done:true };
     }
 
-    const snap = await ref.get();
+    const snap = await runRef.get();
     return { ok:true, state: snap.data(), battle:false, done:false };
   });
-// ... (파일 끝까지) ...
   
-
-  
+  // ... (endExploreV2 함수는 기존과 동일하게 유지) ...
   const endExploreV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
     const uid = req.auth?.uid;
     if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
@@ -500,11 +454,7 @@ if (chosenOutcome.event_type === 'combat'){
     return { ok:true, state: snap.data() };
   });
 
-
-
-  // ==========================================================
   // [신규] 전투 행동 처리 함수
-  // ==========================================================
   const advBattleActionV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
     const uid = req.auth?.uid;
     if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
@@ -512,10 +462,9 @@ if (chosenOutcome.event_type === 'combat'){
     if(!runId || !actionType) throw new HttpsError('invalid-argument','필수값 누락');
 
     const runRef = db.collection('explore_runs').doc(runId);
-    const charRef = db.collection('chars');
+    const charCollectionRef = db.collection('chars');
     const userRef = db.collection('users').doc(uid);
 
-    // 트랜잭션으로 전투 상태를 안전하게 업데이트
     const result = await db.runTransaction(async (tx) => {
       const runSnap = await tx.get(runRef);
       if(!runSnap.exists) throw new HttpsError('not-found','런 없음');
@@ -526,129 +475,109 @@ if (chosenOutcome.event_type === 'combat'){
       if(!battle) throw new HttpsError('failed-precondition','진행중인 전투 없음');
 
       const charId = String(run.charRef||'').replace(/^chars\//,'');
-      const charSnap = await tx.get(charRef.doc(charId));
+      const charRef = charCollectionRef.doc(charId);
+      const charSnap = await tx.get(charRef);
       const character = charSnap.exists ? charSnap.data() : {};
       
-      let actionDetail = { type: actionType };
+      let actionDetail = { type: actionType, name: '상호작용' };
       let itemToConsume = null;
+      let staminaCost = 0; // 스킬 사용 시 스태미나 소모
 
-      // 행동 상세 정보 구성
       if (actionType === 'skill') {
         const skillIndex = Number(actionIndex);
         const equipped = character.abilities_equipped || [];
         const all = character.abilities_all || [];
-        actionDetail.skill = all[equipped[skillIndex]] || null;
-        if (!actionDetail.skill) throw new HttpsError('invalid-argument', '선택한 스킬이 없습니다.');
+        const skill = all[equipped[skillIndex]];
+        if (!skill) throw new HttpsError('invalid-argument', '선택한 스킬이 없습니다.');
+        actionDetail = { type: 'skill', name: skill.name, description: skill.desc_soft || '' };
+        staminaCost = skill.stamina_cost || 0; // 스킬에 stamina_cost 필드가 있다면 사용
       } else if (actionType === 'item') {
         const itemIndex = Number(actionIndex);
+        const userSnap = await tx.get(userRef);
+        const allItems = userSnap.data()?.items_all || [];
         const equipped = character.items_equipped || [];
         const itemId = equipped[itemIndex];
         if (!itemId) throw new HttpsError('invalid-argument', '선택한 아이템이 없습니다.');
 
-        const userSnap = await tx.get(userRef);
-        const allItems = userSnap.data()?.items_all || [];
         itemToConsume = allItems.find(it => it.id === itemId);
         if (!itemToConsume) throw new HttpsError('not-found', '사용하려는 아이템을 찾을 수 없습니다.');
-        actionDetail.item = itemToConsume;
+        actionDetail = { type: 'item', name: itemToConsume.name, description: itemToConsume.description || '' };
       }
 
-// 1. AI 프롬프트 구성 및 호출
-const systemPromptRaw = await loadPrompt(db, 'battle_turn_system');
+      if (battle.playerHp < staminaCost) {
+        throw new HttpsError('failed-precondition', '스킬을 사용하기 위한 스태미나가 부족합니다.');
+      }
 
-// --- ▼▼▼ exp_total 기반 데미지 범위 설정 ▼▼▼ ---
-const playerExp = character.exp_total || 0;
-const damageRanges = { normal: {min:1, max:3}, hard:{min:1, max:4}, vhard:{min:2, max:5}, legend:{min:2, max:6} };
-const baseRange = damageRanges[run.difficulty] || damageRanges.normal;
-
-// 누적 경험치에 따라 데미지 상한선 증가 (예: 500 exp당 1씩)
-const expBonusDamage = Math.floor(playerExp / 500);
-const finalMaxDamage = baseRange.max + expBonusDamage;
-// --- ▲▲▲ 설정 끝 ▲▲▲ ---
-
-const systemPrompt = systemPromptRaw
-  .replace(/{min_damage}/g, baseRange.min)
-  .replace(/{max_damage}/g, finalMaxDamage)
-  .replace(/{reward_rarity}/g, 'rare');
-
-      const userPrompt = `
-        ## 전투 컨텍스트
-        - 장소 난이도: ${run.difficulty}
-        - 플레이어: ${character.name} (현재 HP: ${battle.playerHp})
-        - 적: ${battle.enemy.name} (등급: ${battle.enemy.tier}, 현재 HP: ${battle.enemy.hp})
-
-        ## 플레이어 행동
-        ${JSON.stringify(actionDetail, null, 2)}
-      `;
-
-      const aiResult = await callGemini({ apiKey: process.env.GEMINI_API_KEY, systemText: systemPrompt, userText: userPrompt }) || {};
-
-      // 2. AI 응답 기반으로 상태 업데이트 (서버 필터링 포함)
-      const playerHpChange = Math.round(Number(aiResult.playerHpChange) || 0);
-      const enemyHpChange = Math.round(Number(aiResult.enemyHpChange) || 0);
-
-      // 데미지/회복량 안전 필터
-      const finalPlayerHpChange = Math.max(-5, Math.min(5, playerHpChange));
-      const finalEnemyHpChange = Math.max(-range.max, Math.min(range.max, enemyHpChange));
+      const systemPromptRaw = await loadPrompt(db, 'battle_turn_system');
+      const playerExp = character.exp_total || 0;
+      const damageRanges = { easy:{min:1, max:3}, normal:{min:2, max:4}, hard:{min:2, max:5}, vhard:{min:3, max:6}, legend:{min:4, max:8} };
+      const baseRange = damageRanges[run.difficulty] || damageRanges.normal;
+      const expBonusDamage = Math.floor(playerExp / 500);
+      const finalMaxDamage = baseRange.max + expBonusDamage;
+      const rarityMap = {easy:'normal', normal:'rare', hard:'rare', vhard:'epic', legend:'epic'};
       
-      const newPlayerHp = Math.max(0, battle.playerHp + finalPlayerHpChange);
-      const newEnemyHp = Math.max(0, battle.enemy.hp + finalEnemyHpChange);
+      const systemPrompt = systemPromptRaw
+        .replace(/{min_damage}/g, baseRange.min)
+        .replace(/{max_damage}/g, finalMaxDamage)
+        .replace(/{reward_rarity}/g, rarityMap[run.difficulty] || 'rare');
+
+      const userPrompt = `## 전투 컨텍스트\n- 장소 난이도: ${run.difficulty}\n- 플레이어: ${character.name} (현재 HP: ${battle.playerHp - staminaCost})\n- 적: ${battle.enemy.name} (등급: ${battle.enemy.tier}, 현재 HP: ${battle.enemy.hp})\n\n## 플레이어 행동\n${JSON.stringify(actionDetail, null, 2)}`;
+      
+      const aiResult = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText: systemPrompt, userText: userPrompt }) || {};
+
+      // 서버 필터링
+      const playerHpChange = Math.max(-5, Math.min(5, Math.round(Number(aiResult.playerHpChange) || 0)));
+      const enemyHpChange = Math.max(-finalMaxDamage, Math.min(0, Math.round(Number(aiResult.enemyHpChange) || 0)));
+      
+      const newPlayerHp = Math.max(0, battle.playerHp - staminaCost + playerHpChange);
+      const newEnemyHp = Math.max(0, battle.enemy.hp + enemyHpChange);
 
       battle.playerHp = newPlayerHp;
       battle.enemy.hp = newEnemyHp;
       battle.log.push(aiResult.narrative || '아무 일도 일어나지 않았다.');
       battle.turn += 1;
 
-      // 3. 아이템 소모 처리
+      // 아이템 소모 처리
       if (itemToConsume && (itemToConsume.isConsumable || itemToConsume.consumable)) {
           const userSnap = await tx.get(userRef);
           let allItems = userSnap.data()?.items_all || [];
-          const itemIndexInAll = allItems.findIndex(it => it.id === itemToConsume.id);
+          const itemIdx = allItems.findIndex(it => it.id === itemToConsume.id);
           
-          if (itemIndexInAll > -1) {
-              const currentUses = allItems[itemIndexInAll].uses;
+          if (itemIdx > -1) {
+              const currentUses = allItems[itemIdx].uses;
               if (typeof currentUses === 'number' && currentUses > 1) {
-                  // 횟수 차감
-                  allItems[itemIndexInAll].uses -= 1;
+                  allItems[itemIdx].uses -= 1;
                   tx.update(userRef, { items_all: allItems });
               } else {
-                  // 아이템 완전 삭제
                   const newAllItems = allItems.filter(it => it.id !== itemToConsume.id);
                   const newEquippedItems = (character.items_equipped || []).filter(id => id !== itemToConsume.id);
                   tx.update(userRef, { items_all: newAllItems });
-                  tx.update(charRef.doc(charId), { items_equipped: newEquippedItems });
+                  tx.update(charRef, { items_equipped: newEquippedItems });
               }
           }
       }
 
-      // 4. 전투 종료 처리
+      // 전투 종료 처리
       let battleResult = { battle_over: false, outcome: 'ongoing', battle_state: battle };
       if (newPlayerHp <= 0 || newEnemyHp <= 0 || aiResult.battle_over === true) {
         battleResult.battle_over = true;
         
-        if (newEnemyHp <= 0) { // 승리
-    battleResult.outcome = 'win';
-    const exp = { trash: 5, normal: 10, elite: 20, boss: 50 }[battle.enemy.tier] || 10;
+        if (newEnemyHp <= 0 && newPlayerHp > 0) { // 승리
+            battleResult.outcome = 'win';
+            const exp = { trash: 5, normal: 10, elite: 20, boss: 50 }[battle.enemy.tier] || 10;
+            tx.update(charRef, { exp_total: FieldValue.increment(exp) });
 
-    // --- ▼▼▼ [핵심 수정] 경험치를 '캐릭터'에게 지급 ---
-    tx.update(charRef.doc(charId), {
-        exp_total: FieldValue.increment(exp)
-    });
-    // --- ▲▲▲ 수정 끝 ▲▲▲ ---
-
-    tx.update(runRef, {
-        status: 'ongoing',
-        pending_battle: null,
-        stamina: newPlayerHp,
-        // 'run' 문서의 exp_total은 제거
-        events: FieldValue.arrayUnion({ t: Date.now(), note: `${battle.enemy.name}을(를) 처치했다! (경험치 +${exp})`, kind:'combat-win', exp })
-    });
-
-            // 보상 아이템 지급
             if(aiResult.reward_item) {
-                const newItem = { ...aiResult.reward_item, id: 'item_' + Date.now() };
+                const newItem = { ...aiResult.reward_item, id: 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2,9) };
                 tx.update(userRef, { items_all: FieldValue.arrayUnion(newItem) });
             }
-        } else { // 패배
+
+            tx.update(runRef, {
+                pending_battle: null,
+                stamina: newPlayerHp,
+                events: FieldValue.arrayUnion({ t: Date.now(), note: `${battle.enemy.name}을(를) 처치했다! (경험치 +${exp})`, kind:'combat-win', exp })
+            });
+        } else { // 패배 또는 무승부
             battleResult.outcome = 'loss';
             tx.update(runRef, {
                 status: 'ended',
@@ -659,8 +588,7 @@ const systemPrompt = systemPromptRaw
             });
         }
       } else {
-        // 전투 계속: 업데이트된 battle 객체만 저장
-        tx.update(runRef, { pending_battle: battle });
+        tx.update(runRef, { pending_battle: battle, stamina: newPlayerHp });
       }
 
       return battleResult;
@@ -669,9 +597,7 @@ const systemPrompt = systemPromptRaw
     return { ok: true, ...result };
   });
 
-  // ==========================================================
   // [신규] 전투 후퇴(도망) 함수
-  // ==========================================================
   const advBattleFleeV2 = onCall({ secrets:[GEMINI_API_KEY] }, async (req)=>{
     const uid = req.auth?.uid;
     if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
@@ -714,7 +640,7 @@ const systemPrompt = systemPromptRaw
     advPrepareNextV2, 
     advApplyChoiceV2, 
     endExploreV2,
-    advBattleActionV2, // 신규
-    advBattleFleeV2,   // 신규
+    advBattleActionV2,
+    advBattleFleeV2,
   };
 };
