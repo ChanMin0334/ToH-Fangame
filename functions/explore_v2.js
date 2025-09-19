@@ -692,7 +692,7 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
           }
 
           let battleResult = { battle_over: false, outcome: 'ongoing', battle_state: battle };
-          const isBattleOver = newPlayerHp <= 0 || newEnemyHp <= 0 || aiResult.battle_over === true;
+          const isBattleOver = newPlayerHp <= 0 || newEnemyHp <= 0;
 
           if (isBattleOver) {
               battleResult.battle_over = true;
