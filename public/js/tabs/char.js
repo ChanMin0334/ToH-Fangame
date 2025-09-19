@@ -360,7 +360,9 @@ const prefersReduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').m
 const particleBudget = prefersReduced ? 0 : (window.devicePixelRatio > 1 ? 120 : 160);
 if (wrap && supporterTier && !wrap.dataset.fxAttached) {
   wrap.dataset.fxAttached = '1';
-  attachSupporterFX(wrap, supporterTier, { tilt: true, particles: particleBudget });
+
+  attachSupporterFX(wrap, 'galaxy', { mode:'galaxy', stars:36, comets:2, haloPx:36, tilt:true });
+
 }
 
 
