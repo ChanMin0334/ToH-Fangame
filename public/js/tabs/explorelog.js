@@ -22,6 +22,10 @@ function eventLineHTML(ev) {
     safe:   { border: '#4aa3ff', title: '안전한 휴식' },
     narrative: { border: '#6e7b91', title: '이야기 진행' },
     'combat-retreat': { border: '#ff5b66', title: '후퇴' },
+    'combat-win':   { border: '#57d165', title: '전투 승리' },
+    'combat-loss':  { border: '#ff5b66', title: '전투 패배' },
+    'combat-log':   { border: '#8c96a8', title: '전투 로그' },
+
   };
   const { border, title } = styleMap[kind] || styleMap.narrative;
   const formattedNote = esc(note).replace(/(\[선택:.*?\])/g, '<span style="color:#8c96a8;">$1</span>');
