@@ -362,7 +362,7 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         updatedAt: Timestamp.now()
       });
       const fresh = await runRef.get();
-      return { ok:true, state: fresh.data(), battle:true };
+      return { ok:true, state: { id: runId, ...fresh.data() }, battle:true };
     }
 
     // 아이템 지급 로직
@@ -413,7 +413,7 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
     }
 
     const snap = await runRef.get();
-    return { ok:true, state: snap.data(), battle:false, done:false };
+    return { ok:true, state: { id: runId, ...snap.data() }, battle:false, done:false };
   });
 
 
