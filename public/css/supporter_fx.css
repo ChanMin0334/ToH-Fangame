@@ -1,7 +1,7 @@
-/* Supporter FX v2 (두 레이어 + HALO) */
+/* Supporter Orbit FX — minimal lines & dots */
 .avatar-wrap { position: relative; perspective: 1000px; overflow: visible; }
 
-/* 뒤/앞 레이어 공통 */
+/* 뒤/앞 레이어 */
 .supporter-fx {
   position: absolute;
   inset: calc(var(--halo, 32px) * -1);
@@ -9,56 +9,24 @@
   pointer-events: none;
   overflow: visible;
 }
-
-/* 레이어별 z-index: back < img < front < buttons */
 .supporter-fx-back  { z-index: 1; }
 .avatar-wrap img    { position: relative; z-index: 2; display:block; }
 .supporter-fx-front { z-index: 3; }
 .avatar-wrap .top-actions { position:absolute; top:16px; right:16px; z-index:99; }
 
-/* 캔버스는 HALO 확장 크기로 */
+/* 캔버스는 HALO까지 확장 */
 .supporter-fx .fx-canvas {
   position: absolute;
   top:  calc(var(--halo, 32px) * -1);
   left: calc(var(--halo, 32px) * -1);
   width:  calc(100% + calc(var(--halo, 32px) * 2));
   height: calc(100% + calc(var(--halo, 32px) * 2));
-  filter: saturate(112%);
 }
 
-/* 링/베일은 flame|aurora|rune 에서만 사용 (galaxy/fireflies는 숨김) */
-.supporter-fx .ring,
-.supporter-fx .veil { display:none; }
+/* 링/베일은 사용 안 함 (숨김) */
+.supporter-fx .ring, .supporter-fx .veil { display:none; }
 
-.supporter-flame .supporter-fx-front .ring,
-.supporter-aurora .supporter-fx-front .ring,
-.supporter-rune   .supporter-fx-front .ring { 
-  display:block;
-  position:absolute; inset:0; border-radius:999px;
-  filter: blur(8px) saturate(120%); opacity:.95; transform: translateZ(-15px) rotateX(6deg);
-}
-.supporter-flame .supporter-fx-front .veil,
-.supporter-aurora .supporter-fx-front .veil,
-.supporter-rune   .supporter-fx-front .veil {
-  display:block;
-  position:absolute; inset:0; mix-blend-mode:screen; opacity:.6; filter: blur(14px);
-}
-
-/* 테마 색감 (링 표시 모드) */
-.supporter-flame  .supporter-fx-front .ring { 
-  background: conic-gradient(from 0turn, #ff4d00, #ffb400, #ff6a00, #ff4d00);
-  box-shadow: 0 0 36px 4px rgba(255,120,0,.55) inset, 0 0 26px rgba(255,120,0,.6);
-}
-.supporter-aurora .supporter-fx-front .ring {
-  background: conic-gradient(from .1turn, #58f5ff, #b18cff, #58f5ff);
-  box-shadow: 0 0 36px 4px rgba(120,200,255,.50) inset, 0 0 26px rgba(120,200,255,.55);
-}
-.supporter-rune   .supporter-fx-front .ring {
-  background: conic-gradient(from .2turn, #9be7ff, #e1d5ff, #9be7ff);
-  box-shadow: 0 0 36px 4px rgba(170,170,255,.45) inset, 0 0 26px rgba(170,170,255,.45);
-}
-
-/* 구(舊) supporter-* ::before/::after 파티클 완전 비활성 (중복 방지) */
+/* 구(舊) supporter-* 의 ::before/::after 강제 비활성 (중복 방지) */
 .avatar-wrap.supporter-flame::before,
 .avatar-wrap.supporter-flame::after,
 .avatar-wrap.supporter-galaxy::before,
@@ -70,7 +38,7 @@
   box-shadow: none !important;
 }
 
-/* 접근성 */
+/* 접근성: 모션 줄이기 */
 @media (prefers-reduced-motion: reduce) {
   .avatar-wrap[data-tilt="1"] { transform: none !important; }
 }
