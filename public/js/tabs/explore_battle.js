@@ -53,44 +53,23 @@ export async function showExploreBattle() {
   let runState = runSnap.data();
   let battleState = runState.pending_battle;
 
-  const charSnap = await fx.getDoc(fx.doc(db, runState.charRef));
+  const charRef = fx.doc(db, runState.charRef);
+  const charSnap = await fx.getDoc(charRef);
   const character = charSnap.exists() ? { id: charSnap.id, ...charSnap.data() } : {};
 
-  // --- UI 렌더링 함수 ---
+  // [수정] 전투 시작 시 유저의 전체 아이템 목록을 한 번만 가져옵니다.
+  const userSnap = await fx.getDoc(fx.doc(db, 'users', auth.currentUser.uid));
+  const allUserItems = userSnap.exists() ? userSnap.data().items_all || [] : [];
+
   const render = () => {
-    // 템플릿 렌더링 (최초 1회)
     if (!root.querySelector('#battleRoot')) {
       root.innerHTML = `
         <section class="container narrow" id="battleRoot">
-          <div class="card p12">
-            <div class="row" style="justify-content:space-between; align-items:center;">
-              <div id="enemyName" style="font-weight:800;"></div>
-              <div id="enemyHpText" class="text-dim" style="font-size:12px;"></div>
-            </div>
-            <div class="hp-bar-outer"><div id="enemyHpBar" class="hp-bar-inner enemy"></div></div>
-          </div>
-
-          <div class="kv-label mt16">전투 기록</div>
-          <div id="battleLog" class="card p16" style="min-height:150px; max-height: 250px; overflow-y:auto; font-size:14px; line-height:1.6;"></div>
-
-          <div class="card p12 mt16">
-            <div class="row" style="justify-content:space-between; align-items:center;">
-              <div id="playerName" style="font-weight:800;"></div>
-              <div id="playerHpText" class="text-dim" style="font-size:12px;"></div>
-            </div>
-            <div class="hp-bar-outer"><div id="playerHpBar" class="hp-bar-inner player"></div></div>
-            
-            <div class="kv-label mt12">행동 선택</div>
-            <div id="actionBox" class="grid2" style="gap:8px;"></div>
-          </div>
-          
-          <div style="text-align:right; margin-top:16px;">
-            <button id="fleeBtn" class="btn ghost">후퇴</button>
-          </div>
-        </section>
+          </section>
       `;
-      bindEvents(); // 이벤트는 한 번만 바인딩
+      bindEvents();
     }
+
 
     // 데이터 업데이트
     const enemyHpPercent = Math.max(0, (battleState.enemy.hp / battleState.enemy.maxHp) * 100);
@@ -111,30 +90,51 @@ export async function showExploreBattle() {
     let actionButtonsHTML = '';
     const equippedSkills = (character.abilities_equipped || []).map(idx => (character.abilities_all || [])[idx]).filter(Boolean);
     equippedSkills.forEach((skill, i) => {
-        actionButtonsHTML += `<button class="btn action-btn" data-type="skill" data-index="${i}">${esc(skill.name)}</button>`;
+        // 스킬에 코스트가 있다면 표시
+        const costText = skill.stamina_cost > 0 ? ` (S-${skill.stamina_cost})` : '';
+        actionButtonsHTML += `<button class="btn action-btn" data-type="skill" data-index="${equippedSkills.indexOf(skill)}">${esc(skill.name)}${costText}</button>`;
     });
+    
+    // 장착된 아이템 ID 목록을 기반으로 전체 아이템 목록에서 정보를 찾아 렌더링
+    const equippedItems = (character.items_equipped || [])
+        .map(id => allUserItems.find(it => it.id === id))
+        .filter(Boolean);
 
-    const equippedItems = (character.items_equipped || []).map(id => (character.allItems || []).find(it => it.id === id)).filter(Boolean);
     equippedItems.forEach((item, i) => {
-        const usesLeft = (item.isConsumable || item.consumable) && typeof item.uses === 'number' ? ` (${item.uses})` : '';
+        const isConsumable = item.isConsumable || item.consumable;
+        const usesLeft = isConsumable && typeof item.uses === 'number' ? ` (${item.uses})` : '';
         actionButtonsHTML += `<button class="btn ghost action-btn" data-type="item" data-index="${i}">${esc(item.name)}${usesLeft}</button>`;
     });
+
     actionButtonsHTML += `<button class="btn ghost action-btn" data-type="interact" data-index="0">상호작용</button>`;
     root.querySelector('#actionBox').innerHTML = actionButtonsHTML;
   };
 
+
   // --- 이벤트 핸들러 ---
   const handleAction = async (e) => {
+    // ... (기존과 동일, 에러 메시지 표시 강화) ...
     const btn = e.target.closest('.action-btn');
-    if (!btn) return;
-
+    if (!btn || btn.disabled) return;
+    
+    document.querySelectorAll('.action-btn, #fleeBtn').forEach(b => b.disabled = true);
+    
     const type = btn.dataset.type;
     const index = parseInt(btn.dataset.index, 10);
     
     showLoading(true, 'AI가 행동을 처리하는 중...');
     try {
       const result = await serverBattleAction(runId, type, index);
-      battleState = result.battle_state; // 새 전투 상태로 교체
+      
+      // 서버에서 아이템이 소모되었다면 클라이언트의 아이템 목록도 갱신
+      if (type === 'item') {
+        const userSnap = await fx.getDoc(fx.doc(db, 'users', auth.currentUser.uid));
+        if (userSnap.exists()) allUserItems = userSnap.data().items_all || [];
+      }
+
+      battleState = result.battle_state;
+      runState.stamina = battleState.playerHp; // 플레이어 HP가 스태미나이므로 동기화
+      
       render();
 
       if (result.battle_over) {
@@ -145,7 +145,8 @@ export async function showExploreBattle() {
       console.error('Battle action failed', err);
       showToast(err.message || '행동 처리에 실패했습니다.');
     } finally {
-      if (!location.hash.includes('battle')) return; // 페이지 이동 시 로딩창 끄지 않음
+      if (!location.hash.includes('battle')) return;
+      document.querySelectorAll('.action-btn, #fleeBtn').forEach(b => b.disabled = false);
       showLoading(false);
     }
   };
