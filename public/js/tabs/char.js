@@ -361,7 +361,9 @@ const particleBudget = prefersReduced ? 0 : (window.devicePixelRatio > 1 ? 120 :
 if (wrap && supporterTier && !wrap.dataset.fxAttached) {
   wrap.dataset.fxAttached = '1';
 
-  attachSupporterFX(wrap, 'galaxy', { mode:'galaxy', stars:36, comets:2, haloPx:36, tilt:true });
+  // 바깥 오비트(얇은 선 + 위성 꼬리 + 드문 트윙클), 성능 매우 가볍게
+  attachSupporterFX(wrap, 'orbits', { mode:'orbits', haloPx:36, orbits:2, satsPerOrbit:1, speed:0.38, twinkles:6, tilt:true });
+
 
 }
 
