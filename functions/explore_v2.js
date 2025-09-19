@@ -1,4 +1,5 @@
 // functions/explore_v2.js
+
 // 탐험 v2: 주사위/프리롤/프롬프트/로그를 서버로 이전
 
 const { Timestamp, FieldValue } = require('firebase-admin/firestore');
@@ -454,6 +455,8 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
     const uid = req.auth?.uid;
     if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
     const { runId, actionType, actionIndex } = req.data||{};
+
+      
     if(!runId || !actionType) throw new HttpsError('invalid-argument','필수값 누락');
 
     const runRef = db.collection('explore_runs').doc(runId);
