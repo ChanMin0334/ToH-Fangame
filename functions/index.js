@@ -13,7 +13,7 @@ const { defineSecret } = require('firebase-functions/params');
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY'); // 이미 있다면 재사용
 
 const exploreV2 = require('./explore_v2')(admin, { onCall, HttpsError, logger, GEMINI_API_KEY });
-
+const encounterV2 = require('./encounter_v2')(admin, { onCall, HttpsError, logger, GEMINI_API_KEY });
 
 
 // === [탐험 난이도/룰 테이블 & 헬퍼] ===
@@ -147,7 +147,6 @@ exports.requestMatch = onCall({ region:'us-central1' }, async (req)=>{
   return { ok:true, token, opponent: opp };
 });
 
-// 전역 쿨타임(초) 설정 — 서버 시간 기준, 기존보다 "연장만" 가능(단축 불가)
 exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
   try{
     const uid = req.auth?.uid;
@@ -160,7 +159,7 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
       const now = Timestamp.now();
       const snap = await tx.get(userRef);
       const exist = snap.exists ? snap.get('cooldown_all_until') : null;
-      const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis()); // 절대 단축 불가
+      const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis());
       const until = Timestamp.fromMillis(baseMs + seconds*1000);
       tx.set(userRef, { cooldown_all_until: until }, { merge:true });
     });
@@ -172,7 +171,6 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
     throw new HttpsError('internal','cooldown-internal-error',{message:err?.message||String(err)});
   }
 });
-
 
 
 // === [탐험 시작] onCall ===
@@ -677,7 +675,7 @@ exports.advApplyChoiceV2 = exploreV2.advApplyChoiceV2;
 exports.endExploreV2     = exploreV2.endExploreV2;
 exports.advBattleActionV2 = exploreV2.advBattleActionV2; // 추가
 exports.advBattleFleeV2 = exploreV2.advBattleFleeV2;     // 추가
-
+exports.startEncounter = encounterV2.startEncounter;
 
 const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
 Object.assign(exports, guildFns);
