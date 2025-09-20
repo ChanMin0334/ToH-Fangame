@@ -13,11 +13,24 @@ function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// 텍스트를 세련된 리치 HTML로 렌더링합니다.
+// [수정] 아이템 등급별 색상 맵 및 리치 텍스트 렌더러
+const rarityColors = {
+    normal: '#c8d0dc',
+    rare:   '#cfe4ff',
+    epic:   '#e6dcff',
+    legend: '#ffe9ad',
+    myth:   '#ffc9ce',
+    aether: '#f8f8f2' // 에테르는 보통 특별한 스타일이 적용되므로 기본 텍스트 색상
+};
+
 function renderRichText(text = '') {
     return esc(text)
         .replace(/\[대화\]([\s\S]*?)\[\/대화\]/g, '<div class="rich-dialogue">$1</div>')
         .replace(/\[내면\]([\s\S]*?)\[\/내면\]/g, '<div class="rich-thought">$1</div>')
+        .replace(/\[ITEM:(normal|rare|epic|legend|myth|aether)\]([\s\S]*?)\[\/ITEM\]/g, (match, rarity, itemName) => {
+            const color = rarityColors[rarity.toLowerCase()] || rarityColors.normal;
+            return `<strong style="color: ${color}; font-weight: 800; text-shadow: 0 0 5px ${color}55;">${itemName}</strong>`;
+        })
         .replace(/\n/g, '<br>');
 }
 
