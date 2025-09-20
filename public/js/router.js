@@ -18,6 +18,7 @@ export const routes = {
   '#/explore-battle': () => import('./tabs/explore_battle.js').then(m => (m.showExploreBattle || m.default)()),
   '#/explore-run': () => import('./tabs/explore_run.js').then(m => (m.showExploreRun || m.default)()),
   '#/battlelog': () => import('./tabs/battlelog.js').then(m => (m.showBattleLog || m.default)()),
+  '#/encounter-log': () => import('./tabs/encounterlog.js').then(m => (m.showEncounterLog || m.default)()),
   '#/explorelog': () => import('./tabs/explorelog.js').then(m => (m.showExploreLog || m.default)()),
   '#/plaza': () => import('./tabs/plaza.js').then(m => (m.showPlaza || m.default)()),
   '#/guild': () => import('./tabs/guild.js').then(m => (m.showGuild || m.default)()),
@@ -47,7 +48,7 @@ export function router() {
   // startsWith를 사용하여 /:id 와 같은 파라미터를 포함하는 경로를 처리합니다.
   const dynamicRoutes = [
     '#/char/', '#/relations/', '#/explore-run/', '#/explore-battle/', 
-    '#/battlelog/', '#/explorelog/', '#/plaza', '#/guild/'
+    '#/battlelog/', '#/encounter-log/', '#/explorelog/', '#/plaza', '#/guild/'
   ];
   
   // URL 해시가 동적 경로 패턴 중 하나로 시작하는지 찾습니다.
