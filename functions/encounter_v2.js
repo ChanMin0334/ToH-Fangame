@@ -1,8 +1,6 @@
 // /functions/encounter_v2.js
 const { Timestamp, FieldValue } = require('firebase-admin/firestore');
 
-// explore_v2.js에서 모델 선택 및 Gemini 호출 유틸리티를 가져옵니다.
-// (실제 프로젝트에서는 별도의 공유 유틸리티 파일로 분리하는 것이 좋습니다.)
 const MODEL_POOL = ['gemini-1.5-flash-latest', 'gemini-1.5-pro-latest'];
 function pickModels() {
   const shuffled = [...MODEL_POOL].sort(() => 0.5 - Math.random());
@@ -42,7 +40,7 @@ async function callGemini({ apiKey, systemText, userText, logger, modelName }) {
     }
 }
 
-// 캐릭터 경험치 부여 및 코인 민팅 헬퍼 (index.js에서 가져옴)
+// [수정] 코인 필드가 없을 때를 대비한 안전한 경험치/코인 부여 함수
 async function mintByAddExp(tx, db, charRef, addExp, note) {
   addExp = Math.max(0, Math.floor(Number(addExp) || 0));
   if (addExp <= 0) return { minted: 0, expAfter: null, ownerUid: null };
@@ -55,19 +53,25 @@ async function mintByAddExp(tx, db, charRef, addExp, note) {
 
   const exp0  = Math.floor(Number(c.exp || 0));
   const exp1  = exp0 + addExp;
-  const mint  = Math.floor(exp1 / 100);
-  const exp2  = exp1 - (mint * 100);
+  const minted  = Math.floor(exp1 / 100);
+  const exp2  = exp1 % 100; // 나머지 연산으로 변경
   const userRef = db.doc(`users/${ownerUid}`);
 
+  // 캐릭터 경험치 업데이트
   tx.update(charRef, {
     exp: exp2,
     exp_total: FieldValue.increment(addExp),
     updatedAt: Timestamp.now(),
   });
-  // 사용자의 coins 필드가 없을 수 있으므로 set + merge 사용
-  tx.set(userRef, { coins: FieldValue.increment(mint) }, { merge: true });
 
-  return { minted: mint, expAfter: exp2, ownerUid };
+  // [핵심 수정] 사용자의 코인을 안전하게 업데이트
+  if (minted > 0) {
+      const userSnap = await tx.get(userRef);
+      const currentCoins = userSnap.exists() ? (userSnap.data().coins || 0) : 0;
+      tx.set(userRef, { coins: currentCoins + minted }, { merge: true });
+  }
+
+  return { minted, expAfter: exp2, ownerUid };
 }
 
 
@@ -82,10 +86,14 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         if (!myCharId || !opponentCharId) throw new HttpsError('invalid-argument', '캐릭터 ID가 필요합니다.');
 
         try {
+            // [수정] 관계 쿼리를 두 개의 array-contains로 변경 (색인 생성 필요)
+            const sortedPair = [myCharId, opponentCharId].sort();
             const [myCharSnap, oppCharSnap, relationSnap] = await Promise.all([
                 db.collection('chars').doc(myCharId).get(),
                 db.collection('chars').doc(opponentCharId).get(),
-                db.collection('relations').where('pair', 'array-contains-all', [myCharId, opponentCharId]).limit(1).get()
+                db.collection('relations')
+                  .where('pair', '==', sortedPair)
+                  .limit(1).get()
             ]);
 
             if (!myCharSnap.exists || !oppCharSnap.exists) {
@@ -100,15 +108,13 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
             
             let relationNote = '아직 관계 정보가 없습니다.';
             if (!relationSnap.empty) {
-                const relationData = relationSnap.docs[0].data();
                 const noteSnap = await relationSnap.docs[0].ref.collection('meta').doc('note').get();
                 if (noteSnap.exists) {
                     relationNote = noteSnap.data().note || '관계가 있지만, 기록된 메모는 없습니다.';
                 }
             }
 
-            // AI 프롬프트 구성
-            const systemPrompt = await loadPrompt(db, 'encounter_system_prompt'); // Firestore에 encounter_system_prompt 문서를 만들어야 합니다.
+            const systemPrompt = await loadPrompt(db, 'encounter_system_prompt'); 
             
             const simplifyChar = (c) => ({
                 name: c.name,
@@ -144,7 +150,6 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
             const expA = Math.max(5, Math.min(100, Number(result.exp_char_a) || 20));
             const expB = Math.max(5, Math.min(100, Number(result.exp_char_b) || 20));
             
-            // encounter_logs 컬렉션에 결과 저장
             const logRef = db.collection('encounter_logs').doc();
             await db.runTransaction(async (tx) => {
                 tx.set(logRef, {
@@ -157,10 +162,9 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                     exp_a: expA,
                     exp_b: expB,
                     createdAt: Timestamp.now(),
-                    endedAt: Timestamp.now(), // battle_logs와 필드명 통일
+                    endedAt: Timestamp.now(),
                 });
 
-                // 각 캐릭터 조우 횟수 증가 및 경험치 부여
                 tx.update(db.collection('chars').doc(myChar.id), { encounter_count: FieldValue.increment(1) });
                 tx.update(db.collection('chars').doc(opponentChar.id), { encounter_count: FieldValue.increment(1) });
                 
