@@ -956,7 +956,8 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
   });
 
   // 멤버 추방 (길드장/스태프). 스태프는 오너/스태프 추방 불가, 오너는 누구든 가능(오너 본인 제외).
-    const kickFromGuild = onCall({ region: 'us-central1' }, async (req) => {
+// ANCHOR: 이 함수 전체를 교체하세요.
+  const kickFromGuild = onCall({ region: 'us-central1' }, async (req) => {
     const uid = req.auth?.uid || null;
     const { guildId, charId } = req.data || {};
     if (!uid || !guildId || !charId) throw new HttpsError('invalid-argument', '필요값');
@@ -1004,6 +1005,7 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
       return { ok: true, mode: 'kicked' };
     });
   });
+// ANCHOR_END
 
   // 역할 변경(오너만): member <-> officer
   const setGuildRole = onCall({ region: 'us-central1' }, async (req) => {
@@ -1210,26 +1212,6 @@ hL3c.delete(oldOwnerCharId); hV3c.delete(oldOwnerCharId);
   });
 
 
-
-  const getGuildLevelCost = onCall({ region: 'us-central1' }, async (req)=>{
-  const { guildId } = req.data || {};
-  if (!guildId) throw new HttpsError('invalid-argument', 'guildId 필요');
-
-  const gSnap = await db.doc(`guilds/${guildId}`).get();
-  if (!gSnap.exists) throw new HttpsError('not-found', '길드 없음');
-  const L = Number(gSnap.data()?.level || 1);
-
-  const cost = await levelUpCost(L);
-  const costNext = await levelUpCost(L+1);
-  return { 
-  ok:true, 
-  level: L, 
-  cost, 
-  costNext, 
-  guildCoins: Number(gSnap.data()?.coins || 0) 
-};
-
-});
 
 // ... 기존 getGuildLevelCost 함수 ...
   const getGuildLevelCost = onCall({ region: 'us-central1' }, async (req)=>{
