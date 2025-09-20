@@ -990,6 +990,7 @@ function renderHistory(c, view){
       let go = '#';
       let html = '';
       if(mode==='battle'){
+      } else if(mode==='encounter'){
         const isAttacker = it.attacker_char === `chars/${c.id}`;
         const opponentSnapshot = isAttacker ? it.defender_snapshot : it.attacker_snapshot;
         const myExp = isAttacker ? it.exp_char0 : it.exp_char1;
@@ -1091,13 +1092,12 @@ async function fetchNext(){
         out.sort((a,b)=>((b.endedAt?.toMillis?.()??0)-(a.endedAt?.toMillis?.()??0)));
         if(doneA && doneD && out.length===0) done = true;
       }
-      else if(mode==='encounter'){
+      else if(mode==='encounter'){ // <-- [수정] 기존 encounter 로직을 그대로 사용합니다.
         if(!doneA){
           const partsA = [ fx.where('a_char','==', charRef), fx.orderBy('endedAt','desc') ];
           if(lastA) partsA.push(startAfter(lastA));
           partsA.push(fx.limit(15));
           const qA = fx.query(fx.collection(db,'encounter_logs'), ...partsA);
-          // [수정] fx.getDocs -> getDocsFromServer: 항상 서버에서 최신 목록을 가져옵니다.
           const sA = await getDocsFromServer(qA);
           const arrA=[]; sA.forEach(d=>arrA.push({ id:d.id, ...d.data() }));
           if(arrA.length < 15) doneA = true;
@@ -1109,7 +1109,6 @@ async function fetchNext(){
           if(lastD) partsB.push(startAfter(lastD));
           partsB.push(fx.limit(15));
           const qB = fx.query(fx.collection(db,'encounter_logs'), ...partsB);
-          // [수정] fx.getDocs -> getDocsFromServer: 항상 서버에서 최신 목록을 가져옵니다.
           const sB = await getDocsFromServer(qB);
           const arrB=[]; sB.forEach(d=>arrB.push({ id:d.id, ...d.data() }));
           if(arrB.length < 15) doneD = true;
