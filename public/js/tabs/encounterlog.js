@@ -1,6 +1,8 @@
 async function render(root, log, charA, charB, logId) {
   const currentUserId = auth.currentUser?.uid;
   const isParty = currentUserId && (charA.owner_uid === currentUserId || charB.owner_uid === currentUserId);
+  const expA = Number(log.exp_a ?? log.exp_char_a ?? 0) | 0;
+  const expB = Number(log.exp_b ?? log.exp_char_b ?? 0) | 0;
 
   const escHtml = s => String(s??'');
   const characterCard = (char, exp) => `
@@ -43,14 +45,14 @@ async function render(root, log, charA, charB, logId) {
       </div>
 
       <div class="elog-grid">
-        <div class="elog-cc">${characterCard(charA, log.exp_a)}</div>
+        <div class="elog-cc">${characterCard(charA, expA)}</div>
 
         <div class="elog-article">
           <h1 class="elog-title">${esc(log.title)}</h1>
           <div class="elog-body">${renderRichText(log.content)}</div>
         </div>
 
-        <div class="elog-cc">${characterCard(charB, log.exp_b)}</div>
+        <div class="elog-cc">${characterCard(charB, expB)}</div>
       </div>
 
       <div style="display:flex;justify-content:center;margin:10px 0 0">
@@ -94,3 +96,5 @@ async function render(root, log, charA, charB, logId) {
     };
   }
 }
+export default showEncounterLog;
+
