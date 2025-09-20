@@ -1214,8 +1214,26 @@ hL3c.delete(oldOwnerCharId); hV3c.delete(oldOwnerCharId);
 
 
 // ... 기존 getGuildLevelCost 함수 ...
-  const getGuildLevelCost = onCall({ region: 'us-central1' }, async (req)=>{
-    // ... (내용 생략) ...
+    const getGuildLevelCost = onCall({ region: 'us-central1' }, async (req)=>{
+    const { guildId } = req.data || {};
+    if (!guildId) throw new HttpsError('invalid-argument', 'guildId가 필요합니다.');
+
+    const gSnap = await db.doc(`guilds/${guildId}`).get();
+    if (!gSnap.exists) throw new HttpsError('not-found', '길드를 찾을 수 없습니다.');
+    
+    const g = gSnap.data() || {};
+    const currentLevel = Number(g.level || 1);
+    
+    // ❗ [핵심] async 함수인 levelUpCost를 호출할 때 반드시 await를 사용해야 합니다.
+    const cost = await levelUpCost(currentLevel);
+
+    return {
+      ok: true,
+      level: currentLevel,
+      cost: cost,
+      guildCoins: Number(g.coins || 0)
+    };
+
   });
 
   // ANCHOR: 여기에 관리자용 정리 함수 추가
