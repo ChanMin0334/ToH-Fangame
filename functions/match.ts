@@ -10,7 +10,7 @@ const COOLDOWN_SEC = 300;
 const LOCK_SEC = 600;
 
 function nowSec(){ return Math.floor(Date.now()/1000); }
-// [수정] 'battle' 모드를 위해 가우시안 가중치 함수를 다시 추가합니다.
+// 'battle' 모드를 위해 가우시안 가중치 함수는 유지합니다.
 function gaussWeight(delta: number, sigma=150){ return Math.exp(-(delta*delta)/(2*sigma*sigma)); }
 
 export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
@@ -65,7 +65,7 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
   // [수정] mode에 따라 상대 선택 방식을 분기합니다.
   let pick: any;
   if (mode === 'battle') {
-    // 'battle' 모드: Elo 기반 가우시안 가중치 추첨
+    // 'battle' 모드: Elo 기반 가우시안 가중치 추첨 (기존 방식)
     const weights = list.map((c:any)=> gaussWeight(Math.abs((c.elo||1000) - elo), 150));
     const sum = weights.reduce((a,b)=>a+b,0) || 1;
     let r = Math.random()*sum;
@@ -107,7 +107,6 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
 
 // cancelMatch 함수는 변경하지 않습니다.
 export const cancelMatch = onCall({ region: 'us-central1' }, async (req)=>{
-    // ... (기존 코드와 동일)
     const uid = req.auth?.uid;
     if(!uid) throw new HttpsError('unauthenticated', '로그인이 필요해');
     const { token } = (req.data||{}) as { token:string };
