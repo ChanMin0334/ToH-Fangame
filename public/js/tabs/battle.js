@@ -263,7 +263,8 @@ async function startBattleProcess(myChar, opponentChar) {
         showToast('배틀 생성에 실패했습니다: ' + e.message);
         progress.remove();
         const btnStart = document.getElementById('btnStart');
-        if (btnStart) mountCooldownOnButton(btnStart, '배틀 시작');
+        if (btnStart) mountCooldownOnButton(btnStart, 'battle', '배틀 시작');
+
     }
 }
 // ---------- entry ----------
