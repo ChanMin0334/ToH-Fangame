@@ -64,7 +64,6 @@ module.exports = (admin, { HttpsError, logger }) => {
         if (left > 0) {
             throw new HttpsError('failed-precondition', `조우 쿨타임이 ${left}초 남았습니다.`);
         }
-        // [추가 끝]
 
         const { myCharId, opponentCharId, myChar_forAI, opponentChar_forAI, relation_note } = req.data;
         if (!myCharId || !opponentCharId || !myChar_forAI || !opponentChar_forAI) {
