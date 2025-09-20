@@ -1270,19 +1270,6 @@ hL3c.delete(oldOwnerCharId); hV3c.delete(oldOwnerCharId);
     logger.info(message);
     return { ok: true, message, cleanedCount };
   });
-  // ANCHOR_END
-  
-  // ------------------------
-  // exports
-  // ------------------------
-  return {
-    // ... (기존 함수들) ...
-  };
-};
-
-
-
-
   
   // ------------------------
   // exports
