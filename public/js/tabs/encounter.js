@@ -307,7 +307,7 @@ async function renderLoadoutForMatch(box, myChar){
   const render = () => {
       box.innerHTML = `
         <div class="p12">
-          <div style="font-weight:800;margin-bottom:8px">내 스킬 (2개까지 선택 가능)</div>
+          <div style="font-weight:800;margin-bottom:8px">내 스킬 (정확히 2개 선택)</div>
           ${abilities.length ? `<div class="grid2" style="gap:8px">
               ${abilities.map((ab,i)=>`
                 <label class="kv-card" style="display:flex;gap:8px;align-items:flex-start;padding:10px;cursor:pointer">
@@ -349,11 +349,20 @@ async function renderLoadoutForMatch(box, myChar){
             let on = Array.from(inputs).filter(x => x.checked).map(x => +x.dataset.i);
             if (on.length > 2) {
               inp.checked = false;
-              showToast('스킬은 2개까지만 선택할 수 있습니다.');
+              showToast('스킬은 2개만 선택할 수 있습니다.');
               return;
             }
-            equippedSkills = on;
-            // 조우에서는 스킬 저장을 필수로 요구하지 않으므로, 로컬에서만 상태 변경
+            // [수정] 2개가 선택되었을 때만 서버에 저장합니다.
+            if (on.length === 2) {
+              try {
+                await updateAbilitiesEquipped(myChar.id, on);
+                myChar.abilities_equipped = on; // 로컬 데이터도 동기화
+                equippedSkills = on;
+                showToast('스킬 선택이 저장되었습니다.');
+              } catch (e) { 
+                showToast('스킬 저장 실패: ' + e.message); 
+              }
+            }
           };
         });
       }
