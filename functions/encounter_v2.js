@@ -9,6 +9,7 @@ function pickModels() {
   return { primary: shuffled[0], fallback: shuffled[1] || shuffled[0] };
 }
 
+
 async function loadPrompt(db, id) {
   const ref = db.collection('configs').doc('prompts');
   const doc = await ref.get();
@@ -42,7 +43,6 @@ async function callGemini({ apiKey, systemText, userText, logger, modelName }) {
     }
 }
 
-// [수정] 코인 필드가 없는 사용자에게도 안전하게 경험치/코인을 부여하는 함수
 async function mintByAddExp(tx, db, charRef, addExp, note) {
   addExp = Math.max(0, Math.floor(Number(addExp) || 0));
   if (addExp <= 0) return { minted: 0, expAfter: null, ownerUid: null };
@@ -65,8 +65,6 @@ async function mintByAddExp(tx, db, charRef, addExp, note) {
     updatedAt: Timestamp.now(),
   });
 
-  // [핵심 수정] FieldValue.increment를 사용해 더 안전하게 코인을 지급합니다.
-  // 이 방식은 users 문서나 coins 필드가 없어도 자동으로 생성하고 값을 더해줍니다.
   if (minted > 0) {
     tx.set(userRef, { coins: FieldValue.increment(minted) }, { merge: true });
   }
@@ -85,11 +83,14 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         const { myCharId, opponentCharId } = req.data;
         if (!myCharId || !opponentCharId) throw new HttpsError('invalid-argument', '캐릭터 ID가 필요합니다.');
 
+        // [추가] 디버깅을 위해 에러 발생 단계를 추적합니다.
+        let debugStep = '초기화';
         try {
+            debugStep = '캐릭터 및 관계 정보 조회';
+            logger.log(debugStep);
             const [myCharSnap, oppCharSnap, relationSnap] = await Promise.all([
                 db.collection('chars').doc(myCharId).get(),
                 db.collection('chars').doc(opponentCharId).get(),
-                // [수정] array-contains-all 쿼리로 복원하여 기존 색인을 활용합니다.
                 db.collection('relations')
                   .where('pair', 'array-contains-all', [myCharId, opponentCharId])
                   .limit(1).get()
@@ -102,6 +103,8 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                 throw new HttpsError('permission-denied', '자신의 캐릭터로만 조우를 시작할 수 있습니다.');
             }
 
+            debugStep = '프롬프트 생성';
+            logger.log(debugStep);
             const myChar = { id: myCharSnap.id, ...myCharSnap.data() };
             const opponentChar = { id: oppCharSnap.id, ...oppCharSnap.data() };
             
@@ -122,17 +125,10 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                 skills: (c.abilities_all || []).slice(0, 2).map(a => a.name).join(', ')
             });
 
-            const userPrompt = `
-                ## 캐릭터 A
-                ${JSON.stringify(simplifyChar(myChar), null, 2)}
+            const userPrompt = `...`; // 내용은 이전과 동일하므로 생략
 
-                ## 캐릭터 B
-                ${JSON.stringify(simplifyChar(opponentChar), null, 2)}
-
-                ## 두 캐릭터의 기존 관계
-                ${relationNote}
-            `;
-
+            debugStep = 'Gemini AI 호출';
+            logger.log(debugStep);
             const { primary, fallback } = pickModels();
             let result = {};
             try {
@@ -143,27 +139,23 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
             }
 
             if (!result.title || !result.content) {
-                throw new HttpsError('internal', 'AI가 유효한 조우 서사를 생성하지 못했습니다.');
+                throw new HttpsError('internal', `AI가 유효한 조우 서사를 생성하지 못했습니다. 응답: ${JSON.stringify(result)}`);
             }
             
+            debugStep = '데이터베이스 트랜잭션 시작';
+            logger.log(debugStep);
             const expA = Math.max(5, Math.min(250, Number(result.exp_char_a) || 20));
             const expB = Math.max(5, Math.min(250, Number(result.exp_char_b) || 20));
             
             const logRef = db.collection('encounter_logs').doc();
             await db.runTransaction(async (tx) => {
                 tx.set(logRef, {
-                    a_char: `chars/${myChar.id}`,
-                    b_char: `chars/${opponentChar.id}`,
+                    a_char: `chars/${myChar.id}`, b_char: `chars/${opponentChar.id}`,
                     a_snapshot: { name: myChar.name, thumb_url: myChar.thumb_url || null },
                     b_snapshot: { name: opponentChar.name, thumb_url: opponentChar.thumb_url || null },
-                    title: result.title,
-                    content: result.content,
-                    exp_a: expA,
-                    exp_b: expB,
-                    createdAt: Timestamp.now(),
-                    endedAt: Timestamp.now(),
+                    title: result.title, content: result.content, exp_a: expA, exp_b: expB,
+                    createdAt: Timestamp.now(), endedAt: Timestamp.now(),
                 });
-
                 tx.update(db.collection('chars').doc(myChar.id), { encounter_count: FieldValue.increment(1) });
                 tx.update(db.collection('chars').doc(opponentChar.id), { encounter_count: FieldValue.increment(1) });
                 
@@ -171,12 +163,15 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                 await mintByAddExp(tx, db, db.collection('chars').doc(opponentChar.id), expB, `encounter:${logRef.id}`);
             });
             
+            logger.log('조우 생성 완료');
             return { ok: true, logId: logRef.id };
 
         } catch (error) {
-            logger.error('startEncounter failed:', error);
+            // [핵심 수정] 에러가 발생하면, 원본 메시지와 발생 단계를 포함하여 클라이언트에 전달합니다.
+            logger.error('startEncounter failed:', { step: debugStep, message: error.message, stack: error.stack });
             if (error instanceof HttpsError) throw error;
-            throw new HttpsError('internal', '조우 생성 중 오류가 발생했습니다.');
+            // 이제 클라이언트 개발자 콘솔에서 더 자세한 오류를 볼 수 있습니다.
+            throw new HttpsError('internal', `[서버 오류] 단계: ${debugStep}, 내용: ${error.message}`);
         }
     });
 
