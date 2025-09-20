@@ -56,7 +56,7 @@ export async function showEncounterLog() {
     const charA = snapA.exists() ? {id: charA_id, ...snapA.data()} : {id: charA_id, ...log.a_snapshot};
     const charB = snapB.exists() ? {id: charB_id, ...snapB.data()} : {id: charB_id, ...log.b_snapshot};
 
-    await render(root, log, charA, charB);
+    await render(root, log, charA, charB, logId);
 
   } catch (e) {
     console.error("조우 로그 로딩 실패:", e);
@@ -64,7 +64,7 @@ export async function showEncounterLog() {
   }
 }
 
-async function render(root, log, charA, charB) {
+async function render(root, log, charA, charB, logId) {
     const currentUserId = auth.currentUser?.uid;
     const isParty = currentUserId && (charA.owner_uid === currentUserId || charB.owner_uid === currentUserId);
     
@@ -104,7 +104,6 @@ async function render(root, log, charA, charB) {
       </section>
     `;
     
-    // 관계 생성/업데이트 버튼 (battlelog와 동일)
     const btnRelate = root.querySelector('#btnRelate');
     if (!isParty) return;
 
@@ -115,14 +114,13 @@ async function render(root, log, charA, charB) {
         btnRelate.disabled = true;
         btnRelate.textContent = 'AI가 관계를 분석하는 중...';
         try {
-            // battleLogId 대신 encounterLogId를 전달하도록 수정이 필요할 수 있으나,
-            // 현재 createOrUpdateRelation은 battleLogId를 기반으로 텍스트를 추출하므로 임시로 이 ID를 사용합니다.
-            // (추후 store.js에서 encounter 로그도 읽도록 개선 필요)
-            showToast('관계 분석 기능은 현재 배틀로그 기반으로 동작합니다. 조우 로그 기반 분석은 다음 패치에서 지원될 예정입니다.');
-            // const result = await createOrUpdateRelation({ aCharId: charA.id, bCharId: charB.id, battleLogId: logId });
-            // showToast('관계가 갱신되었습니다!');
-            btnRelate.textContent = '관계 분석/업데이트';
-            btnRelate.disabled = false;
+            const result = await createOrUpdateRelation({ 
+                aCharId: charA.id, 
+                bCharId: charB.id, 
+                encounterLogId: logId 
+            });
+            showToast('관계가 갱신되었습니다!');
+            btnRelate.textContent = '관계가 갱신됨';
         } catch(e) {
             console.error('관계 생성/업데이트 실패:', e);
             showToast(`오류: ${e.message}`);
