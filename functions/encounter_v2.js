@@ -186,5 +186,3 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
     return { startEncounter };
 };
 
-    return { startEncounter };
-};
