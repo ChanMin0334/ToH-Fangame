@@ -357,21 +357,15 @@ export async function showBattle(){
         if (hasSkills && myCharData.abilities_equipped?.length !== 2) {
             return showToast('배틀을 시작하려면 스킬을 2개 선택해야 합니다.');
         }
-        if (getCooldownRemainMs() > 0) return;
         btnStart.disabled = true;
-        applyGlobalCooldown(300);
-      try {
-        await logInfo('battle', '배틀 시작', {
-          code: 'battle_start',
-          mode: 'battle',
-          myCharId: myCharData?.id || null,
-          opponentId: opponentCharData?.id || null
-        }, null);
-      } catch (e) {
-        console.warn('[battle] start log skipped', e);
-      }
+try {
+  await startBattleProcess(myCharData, opponentCharData);
+} catch (e) {
+  showToast(e?.message || '시작에 실패했어.');
+} finally {
+  await mountCooldownOnButton(btnStart, 'battle', '배틀 시작');
+}
 
-        await startBattleProcess(myCharData, opponentCharData);
     };
 
   } catch(e) {
