@@ -51,7 +51,6 @@ async function callGemini({ apiKey, systemText, userText, logger, modelName }) {
 module.exports = (admin, { HttpsError, logger }) => {
     const db = admin.firestore();
 
-// (수정 후)
     const startEncounter = onCall({ secrets: [GEMINI_API_KEY], region: 'us-central1' }, async (req) => {
         const uid = req.auth?.uid;
         if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
