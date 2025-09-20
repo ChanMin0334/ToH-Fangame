@@ -1,11 +1,9 @@
 // /public/js/tabs/encounter.js
 // 들어오자마자 자동 매칭 → 상단에 상대 카드(이름/intro 요약/스킬 라벨) → 하단에 '조우 시작'
 // 내 캐릭터 카드는 표시하지 않음. '가방 열기'는 모달(더미 데이터).
-
 import { auth, db, fx, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
-// battle.js와 동일하게 클라이언트 매칭 모듈 추가
 import { autoMatch } from '../api/match_client.js';
 
 
@@ -106,42 +104,28 @@ export async function showEncounter(){
   const intent = intentGuard('encounter');
   const root   = document.getElementById('view');
 
-  if(!intent){
-    root.innerHTML = `<section class="container narrow"><div class="kv-card">잘못된 접근이야. 캐릭터 화면에서 ‘조우 시작’으로 들어와줘.</div></section>`;
-    return;
-  }
-  if(!auth.currentUser){
-    root.innerHTML = `<section class="container narrow"><div class="kv-card">로그인이 필요해.</div></section>`;
+  if(!intent || !auth.currentUser){
+    root.innerHTML = `<section class="container narrow"><div class="kv-card">${!intent ? '잘못된 접근이야.' : '로그인이 필요해.'}</div></section>`;
     return;
   }
 
-  // 상단 레이아웃
+  // --- UI 레이아웃 (기존과 거의 동일, 일부 버튼 텍스트 변경) ---
   root.innerHTML = `
   <section class="container narrow">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <button class="btn ghost" id="btnBack">← 캐릭터로 돌아가기</button>
     </div>
-
     <div class="card p16" id="matchPanel">
       <div class="kv-label">자동 매칭</div>
       <div id="matchArea" class="kv-card" style="display:flex;gap:10px;align-items:center;min-height:72px">
         <div class="spin"></div><div>상대를 찾는 중…</div>
       </div>
     </div>
-
     <div class="card p16 mt12" id="loadoutPanel">
       <div class="kv-label">내 스킬 / 아이템</div>
       <div id="loadoutArea"></div>
     </div>
-
     <div class="card p16 mt16" id="toolPanel">
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn" id="btnBag">가방 열기</button>
-      </div>
-      <div id="bagNote" class="text-dim" style="font-size:12px;margin-top:6px">※ 가방은 현재 더미 데이터야. 조우 시 아이템 사용은 다음 패치에서!</div>
-
-      <hr style="margin:14px 0;border:none;border-top:1px solid rgba(255,255,255,.06)">
-
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn" id="btnStart" disabled>조우 시작</button>
       </div>
@@ -149,124 +133,89 @@ export async function showEncounter(){
   </section>`;
 
   document.getElementById('btnBack').onclick = ()=>{
-    const j=intentGuard('encounter');
-    const id=j?.charId||'';
+    const id = intent?.charId || '';
     location.hash = id ? `#/char/${id}` : '#/home';
   };
+  
+  // --- 매칭 및 렌더링 로직 ---
+  let myChar = null;
+  let opponentChar = null;
 
-  // 가방 모달(더미)
-  document.getElementById('btnBag').onclick = ()=>{
-    const back = document.createElement('div');
-    back.className='modal-back';
-    back.innerHTML = `
-      <div class="modal-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-weight:900">가방 (더미)</div>
-          <button class="btn ghost" id="mClose">닫기</button>
-        </div>
-        <div class="grid3">
-          ${[1,2,3,4,5,6].map(i=>`
-            <div class="kv-card">
-              <div style="font-weight:700">아이템 ${i}</div>
-              <div class="text-dim" style="font-size:12px">효과: 테스트 설명입니다.</div>
-            </div>`).join('')}
-        </div>
-      </div>`;
-    back.addEventListener('click', (e)=>{ if(e.target===back) back.remove(); });
-    back.querySelector('#mClose').onclick = ()=> back.remove();
-    document.body.appendChild(back);
-  };
+  try {
+    const meSnap = await fx.getDoc(fx.doc(db, 'chars', intent.charId));
+    if (!meSnap.exists()) throw new Error('내 캐릭터 정보를 찾을 수 없습니다.');
+    myChar = { id: meSnap.id, ...meSnap.data() };
+    renderLoadoutForMatch(intent.charId, myChar); // 로드아웃 렌더링
 
-  // 내 캐릭터 불러와서 로드아웃 렌더
-  let myChar = {};
-  try{
-    const meSnap = await fx.getDoc(fx.doc(db,'chars', (intent?.charId||'').replace(/^chars\//,'')));
-    if(meSnap.exists()) myChar = meSnap.data();
-  }catch(e){
-    console.error('[encounter] my char load fail', e);
-  }
-  renderLoadoutForMatch(intent.charId, myChar);
-
-  // 자동 매칭 시작
-  let matchToken = null;
-  const matchArea = document.getElementById('matchArea');
-  const btnStart  = document.getElementById('btnStart');
-
-  try{
-    // 1) 세션 락 먼저 확인 → 없으면 기존 로직 수행
-let data = null;
-const persisted = loadMatchLock('encounter', intent.charId);
-if (persisted) {
-  data = { ok:true, token: persisted.token||null, opponent: persisted.opponent };
-} else {
-  try{
-    const call = httpsCallable(func, 'requestMatch');
-    ({ data } = await call({ charId: intent.charId, mode: 'encounter' }));
-  }catch(_e){
-    data = null;
-  }
-  if(!data?.ok){
-    data = await autoMatch({ db, fx, charId: intent.charId, mode: 'encounter' });
-  }
-  if(!data?.ok || !data?.opponent) throw new Error('no-opponent');
-
-  saveMatchLock('encounter', intent.charId, {
-    token: data.token || null,
-    opponent: data.opponent,
-    // expiresAt: data.expiresAt || (Date.now() + 3*60*1000)
-  });
-}
-
-
-    // 3) 상대 상세 불러와서 카드 렌더
-    const oppId = String(data.opponent.id||data.opponent.charId||'').replace(/^chars\//,'');
-    const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
-    const opp = oppDoc.exists() ? oppDoc.data() : {};
-    const intro = truncate(opp.summary || opp.intro || '', 160);
-    const abilities = Array.isArray(opp.abilities_all) ? opp.abilities_all : [];
-
+    // battle.js와 동일한 매칭 로직
+    let matchData = null;
+    const persisted = loadMatchLock('encounter', intent.charId);
+    if (persisted) {
+      matchData = { ok:true, opponent: persisted.opponent };
+    } else {
+      matchData = await autoMatch({ db, fx, charId: intent.charId, mode: 'encounter' });
+      if (!matchData?.ok || !matchData?.opponent) throw new Error('매칭 상대를 찾지 못했습니다.');
+      saveMatchLock('encounter', intent.charId, { opponent: matchData.opponent });
+    }
+    
+    const oppId = String(matchData.opponent.id || matchData.opponent.charId || '').replace(/^chars\//,'');
+    const oppDoc = await fx.getDoc(fx.doc(db, 'chars', oppId));
+    if (!oppDoc.exists()) throw new Error('상대 캐릭터 정보를 찾을 수 없습니다.');
+    opponentChar = { id: oppDoc.id, ...oppDoc.data() };
+    
+    // 상대 카드 렌더링
+    const matchArea = document.getElementById('matchArea');
+    const intro = truncate(opponentChar.summary || opponentChar.intro || '', 160);
+    const abilities = Array.isArray(opponentChar.abilities_all) ? opponentChar.abilities_all : [];
     matchArea.innerHTML = `
-      <div id="oppCard" style="display:flex;gap:12px;align-items:center;cursor:pointer">
-        <div style="width:72px;aspect-ratio:1/1;border-radius:10px;overflow:hidden;border:1px solid #273247;background:#0b0f15">
-          ${(opp.thumb_url || data.opponent.thumb_url) ? `<img src="${esc(opp.thumb_url || data.opponent.thumb_url)}" style="width:100%;height:100%;object-fit:cover">` : ''}
+      <div id="oppCard" style="display:flex;gap:12px;align-items:center;cursor:pointer;width:100%;">
+        <div style="width:72px;aspect-ratio:1/1;border-radius:10px;overflow:hidden;border:1px solid #273247;background:#0b0f15;flex-shrink:0;">
+          ${opponentChar.thumb_url ? `<img src="${esc(opponentChar.thumb_url)}" style="width:100%;height:100%;object-fit:cover">` : ''}
         </div>
-        <div style="flex:1">
-          <div style="display:flex;gap:6px;align-items:center">
-            <div style="font-weight:900;font-size:16px">${esc(opp.name || data.opponent.name || '상대')}</div>
-            <div class="chip-mini">Elo ${esc(((opp.elo ?? data.opponent.elo) ?? 1000).toString())}</div>
-          </div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:900;font-size:16px">${esc(opponentChar.name || '상대')}</div>
           <div class="text-dim" style="margin-top:4px">${esc(intro || '소개가 아직 없어')}</div>
           <div style="margin-top:6px">${abilities.slice(0,4).map(a=>`<span class="chip-mini">${esc(a?.name||'스킬')}</span>`).join('')}</div>
         </div>
       </div>
     `;
-    matchArea.querySelector('#oppCard').addEventListener('click', ()=>{
-      if(oppId) location.hash = `#/char/${oppId}`;
-    });
+    matchArea.querySelector('#oppCard').onclick = () => { if(oppId) location.hash = `#/char/${oppId}`; };
 
-    // 토큰(있으면 저장) + 시작 버튼 활성화
-    matchToken = data.token || null;
-    btnStart.disabled = false;
+    // 시작 버튼 활성화 및 이벤트 핸들러
+    const btnStart  = document.getElementById('btnStart');
     mountCooldownOnButton(btnStart, '조우 시작');
-    btnStart.onclick = async ()=>{
-      try{
+    btnStart.onclick = async () => {
+      if (getCooldownRemainMs() > 0) return showToast('전역 쿨타임 중이야!');
+      
+      try {
+        // 1. 서버에 쿨타임 설정을 요청 (60초)
         const callCD = httpsCallable(func, 'setGlobalCooldown');
-        await callCD({ seconds: 60 }); // 서버가 쿨타임 고정(연장만)
-      }catch(e){
-        showToast('쿨타임 설정에 실패했어. 잠시 후 다시 시도해줘');
-        return; // 서버가 못 박으면 진행 금지
+        await callCD({ seconds: 60 });
+        applyGlobalCooldown(60); // 클라이언트에도 즉시 반영
+        
+        // 2. 조우 시작 프로세스
+        btnStart.disabled = true;
+        const progress = showProgressUI(myChar, opponentChar);
+        const startEncounter = httpsCallable(func, 'startEncounter');
+        const result = await startEncounter({ myCharId: myChar.id, opponentCharId: opponentChar.id });
+        
+        progress.update('완료!', 100);
+        setTimeout(() => {
+            progress.remove();
+            // 새로운 encounter-log 페이지로 이동
+            location.hash = `#/encounter-log/${result.data.logId}`;
+        }, 1000);
+
+      } catch (e) {
+        console.error('[encounter] start error', e);
+        showToast(`조우 시작 실패: ${e.message}`);
+        mountCooldownOnButton(btnStart, '조우 시작'); // 실패 시 버튼 복구
       }
-
-      if (getCooldownRemainMs()>0) return showToast('전역 쿨타임 중이야!');
-      applyGlobalCooldown(60); // 조우 시작 시 1분 전역 쿨타임
-
-      showToast('조우 로직은 다음 패치에서 이어서 할게!');
-      // TODO: import('../api/ai.js').then(({startEncounterWithToken})=> startEncounterWithToken({ token: matchToken }));
     };
 
-  }catch(e){
-    console.error('[encounter] match error', e);
-    matchArea.innerHTML = `<div class="text-dim">지금은 매칭이 어려워. 잠시 후 다시 시도해줘</div>`;
+  } catch(e) {
+    console.error('[encounter] setup error', e);
+    document.getElementById('matchArea').innerHTML = `<div class="text-dim">매칭 중 오류 발생: ${e.message}</div>`;
   }
 }
 
