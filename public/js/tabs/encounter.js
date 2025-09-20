@@ -179,7 +179,7 @@ async function startEncounterProcess(myChar, opponentChar) {
         showToast('조우 생성에 실패했습니다: ' + e.message);
         progress.remove();
         const btnStart = document.getElementById('btnStart');
-        if (btnStart) mountCooldownOnButton(btnStart, '조우 시작');
+        mountCooldownOnButton(btnStart, 'encounter', '조우 시작');
     }
 }
 
