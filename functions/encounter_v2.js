@@ -1,7 +1,9 @@
 // /functions/encounter_v2.js
+// ❗️ 이 코드 전체를 복사하여 기존 encounter_v2.js 파일에 덮어쓰세요.
+
 const { Timestamp, FieldValue } = require('firebase-admin/firestore');
 
-const MODEL_POOL = ['gemini-1.5-flash-latest', 'gemini-1.5-pro-latest'];
+const MODEL_POOL = ['gemini-2.0-flash-lite','gemini-2.5-flash-lite','gemini-2.0-flash','gemini-2.5-flash',];
 function pickModels() {
   const shuffled = [...MODEL_POOL].sort(() => 0.5 - Math.random());
   return { primary: shuffled[0], fallback: shuffled[1] || shuffled[0] };
@@ -40,7 +42,7 @@ async function callGemini({ apiKey, systemText, userText, logger, modelName }) {
     }
 }
 
-// [수정] 코인 필드가 없을 때를 대비한 안전한 경험치/코인 부여 함수
+// [수정] 코인 필드가 없는 사용자에게도 안전하게 경험치/코인을 부여하는 함수
 async function mintByAddExp(tx, db, charRef, addExp, note) {
   addExp = Math.max(0, Math.floor(Number(addExp) || 0));
   if (addExp <= 0) return { minted: 0, expAfter: null, ownerUid: null };
@@ -54,21 +56,19 @@ async function mintByAddExp(tx, db, charRef, addExp, note) {
   const exp0  = Math.floor(Number(c.exp || 0));
   const exp1  = exp0 + addExp;
   const minted  = Math.floor(exp1 / 100);
-  const exp2  = exp1 % 100; // 나머지 연산으로 변경
+  const exp2  = exp1 % 100;
   const userRef = db.doc(`users/${ownerUid}`);
 
-  // 캐릭터 경험치 업데이트
   tx.update(charRef, {
     exp: exp2,
     exp_total: FieldValue.increment(addExp),
     updatedAt: Timestamp.now(),
   });
 
-  // [핵심 수정] 사용자의 코인을 안전하게 업데이트
+  // [핵심 수정] FieldValue.increment를 사용해 더 안전하게 코인을 지급합니다.
+  // 이 방식은 users 문서나 coins 필드가 없어도 자동으로 생성하고 값을 더해줍니다.
   if (minted > 0) {
-      const userSnap = await tx.get(userRef);
-      const currentCoins = userSnap.exists() ? (userSnap.data().coins || 0) : 0;
-      tx.set(userRef, { coins: currentCoins + minted }, { merge: true });
+    tx.set(userRef, { coins: FieldValue.increment(minted) }, { merge: true });
   }
 
   return { minted, expAfter: exp2, ownerUid };
@@ -86,13 +86,12 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         if (!myCharId || !opponentCharId) throw new HttpsError('invalid-argument', '캐릭터 ID가 필요합니다.');
 
         try {
-            // [수정] 관계 쿼리를 두 개의 array-contains로 변경 (색인 생성 필요)
-            const sortedPair = [myCharId, opponentCharId].sort();
             const [myCharSnap, oppCharSnap, relationSnap] = await Promise.all([
                 db.collection('chars').doc(myCharId).get(),
                 db.collection('chars').doc(opponentCharId).get(),
+                // [수정] array-contains-all 쿼리로 복원하여 기존 색인을 활용합니다.
                 db.collection('relations')
-                  .where('pair', '==', sortedPair)
+                  .where('pair', 'array-contains-all', [myCharId, opponentCharId])
                   .limit(1).get()
             ]);
 
@@ -147,8 +146,8 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                 throw new HttpsError('internal', 'AI가 유효한 조우 서사를 생성하지 못했습니다.');
             }
             
-            const expA = Math.max(5, Math.min(100, Number(result.exp_char_a) || 20));
-            const expB = Math.max(5, Math.min(100, Number(result.exp_char_b) || 20));
+            const expA = Math.max(5, Math.min(250, Number(result.exp_char_a) || 20));
+            const expB = Math.max(5, Math.min(250, Number(result.exp_char_b) || 20));
             
             const logRef = db.collection('encounter_logs').doc();
             await db.runTransaction(async (tx) => {
