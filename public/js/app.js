@@ -8,10 +8,66 @@ import { ensureAdmin } from './api/admin.js';
 import { showMailbox } from './tabs/mail.js';
 // [추가] 서비스 점검 관련 함수를 가져옵니다.
 import { getMaintenanceStatus, toggleMaintenanceOverlay } from './api/maintenance.js';
+import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, GoogleAuthProvider, getRedirectResult } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
+import { getDocFromServer } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js'; // ◀◀◀ 이 줄 추가
 
 
 // firebase-auth 모듈을 미리 import 합니다.
 import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, GoogleAuthProvider, getRedirectResult } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
+
+
+
+const appScript = document.querySelector('script[src*="/js/app.js"]');
+const APP_VERSION = appScript ? (new URL(appScript.src)).searchParams.get('v') : null;
+
+async function checkVersionAndReload() {
+  if (!APP_VERSION) {
+    console.warn('현재 앱 버전을 확인할 수 없습니다.');
+    return;
+  }
+
+  try {
+    // 2. Firestore 캐시를 무시하고 항상 서버에서 직접 최신 정보를 가져옵니다.
+    const statusRef = fx.doc(db, 'configs/app_status');
+    const statusSnap = await getDocFromServer(statusRef);
+
+    if (statusSnap.exists()) {
+      const latestVersion = statusSnap.data()?.latest_version;
+      console.log(`버전 확인: (현재: ${APP_VERSION}, 최신: ${latestVersion})`);
+
+      // 3. 버전이 다르면 사용자에게 알리고 새로고침을 강제합니다.
+      if (latestVersion && latestVersion !== APP_VERSION) {
+        console.log('새로운 버전이 감지되었습니다. 페이지를 새로고침합니다.');
+        
+        // 모든 UI를 덮는 오버레이 생성
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+          position: fixed; inset: 0; z-index: 99999;
+          background: rgba(10, 15, 25, 0.9); color: white;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          text-align: center; backdrop-filter: blur(8px);
+        `;
+        overlay.innerHTML = `
+          <div style="font-size: 24px; font-weight: 800; margin-bottom: 16px;">🚀</div>
+          <h2 style="margin:0 0 8px;">업데이트 안내</h2>
+          <p>새로운 버전이 배포되었습니다.<br>잠시 후 앱을 다시 시작합니다.</p>
+        `;
+        document.body.appendChild(overlay);
+
+        // 2초 후 강제 새로고침 (true를 전달하여 캐시 무시)
+        setTimeout(() => {
+          location.reload(true);
+        }, 2000);
+
+        // 더 이상 다른 작업이 실행되지 않도록 여기서 중단
+        return; 
+      }
+    }
+  } catch (error) {
+    console.error('버전 확인 중 오류 발생:', error);
+  }
+}
+
 
 // --- Mailbox Logic ---
 let mailUnsubscribe = null;
@@ -48,6 +104,11 @@ function teardownMailbox() {
 async function boot() {
   // 1. 월드 데이터를 먼저 로드합니다.
   await fetchWorlds();
+
+    // [추가] 앱 부팅 시 가장 먼저 버전을 확인합니다.
+  await checkVersionAndReload();
+  // [추가] 5분마다 주기적으로 버전을 다시 확인합니다.
+  setInterval(checkVersionAndReload, 5 * 60 * 1000);
 
   // [수정 시작] 2. 인증 상태와 서비스 점검 상태를 동시에 확인합니다.
   onAuthStateChanged(auth, async (user) => {
