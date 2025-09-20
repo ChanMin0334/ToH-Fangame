@@ -1,3 +1,59 @@
+// /public/js/tabs/encounterlog.js
+import { auth, db, fx } from '../api/firebase.js';
+import { getEncounterLog, createOrUpdateRelation } from '../api/store.js';
+import { showToast } from '../ui/toast.js';
+
+function parseLogId() {
+    const h = location.hash || '';
+    const m = h.match(/^#\/encounter-log\/([^/]+)$/);
+    return m ? m[1] : null;
+}
+
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// 텍스트를 간단한 서식있는 HTML로 렌더링 (내면 묘사, 대화 등)
+function renderRichText(text = '') {
+    return esc(text)
+        .replace(/\[내면\]\s*(.*?)\s*\[\/내면\]/g, '<div class="rich-thought">$1</div>')
+        .replace(/\[대화\]\s*(.*?)\s*\[\/대화\]/g, '<div class="rich-dialogue">$1</div>')
+        .replace(/\n/g, '<br>');
+}
+
+export async function showEncounterLog() {
+    const root = document.getElementById('view');
+    const logId = parseLogId();
+
+    if (!logId) {
+        root.innerHTML = `<section class="container narrow"><p>잘못된 경로입니다.</p></section>`;
+        return;
+    }
+
+    root.innerHTML = `<section class="container narrow"><div class="spin-center" style="margin-top: 40px;"></div></section>`;
+
+    try {
+        const log = await getEncounterLog(logId);
+
+        const charAId = log.a_char.replace('chars/', '');
+        const charBId = log.b_char.replace('chars/', '');
+
+        const [charASnap, charBSnap] = await Promise.all([
+            fx.getDoc(fx.doc(db, 'chars', charAId)),
+            fx.getDoc(fx.doc(db, 'chars', charBId))
+        ]);
+
+        const charA = charASnap.exists() ? { id: charAId, ...charASnap.data() } : { id: charAId, ...log.a_snapshot };
+        const charB = charBSnap.exists() ? { id: charBId, ...charBSnap.data() } : { id: charBId, ...log.b_snapshot };
+
+        await render(root, log, charA, charB, logId);
+
+    } catch (e) {
+        console.error("Failed to load encounter log:", e);
+        root.innerHTML = `<section class="container narrow"><div class="kv-card error">${esc(e.message)}</div></section>`;
+    }
+}
+
 async function render(root, log, charA, charB, logId) {
   const currentUserId = auth.currentUser?.uid;
   const isParty = currentUserId && (charA.owner_uid === currentUserId || charB.owner_uid === currentUserId);
@@ -97,4 +153,3 @@ async function render(root, log, charA, charB, logId) {
   }
 }
 export default showEncounterLog;
-
