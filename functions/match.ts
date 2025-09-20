@@ -120,15 +120,19 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
     if((me.match?.locked_until||0) > nowSec()) throw new HttpsError('aborted','이미 잠금 중');
     if((op.match?.locked_until||0) > nowSec()) throw new HttpsError('aborted','상대 잠금 중');
     tx.update(charRef, { match: { mode, opponent: oppRef.path, locked_until: expires } });
-    tx.update(oppRef,  { match: { mode, opponent: charRef.path, locked_until: expires } });ㄴ
+    tx.update(oppRef,  { match: { mode, opponent: charRef.path, locked_until: expires } });
     tx.set(matchesRef, {
       a: charRef.path, b: oppRef.path, mode, token: matchesRef.id,
       createdAt: Timestamp.now(), expiresAt: Timestamp.fromMillis((expires)*1000), state: 'ready'
     });
-    // [수정 시작] 모드에 맞는 쿨타임 필드에 값을 저장합니다.
-    const cooldownField = mode === 'battle' ? 'cooldown_battle_until' : 'cooldown_encounter_until';
-    tx.set(userRef, { [cooldownField]: nowSec() + COOLDOWN_SEC }, { merge: true });
-    // [수정 끝]
+    if (mode === 'battle') {
+      const uSnap = await tx.get(userRef);
+      const u = uSnap.exists ? uSnap.data() as any : {};
+      const base = Math.max(Number(u?.cooldown_battle_until || 0), nowSec());
+      tx.set(userRef, { cooldown_battle_until: base + COOLDOWN_SEC }, { merge: true });
+    }
+
+
     tx.set(db.doc(`char_pool/${charId}`), { can_match:false, locked_until: expires }, { merge:true });
     tx.set(db.doc(`char_pool/${pick.id}`), { can_match:false, locked_until: expires }, { merge:true });
   });
