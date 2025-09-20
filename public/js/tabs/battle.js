@@ -9,6 +9,11 @@ import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateF
 import { updateAbilitiesEquipped, updateItemsEquipped, getRelationBetween } from '../api/store.js'; 
 import { getUserInventory } from '../api/user.js';
 import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+import { func } from '../api/firebase.js';
+
+const getCooldownStatus = httpsCallable(func, 'getCooldownStatus');
+
 
 // ---------- utils ----------
 function intentGuard(mode){
@@ -60,11 +65,9 @@ function saveMatchLock(mode, charId, payload){
 function getCooldownRemainMs(){ const v = +localStorage.getItem('toh.cooldown.allUntilMs') || 0; return Math.max(0, v - Date.now()); }
 function applyGlobalCooldown(seconds){ const until = Date.now() + (seconds*1000); localStorage.setItem('toh.cooldown.allUntilMs', String(until)); }
 
-import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
-import { func } from '../api/firebase.js';
 
-const getCooldownStatus = httpsCallable(func, 'getCooldownStatus');
 
+// 이 함수는 이제 서버에서 직접 쿨타임 정보를 가져와 버튼에 반영합니다.
 // 이 함수는 이제 서버에서 직접 쿨타임 정보를 가져와 버튼에 반영합니다.
 async function mountCooldownOnButton(btn, mode, labelReady) {
   let intervalId = null;
