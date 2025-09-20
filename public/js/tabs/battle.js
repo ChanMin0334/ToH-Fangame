@@ -89,7 +89,10 @@ async function mountCooldownOnButton(btn, mode, labelReady) {
   try {
     const { data } = await getCooldownStatus();
     if (data.ok) {
-      remainMs = data[mode] || 0; // 'battle' 또는 'encounter'
+      const localRemain = (typeof getCooldownRemainMs==='function') ? getCooldownRemainMs() : 0;
+      const serverRemain = Number(data?.[mode] || 0);
+      remainMs = Math.max(serverRemain, localRemain);
+
       tick();
       if (remainMs > 0) {
         intervalId = setInterval(tick, 500);
