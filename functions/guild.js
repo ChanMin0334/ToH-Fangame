@@ -92,6 +92,19 @@ function gradeCapsForLevel(L){
     return staff.includes(uid);
   }
 
+    async function _isAdmin(uid) {
+    if (!uid) return false;
+    try {
+      const snap = await db.doc('configs/admins').get();
+      const d = snap.exists ? snap.data() : {};
+      const allow = Array.isArray(d.allow) ? d.allow : [];
+      const allowEmails = Array.isArray(d.allowEmails) ? d.allowEmails : [];
+      if (allow.includes(uid)) return true;
+      const user = await admin.auth().getUser(uid);
+      return !!(user?.email && allowEmails.includes(user.email));
+    } catch (_) { return false; }
+  }
+
   // 가입 조건(고정형) 검사: elo / wins / likes
   function checkGuildRequirements(requirements, charData) {
     // 1) 새 포맷: { eloMin, winsMin, likesMin }
@@ -943,7 +956,7 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
   });
 
   // 멤버 추방 (길드장/스태프). 스태프는 오너/스태프 추방 불가, 오너는 누구든 가능(오너 본인 제외).
-  const kickFromGuild = onCall({ region: 'us-central1' }, async (req) => {
+    const kickFromGuild = onCall({ region: 'us-central1' }, async (req) => {
     const uid = req.auth?.uid || null;
     const { guildId, charId } = req.data || {};
     if (!uid || !guildId || !charId) throw new HttpsError('invalid-argument', '필요값');
@@ -951,64 +964,42 @@ const getGuildBuffsForChar = onCall({ region: 'us-central1' }, async (req)=>{
     return await db.runTransaction(async (tx) => {
       const gRef = db.doc(`guilds/${guildId}`);
       const cRef = db.doc(`chars/${charId}`);
-      const [gSnap, cSnap] = await Promise.all([tx.get(gRef), tx.get(cRef)]);
-      if (!gSnap.exists || !cSnap.exists) throw new HttpsError('not-found', '길드/캐릭 없음');
+      const memRef = db.doc(`guild_members/${guildId}__${charId}`);
 
-      const g = gSnap.data(), c = cSnap.data();
-      if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '권한 없음');
-      if (c.guildId !== guildId) throw new HttpsError('failed-precondition', '해당 길드 소속이 아님');
+      const [gSnap, cSnap] = await Promise.all([tx.get(gRef), tx.get(cRef)]);
+      if (!gSnap.exists) throw new HttpsError('not-found', '길드를 찾을 수 없습니다.');
+      
+      const g = gSnap.data();
+      if (!isStaff(uid, g)) throw new HttpsError('permission-denied', '운영진만 강퇴할 수 있습니다.');
 
       const actingIsOwner = isOwner(uid, g);
-      const targetRole = c.guild_role || 'member';
-      if (!actingIsOwner) {
-        // 스태프 권한: 오너/다른 스태프는 추방 불가
-        if (targetRole === 'leader' || targetRole === 'officer') {
-          throw new HttpsError('permission-denied', '해당 멤버를 추방할 권한이 없습니다.');
-        }
-      } else {
-        // 오너 본인은 스스로 추방하지 못함
+      const updatesForGuild = {
+        member_count: FieldValue.increment(-1),
+        updatedAt: nowMs(),
+        staff_cids: FieldValue.arrayRemove(charId),
+        honorary_leader_cids: FieldValue.arrayRemove(charId),
+        honorary_vice_cids: FieldValue.arrayRemove(charId),
+      };
+
+      if (cSnap.exists) {
+        // -- 캐릭터가 존재하는 경우 (정상 멤버 강퇴) --
+        const c = cSnap.data();
+        if (c.guildId !== guildId) throw new HttpsError('failed-precondition', '해당 길드 소속이 아닙니다.');
+
+        const targetRole = c.guild_role || 'member';
         if (targetRole === 'leader') {
-          throw new HttpsError('failed-precondition', '길드장은 추방할 수 없습니다.');
+          throw new HttpsError('failed-precondition', '길드장은 강퇴할 수 없습니다.');
         }
+        if (!actingIsOwner && targetRole === 'officer') {
+          throw new HttpsError('permission-denied', '운영진은 다른 운영진을 강퇴할 수 없습니다.');
+        }
+        
+        tx.update(cRef, { guildId: FieldValue.delete(), guild_role: FieldValue.delete(), updatedAt: nowMs() });
       }
+      // -- 캐릭터가 없거나(유령 멤버), 정상 멤버인 경우 공통 로직 --
 
-      const cur = Number(g.member_count || 1);
-      tx.update(gRef, { member_count: Math.max(0, cur - 1), updatedAt: nowMs() });
-      tx.update(cRef, { guildId: FieldValue.delete(), guild_role: FieldValue.delete(), updatedAt: nowMs() });
-      tx.set(db.doc(`guild_members/${guildId}__${charId}`), { leftAt: nowMs() }, { merge: true });
-
-      // [추가] 부길마였다면 staff_uids에서 제거
-      {
-  const staffSet = new Set(Array.isArray(g.staff_uids) ? g.staff_uids : []);
-  const staffCid = new Set(Array.isArray(g.staff_cids) ? g.staff_cids : []);
-  staffSet.delete(c.owner_uid);
-  staffCid.delete(charId);
-  tx.update(gRef, { staff_uids: [...staffSet], staff_cids: [...staffCid], updatedAt: nowMs() });
-}
-
-      {
-  const hL  = new Set(Array.isArray(g.honorary_leader_uids) ? g.honorary_leader_uids : []);
-  const hV  = new Set(Array.isArray(g.honorary_vice_uids)   ? g.honorary_vice_uids   : []);
-  const hLc = new Set(Array.isArray(g.honorary_leader_cids) ? g.honorary_leader_cids : []);
-  const hVc = new Set(Array.isArray(g.honorary_vice_cids)   ? g.honorary_vice_cids   : []);
-  let changed = false;
-  if (hLc.delete(charId))     changed = true;
-  if (hVc.delete(charId))     changed = true;
-
-  if (changed) {
-    tx.update(gRef, {
-      honorary_leader_uids: [...hL],
-      honorary_vice_uids:   [...hV],
-      honorary_leader_cids: [...hLc],
-      honorary_vice_cids:   [...hVc],
-      updatedAt: nowMs()
-    });
-  }
-}
-
-
-
-
+      tx.delete(memRef);
+      tx.update(gRef, updatesForGuild);
       
       return { ok: true, mode: 'kicked' };
     });
@@ -1240,7 +1231,72 @@ hL3c.delete(oldOwnerCharId); hV3c.delete(oldOwnerCharId);
 
 });
 
+// ... 기존 getGuildLevelCost 함수 ...
+  const getGuildLevelCost = onCall({ region: 'us-central1' }, async (req)=>{
+    // ... (내용 생략) ...
+  });
 
+  // ANCHOR: 여기에 관리자용 정리 함수 추가
+  const adminCleanupOrphanedMembers = onCall({ region: 'us-central1' }, async (req) => {
+    const uid = req.auth?.uid;
+    if (!await _isAdmin(uid)) {
+      throw new HttpsError('permission-denied', '관리자만 실행할 수 있습니다.');
+    }
+  
+    logger.info('Starting admin task: Cleanup Orphaned Guild Members...');
+    const membersSnap = await db.collection('guild_members').get();
+    if (membersSnap.empty) {
+      return { ok: true, message: '확인할 멤버가 없습니다.', cleanedCount: 0 };
+    }
+  
+    const charIdsToCheck = membersSnap.docs.map(doc => doc.data().charId).filter(Boolean);
+    const existingChars = new Set();
+    
+    for (let i = 0; i < charIdsToCheck.length; i += 30) {
+      const batchIds = charIdsToCheck.slice(i, i + 30);
+      const charSnaps = await db.collection('chars').where(admin.firestore.FieldPath.documentId(), 'in', batchIds).get();
+      charSnaps.forEach(doc => existingChars.add(doc.id));
+    }
+  
+    let cleanedCount = 0;
+    const guildUpdates = new Map();
+  
+    const batch = db.batch();
+    for (const memberDoc of membersSnap.docs) {
+      const memberData = memberDoc.data();
+      const charId = memberData.charId;
+      const guildId = memberData.guildId;
+  
+      if (charId && guildId && !existingChars.has(charId)) {
+        logger.warn(`유령 멤버 발견: charId=${charId} in guildId=${guildId}. 삭제합니다.`);
+        batch.delete(memberDoc.ref);
+        cleanedCount++;
+        guildUpdates.set(guildId, (guildUpdates.get(guildId) || 0) + 1);
+      }
+    }
+  
+    for (const [guildId, decrement] of guildUpdates.entries()) {
+      const guildRef = db.doc(`guilds/${guildId}`);
+      batch.update(guildRef, { member_count: FieldValue.increment(-decrement) });
+    }
+  
+    if (cleanedCount > 0) {
+      await batch.commit();
+    }
+  
+    const message = `${cleanedCount}명의 유령 멤버를 정리했습니다.`;
+    logger.info(message);
+    return { ok: true, message, cleanedCount };
+  });
+  // ANCHOR_END
+  
+  // ------------------------
+  // exports
+  // ------------------------
+  return {
+    // ... (기존 함수들) ...
+  };
+};
 
 
 
@@ -1268,7 +1324,6 @@ hL3c.delete(oldOwnerCharId); hV3c.delete(oldOwnerCharId);
     assignHonoraryRank,
     unassignHonoraryRank,
     getGuildLevelCost,
-
-
+    adminCleanupOrphanedMembers, // ANCHOR: 이 줄을 추가하세요.
   };
 };
