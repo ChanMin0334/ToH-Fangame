@@ -8,7 +8,7 @@ import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js'
 import { getRelationBetween } from '../api/store.js';
 import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateFinalBattleLog } from '../api/ai.js';
 
-
+const getCooldownStatus = httpsCallable(func, 'getCooldownStatus');
 // ---------- utils (기존과 동일) ----------
 function intentGuard(mode){
   try {
