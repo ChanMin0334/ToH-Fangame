@@ -1287,7 +1287,7 @@ hL3c.delete(oldOwnerCharId); hV3c.delete(oldOwnerCharId);
   // ------------------------
   // exports
   // ------------------------
-  return {
+ return {
     createGuild,
     joinGuild,
     cancelGuildRequest,
