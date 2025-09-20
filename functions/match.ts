@@ -30,9 +30,16 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
   const ch = charSnap.data() as any;
   if(ch.owner_uid !== uid) throw new HttpsError('permission-denied', '남의 캐릭터');
 
+// (수정 후)
   const user = (userSnap.exists ? userSnap.data() : {}) as any;
-  const left = (user.cooldown_until || 0) - nowSec();
-  if(left > 0) throw new HttpsError('failed-precondition', `쿨타임 ${left}s`);
+  // [수정 시작] 모드에 따라 다른 쿨타임 필드를 확인합니다.
+  const cooldownField = mode === 'battle' ? 'cooldown_battle_until' : 'cooldown_encounter_until';
+  const cooldownUntil = user[cooldownField] || 0;
+  const left = cooldownUntil - nowSec();
+  if(left > 0) {
+    throw new HttpsError('failed-precondition', `쿨타임 ${left}s 남음`);
+  }
+  // [수정 끝]
 
   // --- [수정] 모드에 따라 후보군 조회 로직 분기 ---
   const poolCol = db.collection('char_pool');
@@ -117,7 +124,11 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
       a: charRef.path, b: oppRef.path, mode, token: matchesRef.id,
       createdAt: Timestamp.now(), expiresAt: Timestamp.fromMillis((expires)*1000), state: 'ready'
     });
-    tx.set(userRef, { cooldown_until: nowSec()+COOLDOWN_SEC }, { merge: true });
+   // (수정 후)
+    // [수정 시작] 모드에 맞는 쿨타임 필드에 값을 저장합니다.
+    const cooldownField = mode === 'battle' ? 'cooldown_battle_until' : 'cooldown_encounter_until';
+    tx.set(userRef, { [cooldownField]: nowSec() + COOLDOWN_SEC }, { merge: true });
+    // [수정 끝]
     tx.set(db.doc(`char_pool/${charId}`), { can_match:false, locked_until: expires }, { merge:true });
     tx.set(db.doc(`char_pool/${pick.id}`), { can_match:false, locked_until: expires }, { merge:true });
   });
