@@ -11,6 +11,24 @@ import { getUserInventory } from '../api/user.js';
 import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js';
 
 // ---------- utils ----------
+function intentGuard(mode){
+  try {
+    const raw = sessionStorage.getItem('toh.match.intent');
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    // 현재 페이지의 모드와 저장된 정보의 모드가 일치하는지 확인
+    if (data.mode !== mode) {
+      console.warn(`Intent mismatch: expected ${mode}, found ${data.mode}`);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.error('Failed to parse match intent', e);
+    return null;
+  }
+}
+
+
 function truncate(s, n){ s=String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
 function ensureSpinCss(){
   if(document.getElementById('toh-spin-css')) return;
