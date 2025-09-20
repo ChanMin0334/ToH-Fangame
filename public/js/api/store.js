@@ -326,7 +326,8 @@ export async function grantExp(charId, exp, source='misc', note='') {
 
 
 // ===== Relations / Episodes helpers =====
-export async function createOrUpdateRelation({ aCharId, bCharId, battleLogId }){
+// [수정] battleLogId와 encounterLogId를 모두 받을 수 있도록 함수 시그니처 변경
+export async function createOrUpdateRelation({ aCharId, bCharId, battleLogId, encounterLogId }){
   const u = auth.currentUser;
   if(!u) throw new Error('로그인이 필요해');
 
@@ -342,9 +343,13 @@ export async function createOrUpdateRelation({ aCharId, bCharId, battleLogId }){
     throw new Error(`관계 생성/업데이트는 5분에 한 번만 가능합니다. (${remainingSec}초 남음)`);
   }
 
-  // 2. 필요한 모든 데이터 가져오기
-  const [battleLog, charA, charB, existingRelationNote] = await Promise.all([
-    getBattleLog(battleLogId),
+  // [수정] 2. 로그 ID 종류에 따라 다른 함수로 로그를 가져옴
+  const logPromise = battleLogId 
+    ? getBattleLog(battleLogId) 
+    : (encounterLogId ? getEncounterLog(encounterLogId) : Promise.reject(new Error('로그 ID가 필요합니다.')));
+    
+  const [logData, charA, charB, existingRelationNote] = await Promise.all([
+    logPromise,
     getCharForAI(aCharId),
     getCharForAI(bCharId),
     getRelationBetween(aCharId, bCharId)
@@ -352,34 +357,34 @@ export async function createOrUpdateRelation({ aCharId, bCharId, battleLogId }){
 
   // 3. AI를 호출하여 관계 노트 생성/갱신
   const newNote = await generateRelationNote({
-    battleLog: battleLog,
+    battleLog: { title: logData.title, content: logData.content }, // AI 프롬프트는 동일한 형식을 사용
     attacker: { name: charA.name, narrative: charA.latestLong },
     defender: { name: charB.name, narrative: charB.latestLong },
     existingNote: existingRelationNote
   });
 
-  // [수정] 4. Firestore에 순차적으로 데이터 쓰기 (batch 대신)
+  // 4. Firestore에 순차적으로 데이터 쓰기
   const relId = [aCharId, bCharId].sort().join('__');
   const baseRef = fx.doc(db, 'relations', relId);
   const noteRef = fx.doc(db, 'relations', relId, 'meta', 'note');
+  
+  const lastLogField = battleLogId ? { lastBattleLogId: battleLogId } : { lastEncounterLogId: encounterLogId };
 
-  // 4-1. 부모 관계 문서를 먼저 생성/업데이트합니다.
   await fx.setDoc(baseRef, {
     a_charRef: `chars/${aCharId}`,
     b_charRef: `chars/${bCharId}`,
     pair: [aCharId, bCharId].sort(),
     updatedAt: fx.serverTimestamp(),
-    lastBattleLogId: battleLogId
+    ...lastLogField
   }, { merge: true });
 
-  // 4-2. 그 다음, 자식 메모 문서를 생성/업데이트합니다.
   await fx.setDoc(noteRef, { 
     note: newNote, 
     updatedAt: fx.serverTimestamp(),
     updatedBy: u.uid 
   });
 
-  // [추가] 5. 성공 시 유저 문서에 쿨타임 기록
+  // 5. 성공 시 유저 문서에 쿨타임 기록
   await fx.updateDoc(userRef, {
     lastRelationUpdateAt: fx.serverTimestamp()
   });
@@ -466,6 +471,13 @@ export async function saveBattleLog({ attackerId, defenderId, winner, stepsHtml,
 export async function getBattleLog(logId){
   const s = await fx.getDoc(fx.doc(db, 'battle_logs', logId));
   if(!s.exists()) throw new Error('배틀 로그 없음');
+  return { id: s.id, ...s.data() };
+}
+
+// [신규] 조우 로그를 가져오는 함수
+export async function getEncounterLog(logId) {
+  const s = await fx.getDoc(fx.doc(db, 'encounter_logs', logId));
+  if(!s.exists()) throw new Error('조우 로그 없음');
   return { id: s.id, ...s.data() };
 }
 
