@@ -34,18 +34,8 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
   const left = (user.cooldown_until || 0) - nowSec();
   if(left > 0) throw new HttpsError('failed-precondition', `쿨타임 ${left}s`);
 
-  // 후보 조회 로직은 동일하게 사용합니다.
+  // --- [수정] 모드에 따라 후보군 조회 로직 분기 ---
   const poolCol = db.collection('char_pool');
-  const elo = Number(ch.elo||1000);
-  const upQs = await poolCol
-      .where('can_match','==', true)
-      .orderBy('elo','asc').startAfter(elo)
-      .limit(24).get();
-  const downQs = await poolCol
-      .where('can_match','==', true)
-      .orderBy('elo','desc').startAfter(elo)
-      .limit(24).get();
-
   const cand = new Map<string, any>();
   const push = (d: FirebaseFirestore.QueryDocumentSnapshot) => {
     const v = d.data() as any;
@@ -56,8 +46,42 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
     if (v.is_valid === false) return;
     cand.set(id, { id, name: v.name, elo: v.elo, thumb_url: v.thumb_url, refPath: v.char, locked_until: v.locked_until||0 });
   };
-  upQs.docs.slice(0, 20).forEach(push);
-  downQs.docs.slice(0, 20).forEach(push);
+
+  if (mode === 'battle') {
+    // 배틀: Elo 기반 조회 (기존 로직 유지)
+    const elo = Number(ch.elo||1000);
+    const upQs = await poolCol
+        .where('can_match','==', true)
+        .orderBy('elo','asc').startAfter(elo)
+        .limit(24).get();
+    const downQs = await poolCol
+        .where('can_match','==', true)
+        .orderBy('elo','desc').startAfter(elo)
+        .limit(24).get();
+    upQs.docs.slice(0, 20).forEach(push);
+    downQs.docs.slice(0, 20).forEach(push);
+  } else {
+    // 조우: 랜덤 ID 기반 조회 (완전 랜덤)
+    // Firestore에서 진정한 랜덤 조회를 위한 기법: 랜덤 ID를 생성하고 그 지점부터 스캔
+    const randomKey = db.collection('char_pool').doc().id;
+    const q = await poolCol
+      .where('can_match', '==', true)
+      .orderBy(admin.firestore.FieldPath.documentId())
+      .startAt(randomKey)
+      .limit(50) // 충분한 후보군 확보
+      .get();
+    
+    // 만약 문서 끝까지 가서 50개를 못 채웠다면, 처음부터 다시 스캔해서 보충
+    if (q.docs.length < 50) {
+      const q2 = await poolCol
+        .where('can_match', '==', true)
+        .orderBy(admin.firestore.FieldPath.documentId())
+        .limit(50 - q.docs.length)
+        .get();
+      q2.docs.forEach(push);
+    }
+    q.docs.forEach(push);
+  }
 
   const list = Array.from(cand.values());
   if(list.length === 0) throw new HttpsError('unavailable', '후보 없음');
@@ -66,6 +90,7 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
   let pick: any;
   if (mode === 'battle') {
     // 'battle' 모드: Elo 기반 가우시안 가중치 추첨 (기존 방식)
+    const elo = Number(ch.elo||1000);
     const weights = list.map((c:any)=> gaussWeight(Math.abs((c.elo||1000) - elo), 150));
     const sum = weights.reduce((a,b)=>a+b,0) || 1;
     let r = Math.random()*sum;
