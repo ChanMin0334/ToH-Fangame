@@ -121,6 +121,32 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
 });
 
 
+// === [추가] 모드별 쿨타임 설정 ===
+exports.setModeCooldown = onCall({ region:'us-central1' }, async (req)=>{
+  const uid = req.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
+
+  const mode = String(req.data?.mode||'');
+  const seconds = Math.max(1, Math.min(600, Number(req.data?.seconds||300)));
+  if (!['battle','encounter'].includes(mode)) {
+    throw new HttpsError('invalid-argument','mode must be battle|encounter');
+  }
+
+  const userRef = db.doc(`users/${uid}`);
+  await db.runTransaction(async (tx)=>{
+    const snap = await tx.get(userRef);
+    const data = snap.exists ? snap.data() : {};
+    const nowSec = Math.floor(Date.now()/1000);
+    const field = `cooldown_${mode}_until`;
+    const base = Math.max(Number(data?.[field]||0), nowSec); // 남은 시간 “연장만”
+    tx.set(userRef, { [field]: base + seconds }, { merge:true });
+  });
+
+  return { ok:true };
+});
+
+
+
 // === [탐험 시작] onCall ===
 exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
