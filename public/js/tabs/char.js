@@ -983,14 +983,15 @@ function renderHistory(c, view){
     }catch{ return new Date(); }
   };
 
-  function appendItems(items){
+  // /public/js/tabs/char.js
+// ❗️ 이 함수 전체를 복사하여 기존 appendItems 함수를 덮어쓰세요.
+function appendItems(items){
     if(items.length) empty.style.display = 'none';
     const frag = document.createDocumentFragment();
     items.forEach(it=>{
       let go = '#';
       let html = '';
       if(mode==='battle'){
-      } else if(mode==='encounter'){
         const isAttacker = it.attacker_char === `chars/${c.id}`;
         const opponentSnapshot = isAttacker ? it.defender_snapshot : it.attacker_snapshot;
         const myExp = isAttacker ? it.exp_char0 : it.exp_char1;
@@ -1023,17 +1024,30 @@ function renderHistory(c, view){
             </div>
           </div>`;
       } else if(mode==='encounter'){
+        // [수정] 올바른 조우 기록 템플릿
+        const isA = it.a_char === `chars/${c.id}`;
+        const opponentSnapshot = isA ? it.b_snapshot : it.a_snapshot;
+        const myExp = isA ? it.exp_a : it.exp_b;
         const when = t(it.endedAt).toLocaleString();
         go = `#/encounter-log/${it.id}`;
         html = `
-          <div class="kv-card tl-go" data-go="${go}">
-            <div style="font-weight:700">협력/배움 이벤트</div>
-            <div class="text-dim" style="font-size:12px">${when}</div>
-            <div class="text-dim" style="font-size:12px">id: ${it.id}</div>
+          <div class="kv-card tl-go" data-go="${go}" style="border-left:3px solid #a3e635; padding: 10px; display: flex; align-items: center; gap: 12px;">
+            <div style="flex-shrink: 0;">
+                <img src="${esc(opponentSnapshot.thumb_url || '')}" onerror="this.style.display='none'" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover;">
+            </div>
+            <div style="flex-grow: 1; min-width: 0;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <strong style="color: #a3e635; font-size: 16px;">조우</strong>
+                    <span style="font-weight: 700;">with ${esc(opponentSnapshot.name)}</span>
+                </div>
+                <div class="text-dim" style="font-size: 12px; margin-top: 4px;">
+                    <span>${when}</span>
+                    <span style="margin-left: 12px;">획득 EXP: <strong>+${esc(myExp)}</strong></span>
+                </div>
+            </div>
           </div>`;
-      }else{
+      } else { // 'explore'
         const when = t(it.endedAt || it.startedAt).toLocaleString();
-
         go = `#/explorelog/${it.id}`;
         html = `
           <div class="kv-card tl-go" data-go="${go}" 
@@ -1046,7 +1060,6 @@ function renderHistory(c, view){
             </div>
             <div class="text-dim" style="font-size:12px">턴 ${esc(it.turn || 0)}</div>
           </div>`;
-
       }
       const wrap = document.createElement('div');
       wrap.innerHTML = html;
@@ -1055,7 +1068,7 @@ function renderHistory(c, view){
       frag.appendChild(el);
     });
     box.appendChild(frag);
-  }
+}
 
 async function fetchNext(){
     if(busy || done || !mode) return;
