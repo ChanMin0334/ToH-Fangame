@@ -87,13 +87,14 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         try {
             debugStep = '캐릭터 및 관계 정보 조회';
             logger.log(debugStep);
+            const sortedPair = [myCharId, opponentCharId].sort();
+
             const [myCharSnap, oppCharSnap, relationSnap] = await Promise.all([
                 db.collection('chars').doc(myCharId).get(),
                 db.collection('chars').doc(opponentCharId).get(),
-                // [핵심 수정] 'array-contains-all' 대신 'array-contains'를 두 번 사용하여 쿼리합니다.
+                // [핵심 수정] array-contains 중복 사용 대신 정렬된 배열('pair')을 직접 조회합니다.
                 db.collection('relations')
-                  .where('pair', 'array-contains', myCharId)
-                  .where('pair', 'array-contains', opponentCharId)
+                  .where('pair', '==', sortedPair)
                   .limit(1).get()
             ]);
 
