@@ -13,6 +13,8 @@ import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/fireba
 import { func } from '../api/firebase.js';
 
 const getCooldownStatus = httpsCallable(func, 'getCooldownStatus');
+const setGlobalCooldown = httpsCallable(func, 'setGlobalCooldown');
+
 
 
 // ---------- utils ----------
@@ -259,6 +261,9 @@ async function startBattleProcess(myChar, opponentChar) {
         }
 
         progress.update('완료!', 100);
+      try { await setGlobalCooldown({ seconds: 300 }); } catch (e) { console.warn('setGlobalCooldown post-finish failed', e); }
+try { if (typeof applyGlobalCooldown === 'function') applyGlobalCooldown(300); } catch (_) {}
+
         setTimeout(() => {
             progress.remove();
             location.hash = `#/battlelog/${logRef.id}`;
@@ -358,6 +363,17 @@ export async function showBattle(){
             return showToast('배틀을 시작하려면 스킬을 2개 선택해야 합니다.');
         }
         btnStart.disabled = true;
+      try {
+  // 서버: 공용 쿨타임 5분(300초) 설정 (연장만)
+  await setGlobalCooldown({ seconds: 300 });
+} catch (e) {
+  console.warn('setGlobalCooldown pre-start failed', e);
+}
+try {
+  // 로컬 폴백: 즉시 버튼 잠금 반영
+  if (typeof applyGlobalCooldown === 'function') applyGlobalCooldown(300);
+} catch (_) {}
+
 try {
   await startBattleProcess(myCharData, opponentCharData);
 } catch (e) {
