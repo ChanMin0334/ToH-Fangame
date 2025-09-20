@@ -1,102 +1,90 @@
 // /public/js/tabs/encounter.js
-// 들어오자마자 자동 매칭 → 상단에 상대 카드(이름/intro 요약/스킬 라벨) → 하단에 '조우 시작'
-// 내 캐릭터 카드는 표시하지 않음. '가방 열기'는 모달(더미 데이터).
+// ❗️ 이 코드 전체를 복사하여 기존 encounter.js 파일에 덮어쓰세요.
 import { auth, db, fx, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
-import { autoMatch } from '../api/match_client.js';
-
+// [수정] 이전 클라이언트 매칭 대신, 최신 서버 매칭 함수를 가져옵니다.
+import { requestMatch } from '../api/match.js'; 
+import { getUserInventory } from '../api/user.js';
+import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js';
 
 
 // ---------- utils ----------
-function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c])); }
 function truncate(s, n){ s=String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
 function ensureSpinCss(){
   if(document.getElementById('toh-spin-css')) return;
   const st=document.createElement('style'); st.id='toh-spin-css';
   st.textContent = `
-  .spin{width:24px;height:24px;border-radius:50%;
-        border:3px solid rgba(255,255,255,.15);border-top-color:#8fb7ff;
-        animation:spin .9s linear infinite}@keyframes spin{to{transform:rotate(3deg)}}
-  .chip-mini{display:inline-block;padding:.18rem .5rem;border-radius:999px;
-             border:1px solid #273247;background:#0b0f15;font-size:12px;margin:2px 4px 0 0}
-  .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50}
-  .modal-card{background:#0e1116;border:1px solid #273247;border-radius:14px;padding:14px;max-width:520px;width:92vw}
+  .spin{width:24px;height:24px;border-radius:50%;border:3px solid rgba(255,255,255,.15);border-top-color:#8fb7ff;animation:spin .9s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+  .chip-mini{display:inline-block;padding:.18rem .5rem;border-radius:999px;border:1px solid #273247;background:#0b0f15;font-size:12px;margin:2px 4px 0 0}
   `;
   document.head.appendChild(st);
+}
+
+// --- [추가] battle.js에서 가져온 필수 유틸리티 함수들 ---
+function _lockKey(mode, charId){ return `toh.match.lock.${mode}.${String(charId).replace(/^chars\//,'')}`; }
+function loadMatchLock(mode, charId){
+  try{
+    const raw = sessionStorage.getItem(_lockKey(mode,charId)); if(!raw) return null;
+    const j = JSON.parse(raw);
+    if(+j.expiresAt > Date.now()) return j;
+    sessionStorage.removeItem(_lockKey(mode,charId)); return null;
+  }catch(_){ return null; }
+}
+function saveMatchLock(mode, charId, payload){
+  const until = payload.expiresAt || (Date.now() + 3*60*1000);
+  const j = { opponent: payload.opponent, token: payload.token||null, expiresAt: until };
+  sessionStorage.setItem(_lockKey(mode,charId), JSON.stringify(j));
+}
+function getCooldownRemainMs(){ const v = +localStorage.getItem('toh.cooldown.allUntilMs') || 0; return Math.max(0, v - Date.now()); }
+function applyGlobalCooldown(seconds){ const until = Date.now() + (seconds*1000); localStorage.setItem('toh.cooldown.allUntilMs', String(until)); }
+function mountCooldownOnButton(btn, labelReady){
+  let intervalId = null;
+  const tick = ()=>{
+    const r = getCooldownRemainMs();
+    if(r>0){
+      const s = Math.ceil(r/1000);
+      btn.disabled = true;
+      btn.textContent = `${labelReady} (${s}s)`;
+    }else{
+      btn.disabled = false;
+      btn.textContent = labelReady;
+      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+    }
+  };
+  tick();
+  intervalId = setInterval(tick, 500);
 }
 function intentGuard(mode){
   let j=null; try{ j=JSON.parse(sessionStorage.getItem('toh.match.intent')||'null'); }catch(_){}
   if(!j || j.mode!==mode || (Date.now()-(+j.ts||0))>90_000) return null;
-  return j; // {charId, mode, ts}
+  return j;
 }
 
-// --- 내 로드아웃(스킬/아이템) 표시 + 스킬 2개 선택 저장 ---
-async function renderLoadoutForMatch(charId, myChar){
-  const box = document.getElementById('loadoutArea');
-  if(!box) return;
-
-  const abilities = Array.isArray(myChar.abilities_all) ? myChar.abilities_all : [];
-  let equipped = Array.isArray(myChar.abilities_equipped) ? myChar.abilities_equipped.filter(Number.isInteger).slice(0,2) : [];
-  const items = Array.isArray(myChar.items_equipped) ? myChar.items_equipped.slice(0,3) : [];
-
-  box.innerHTML = `
-    <div class="p12">
-      <div style="font-weight:800;margin-bottom:8px">내 스킬 (정확히 2개 선택)</div>
-      ${
-        abilities.length
-        ? `<div class="grid2" id="skillGrid" style="gap:8px">
-            ${abilities.map((ab,i)=>`
-              <label class="kv-card" style="display:flex;gap:8px;align-items:flex-start;padding:10px;cursor:pointer">
-                <input type="checkbox" data-i="${i}" ${equipped.includes(i)?'checked':''}
-                       style="margin-top:3px">
-                <div>
-                  <div style="font-weight:700">${esc(ab?.name || ('스킬 ' + (i+1)))}</div>
-                  <div class="text-dim" style="font-size:12px">${esc(ab?.desc_soft || '')}</div>
-                </div>
-              </label>
-            `).join('')}
-          </div>`
-        : `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
-      }
-
-      <div style="font-weight:800;margin:12px 0 6px">내 아이템 (최대 3개)</div>
-      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
-        ${[0,1,2].map(s=>{
-          const id = items[s];
-          return `<div class="kv-card" style="min-height:44px;display:flex;align-items:center;justify-content:center">
-            ${id ? esc('#' + String(id).slice(-6)) : '(비어 있음)'}
-          </div>`;
-        }).join('')}
-      </div>
-      <div class="text-dim" style="font-size:12px;margin-top:6px">
-        ※ ‘가방 열기’는 지금은 더미. 아이템 교체는 다음 패치에서!
-      </div>
+// --- [추가] battle.js에서 가져온 진행 UI ---
+function showProgressUI(myChar, opponentChar) {
+  const overlay = document.createElement('div');
+  overlay.id = 'encounter-progress-overlay';
+  overlay.style.cssText = `position:fixed;inset:0;z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(10,15,25,.9);color:white;backdrop-filter:blur(8px);opacity:0;transition:opacity .5s ease;`;
+  overlay.innerHTML = `
+    <div style="text-align:center;">
+        <div style="font-size:24px;font-weight:900;margin-bottom:12px;">${esc(myChar.name)}와(과) ${esc(opponentChar.name)}의 만남</div>
+        <div id="progress-text" style="font-size:18px;font-weight:700;margin-bottom:12px;">AI가 조우 시나리오를 생성하는 중...</div>
+        <div style="width:300px;height:10px;background:#273247;border-radius:5px;overflow:hidden;">
+            <div id="progress-bar-inner" style="width:10%;height:100%;background:linear-gradient(90deg, #34c759, #30d3a0);transition:width .5s ease-out;"></div>
+        </div>
     </div>
   `;
-
-  // 스킬 체크박스 2개 유지 + 저장
-  if(abilities.length){
-    const inputs = box.querySelectorAll('input[type=checkbox][data-i]');
-    inputs.forEach(inp=>{
-      inp.addEventListener('change', async ()=>{
-        let on = Array.from(inputs).filter(x=>x.checked).map(x=>+x.dataset.i);
-        if(on.length > 2){
-          inp.checked = false;
-          return showToast('스킬은 정확히 2개만 선택 가능해');
-        }
-        equipped = on;
-        try{
-          await fx.updateDoc(fx.doc(db,'chars', charId), { abilities_equipped: on });
-          showToast('스킬 선택 저장 완료');
-        }catch(e){
-          console.error('[encounter] abilities_equipped update fail', e);
-          showToast('저장 실패');
-        }
-      });
-    });
-  }
+  document.body.appendChild(overlay);
+  setTimeout(() => { overlay.style.opacity = '1'; }, 10);
+  const textEl = overlay.querySelector('#progress-text');
+  const barEl = overlay.querySelector('#progress-bar-inner');
+  return {
+    update: (text, percent) => { if (textEl) textEl.textContent = text; if (barEl) barEl.style.width = `${percent}%`; },
+    remove: () => { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 500); }
+  };
 }
+
 
 // ---------- entry ----------
 export async function showEncounter(){
@@ -109,7 +97,7 @@ export async function showEncounter(){
     return;
   }
 
-  // --- UI 레이아웃 (기존과 거의 동일, 일부 버튼 텍스트 변경) ---
+  // --- UI 레이아웃 ---
   root.innerHTML = `
   <section class="container narrow">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -123,7 +111,7 @@ export async function showEncounter(){
     </div>
     <div class="card p16 mt12" id="loadoutPanel">
       <div class="kv-label">내 스킬 / 아이템</div>
-      <div id="loadoutArea"></div>
+      <div id="loadoutArea"><div class="p12 text-dim">캐릭터 정보 로딩 중...</div></div>
     </div>
     <div class="card p16 mt16" id="toolPanel">
       <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -133,83 +121,68 @@ export async function showEncounter(){
   </section>`;
 
   document.getElementById('btnBack').onclick = ()=>{
-    const id = intent?.charId || '';
-    location.hash = id ? `#/char/${id}` : '#/home';
+    location.hash = intent?.charId ? `#/char/${intent.charId}` : '#/home';
   };
-  
-  // --- 매칭 및 렌더링 로직 ---
-  let myChar = null;
-  let opponentChar = null;
+
+  let myCharData = null;
+  let opponentCharData = null;
 
   try {
     const meSnap = await fx.getDoc(fx.doc(db, 'chars', intent.charId));
     if (!meSnap.exists()) throw new Error('내 캐릭터 정보를 찾을 수 없습니다.');
-    myChar = { id: meSnap.id, ...meSnap.data() };
-    renderLoadoutForMatch(intent.charId, myChar); // 로드아웃 렌더링
+    myCharData = { id: meSnap.id, ...meSnap.data() };
+    // [수정] 아이템 표시 문제를 해결하기 위해 battle.js와 동일한 로드아웃 렌더링 함수를 호출합니다.
+    await renderLoadoutForMatch(document.getElementById('loadoutArea'), myCharData);
+    ensureItemCss();
 
-    // battle.js와 동일한 매칭 로직
+    // [수정] autoMatch -> requestMatch (서버리스 함수 호출)
     let matchData = null;
     const persisted = loadMatchLock('encounter', intent.charId);
     if (persisted) {
-      matchData = { ok:true, opponent: persisted.opponent };
+      matchData = { ok:true, token: persisted.token||null, opponent: persisted.opponent };
     } else {
-      matchData = await autoMatch({ db, fx, charId: intent.charId, mode: 'encounter' });
-      if (!matchData?.ok || !matchData?.opponent) throw new Error('매칭 상대를 찾지 못했습니다.');
-      saveMatchLock('encounter', intent.charId, { opponent: matchData.opponent });
+      // 서버에 매칭 요청
+      matchData = await requestMatch(intent.charId, 'encounter');
+      if(!matchData?.ok || !matchData?.opponent) throw new Error('매칭 상대를 찾지 못했습니다.');
+      saveMatchLock('encounter', intent.charId, { token: matchData.token, opponent: matchData.opponent });
+    }
+
+    const oppId = String(matchData.opponent.id||matchData.opponent.charId||'').replace(/^chars\//,'');
+    const oppDoc = await fx.getDoc(fx.doc(db,'chars', oppId));
+    
+    if (!oppDoc.exists()) {
+      showToast('상대 정보가 없어 다시 매칭할게.');
+      sessionStorage.removeItem(_lockKey('encounter', intent.charId));
+      setTimeout(() => showEncounter(), 1000);
+      return;
     }
     
-    const oppId = String(matchData.opponent.id || matchData.opponent.charId || '').replace(/^chars\//,'');
-    const oppDoc = await fx.getDoc(fx.doc(db, 'chars', oppId));
-    if (!oppDoc.exists()) throw new Error('상대 캐릭터 정보를 찾을 수 없습니다.');
-    opponentChar = { id: oppDoc.id, ...oppDoc.data() };
+    opponentCharData = { id: oppDoc.id, ...oppDoc.data() };
     
-    // 상대 카드 렌더링
-    const matchArea = document.getElementById('matchArea');
-    const intro = truncate(opponentChar.summary || opponentChar.intro || '', 160);
-    const abilities = Array.isArray(opponentChar.abilities_all) ? opponentChar.abilities_all : [];
-    matchArea.innerHTML = `
-      <div id="oppCard" style="display:flex;gap:12px;align-items:center;cursor:pointer;width:100%;">
-        <div style="width:72px;aspect-ratio:1/1;border-radius:10px;overflow:hidden;border:1px solid #273247;background:#0b0f15;flex-shrink:0;">
-          ${opponentChar.thumb_url ? `<img src="${esc(opponentChar.thumb_url)}" style="width:100%;height:100%;object-fit:cover">` : ''}
-        </div>
-        <div style="flex:1;min-width:0;">
-          <div style="font-weight:900;font-size:16px">${esc(opponentChar.name || '상대')}</div>
-          <div class="text-dim" style="margin-top:4px">${esc(intro || '소개가 아직 없어')}</div>
-          <div style="margin-top:6px">${abilities.slice(0,4).map(a=>`<span class="chip-mini">${esc(a?.name||'스킬')}</span>`).join('')}</div>
-        </div>
-      </div>
-    `;
-    matchArea.querySelector('#oppCard').onclick = () => { if(oppId) location.hash = `#/char/${oppId}`; };
+    renderOpponentCard(document.getElementById('matchArea'), opponentCharData);
 
-    // 시작 버튼 활성화 및 이벤트 핸들러
-    const btnStart  = document.getElementById('btnStart');
+    const btnStart = document.getElementById('btnStart');
     mountCooldownOnButton(btnStart, '조우 시작');
     btnStart.onclick = async () => {
-      if (getCooldownRemainMs() > 0) return showToast('전역 쿨타임 중이야!');
+      if (getCooldownRemainMs() > 0) return;
+      btnStart.disabled = true;
+      applyGlobalCooldown(60); // 클라이언트 쿨타임 즉시 적용
       
       try {
-        // 1. 서버에 쿨타임 설정을 요청 (60초)
-        const callCD = httpsCallable(func, 'setGlobalCooldown');
-        await callCD({ seconds: 60 });
-        applyGlobalCooldown(60); // 클라이언트에도 즉시 반영
-        
-        // 2. 조우 시작 프로세스
-        btnStart.disabled = true;
-        const progress = showProgressUI(myChar, opponentChar);
+        const progress = showProgressUI(myCharData, opponentCharData);
         const startEncounter = httpsCallable(func, 'startEncounter');
-        const result = await startEncounter({ myCharId: myChar.id, opponentCharId: opponentChar.id });
+        const result = await startEncounter({ myCharId: myCharData.id, opponentCharId: opponentCharData.id });
         
         progress.update('완료!', 100);
         setTimeout(() => {
             progress.remove();
-            // 새로운 encounter-log 페이지로 이동
             location.hash = `#/encounter-log/${result.data.logId}`;
         }, 1000);
 
       } catch (e) {
         console.error('[encounter] start error', e);
         showToast(`조우 시작 실패: ${e.message}`);
-        mountCooldownOnButton(btnStart, '조우 시작'); // 실패 시 버튼 복구
+        mountCooldownOnButton(btnStart, '조우 시작');
       }
     };
 
@@ -217,6 +190,161 @@ export async function showEncounter(){
     console.error('[encounter] setup error', e);
     document.getElementById('matchArea').innerHTML = `<div class="text-dim">매칭 중 오류 발생: ${e.message}</div>`;
   }
+}
+
+function renderOpponentCard(matchArea, opp) {
+    const intro = truncate(opp.summary || opp.intro || '', 160);
+    const abilities = Array.isArray(opp.abilities_all)
+        ? opp.abilities_all.map(skill => skill?.name || '스킬').filter(Boolean)
+        : [];
+    matchArea.innerHTML = `
+      <div id="oppCard" style="display:flex;gap:12px;align-items:center;cursor:pointer;width:100%;">
+        <div style="width:72px;height:72px;border-radius:10px;overflow:hidden;border:1px solid #273247;background:#0b0f15; flex-shrink:0;">
+          ${opp.thumb_url ? `<img src="${esc(opp.thumb_url)}" style="width:100%;height:100%;object-fit:cover">` : ''}
+        </div>
+        <div style="flex:1; min-width:0;">
+          <div style="display:flex;gap:6px;align-items:center">
+            <div style="font-weight:900;font-size:16px">${esc(opp.name || '상대')}</div>
+            <div class="chip-mini">Elo ${esc((opp.elo ?? 1000).toString())}</div>
+          </div>
+          <div class="text-dim" style="margin-top:4px;font-size:13px;">${esc(intro || '소개가 아직 없어')}</div>
+          <div style="margin-top:6px">${abilities.map(name =>`<span class="chip-mini">${esc(name)}</span>`).join('')}</div>
+        </div>
+      </div>
+    `;
+    matchArea.querySelector('#oppCard').onclick = () => { if(opp.id) location.hash = `#/char/${opp.id}`; };
+}
+
+// [수정] battle.js의 로드아웃/아이템 관리 코드를 그대로 가져와 아이템 표시 오류 해결 및 교체 기능 추가
+async function renderLoadoutForMatch(box, myChar){
+  const abilities = Array.isArray(myChar.abilities_all) ? myChar.abilities_all : [];
+  let equippedSkills = Array.isArray(myChar.abilities_equipped) ? myChar.abilities_equipped.slice(0,2) : [];
+  const inv = await getUserInventory();
+  let equippedItems = (myChar.items_equipped || []).map(id => inv.find(item => item.id === id)).filter(Boolean);
+
+  const render = () => {
+      box.innerHTML = `
+        <div class="p12">
+          <div style="font-weight:800;margin-bottom:8px">내 스킬 (2개까지 선택 가능)</div>
+          ${abilities.length ? `<div class="grid2" style="gap:8px">
+              ${abilities.map((ab,i)=>`
+                <label class="kv-card" style="display:flex;gap:8px;align-items:flex-start;padding:10px;cursor:pointer">
+                  <input type="checkbox" data-i="${i}" ${equippedSkills.includes(i)?'checked':''}>
+                  <div>
+                    <div style="font-weight:700">${esc(ab?.name||'스킬')}</div>
+                    <div class="text-dim" style="font-size:12px">${esc(ab?.desc_soft||'')}</div>
+                  </div>
+                </label>`).join('')}
+            </div>` : `<div class="kv-card text-dim">등록된 스킬이 없어.</div>`
+          }
+          <div style="font-weight:800;margin:12px 0 6px">내 아이템</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+            ${[0,1,2].map(i => {
+                const item = equippedItems[i];
+                const style = item ? rarityStyle(item.rarity) : null;
+                const isAether = item && (String(item.rarity||'').toLowerCase()==='aether');
+                const borderStyle = isAether ? '' : (item ? `border-left: 3px solid ${style.border};` : '');
+                return `<div class="kv-card item-card ${isAether ? 'rarity-aether' : ''}" style="min-height:44px;display:flex; flex-direction:column; align-items:center;justify-content:center;padding:8px;font-size:13px;text-align:center; ${borderStyle} ${item && !isAether ? `background:${style.bg};` : ''}">
+                          ${item ? `<div>
+                            <div style="font-weight:bold; color:${style.text};">${esc(item.name)}</div>
+                            <div style="font-size:12px; opacity:.8">${esc(item.desc_soft || item.desc || '-')}</div>
+                          </div>` : '(비어 있음)'}
+                        </div>`;
+            }).join('')}
+          </div>
+          <button class="btn mt8" id="btnManageItems">아이템 교체</button>
+        </div>
+      `;
+
+      if (abilities.length) {
+        const inputs = box.querySelectorAll('input[type=checkbox][data-i]');
+        inputs.forEach(inp => {
+          inp.onchange = async () => {
+            let on = Array.from(inputs).filter(x => x.checked).map(x => +x.dataset.i);
+            if (on.length > 2) {
+              inp.checked = false;
+              showToast('스킬은 2개까지만 선택할 수 있습니다.');
+              return;
+            }
+            equippedSkills = on;
+            // 조우에서는 스킬 저장을 필수로 요구하지 않으므로, 로컬에서만 상태 변경
+          };
+        });
+      }
+      
+      box.querySelector('#btnManageItems').onclick = () => {
+        openItemPicker(myChar, async (selectedIds) => {
+            await fx.updateDoc(fx.doc(db, 'chars', myChar.id), { items_equipped: selectedIds });
+            myChar.items_equipped = selectedIds;
+            const newInv = await getUserInventory();
+            equippedItems = selectedIds.map(id => newInv.find(item => item.id === id)).filter(Boolean);
+            render();
+            showToast('아이템 장착이 저장되었습니다.');
+        });
+      };
+  };
+  render();
+}
+
+async function openItemPicker(c, onSave) {
+  const inv = await getUserInventory();
+  ensureItemCss();
+
+  let selectedIds = [...(c.items_equipped || [])];
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.style.zIndex = '10000';
+
+  const renderModalContent = () => {
+    back.innerHTML = `
+      <div class="modal-card" style="background:#0e1116;border:1px solid #273247;border-radius:14px;padding:16px;max-width:800px;width:94vw;max-height:90vh;display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+          <div style="font-weight:900; font-size: 18px;">아이템 장착 관리</div>
+          <button class="btn ghost" id="mClose">닫기</button>
+        </div>
+        <div class="text-dim" style="font-size:13px; margin-top:4px;">아이템을 클릭하여 상세 정보를 보고 장착/해제하세요. (${selectedIds.length} / 3)</div>
+        <div class="item-picker-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; overflow-y: auto; padding: 5px; margin: 12px 0; flex-grow: 1;">
+          ${inv.map(item => {
+              const isSelected = selectedIds.includes(item.id);
+              return `<div class="kv-card item-card item-picker-card ${isSelected ? 'selected' : ''}" data-item-id="${item.id}"
+                     style="padding:10px; outline:${isSelected ? '2px solid #4aa3ff' : 'none'}; cursor:pointer;">
+                  <div style="font-weight:700; pointer-events:none;">${esc(item.name)}</div>
+                  <div style="font-size:12px; opacity:.8; margin-top: 4px; height: 3em; overflow:hidden; pointer-events:none;">${esc(item.desc_soft || item.desc || '-')}</div>
+                </div>`;
+            }).join('')}
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:auto;flex-shrink:0;padding-top:12px;">
+          <button class="btn large" id="btnSaveItems">선택 완료</button>
+        </div>
+      </div>
+    `;
+
+    back.querySelectorAll('.item-picker-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const itemId = card.dataset.itemId;
+            const item = inv.find(it => it.id === itemId);
+            if (!item) return;
+            showItemDetailModal(item, {
+                equippedIds: selectedIds,
+                onUpdate: (newSelectedIds) => {
+                    selectedIds = newSelectedIds;
+                    renderModalContent();
+                }
+            });
+        });
+    });
+
+    back.querySelector('#mClose').onclick = () => back.remove();
+    back.querySelector('#btnSaveItems').onclick = () => {
+        onSave(selectedIds);
+        back.remove();
+    };
+  };
+
+  renderModalContent();
+  document.body.appendChild(back);
+  back.onclick = (e) => { if (e.target === back) back.remove(); };
 }
 
 export default showEncounter;
