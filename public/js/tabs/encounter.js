@@ -266,11 +266,16 @@ export async function showEncounter(){
     // --- [교체] 시작 버튼 클릭 시 startEncounterProcess 함수 호출 ---
 
   btnStart.onclick = async () => {
-    if (getCooldownRemainMs() > 0) return;
-    btnStart.disabled = true;
-    applyGlobalCooldown(300); 
+  btnStart.disabled = true;
+  try {
     await startEncounterProcess(myCharData, opponentCharData);
-  };
+  } catch (e) {
+    showToast(e?.message || '시작에 실패했어.');
+  } finally {
+    await mountCooldownOnButton(btnStart, 'encounter', '조우 시작');
+  }
+};
+
 
   } catch(e) {
     console.error('[encounter] setup error', e);
