@@ -144,7 +144,11 @@ exports.runBattleTextOnly = onCall({ region:'us-central1', secrets:[GEMINI_API_K
   const nowSec = Math.floor(Date.now() / 1000);
   const userSnap = await userRef.get();
   const userData = userSnap.exists() ? userSnap.data() : {};
-  const cooldownUntil = Number(userData.cooldown_all_until || 0);
+  const rawCooldown = userData.cooldown_all_until;
+const cooldownUntil = (typeof rawCooldown === 'number')
+  ? (Number(rawCooldown) || 0)
+  : (rawCooldown?.toMillis ? Math.floor(rawCooldown.toMillis() / 1000) : 0);
+
   
   if (cooldownUntil > nowSec) {
     const left = cooldownUntil - nowSec;
@@ -275,12 +279,26 @@ exports.runBattleTextOnly = onCall({ region:'us-central1', secrets:[GEMINI_API_K
   const sA = winner_id==='A' ? 1 : 0;
   const sB = winner_id==='B' ? 1 : 0;
 
-  const nowSecAfter = Math.floor(Date.now() / 1000);
-  const newCooldownUntil = nowSecAfter + 300; // 5분
+  // [쿨타임: 5분 슬롯 경계 고정] — 같은 5분 안에서 여러 번 호출돼도 누적(+300)되지 않도록
+const WINDOW = 300;
+const nowSecAfter = Math.floor(Date.now() / 1000);
+
+// 현재 저장된 값(숫자/타임스탬프 모두 수용)
+const uShot = await tx.get(userRef);
+const exist = uShot.exists ? uShot.get('cooldown_all_until') : 0;
+const existSec = (typeof exist === 'number')
+  ? (Number(exist) || 0)
+  : (exist?.toMillis ? Math.floor(exist.toMillis() / 1000) : 0);
+
+// 다음 5분 경계(예: 12:03:10 → 12:05:00)
+const nextBoundary = Math.ceil(nowSecAfter / WINDOW) * WINDOW;
+// 이미 더 긴 쿨타임이 있으면 그걸 유지, 아니면 경계까지(누적 금지)
+const untilSec = Math.max(existSec, nextBoundary);
+
+tx.set(userRef, { cooldown_all_until: untilSec }, { merge: true });
+
 
   await db.runTransaction(async (tx) => {
-    // [수정] 공용 쿨타임 설정
-    tx.set(userRef, { cooldown_all_until: newCooldownUntil }, { merge: true });
 
     const Ashot = await tx.get(Aref);
     const Bshot = await tx.get(Bref);
@@ -333,5 +351,6 @@ exports.runBattleTextOnly = onCall({ region:'us-central1', secrets:[GEMINI_API_K
     });
   });
 
-  return { ok:true, logId: logRef.id, winner: winner_id, itemsUsed, cooldownUntilMs: newCooldownUntil * 1000 };
+  return { ok:true, logId: logRef.id, winner: winner_id, itemsUsed, cooldownUntilMs: untilSec * 1000 };
+
 });
