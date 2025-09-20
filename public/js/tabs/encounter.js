@@ -323,11 +323,14 @@ async function renderLoadoutForMatch(box, myChar){
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
             ${[0,1,2].map(i => {
                 const item = equippedItems[i];
-                const style = item ? rarityStyle(item.rarity) : null;
-                const isAether = item && (String(item.rarity||'').toLowerCase()==='aether');
-                const borderStyle = isAether ? '' : (item ? `border-left: 3px solid ${style.border};` : '');
-                return `<div class="kv-card item-card ${isAether ? 'rarity-aether' : ''}" style="min-height:44px;display:flex; flex-direction:column; align-items:center;justify-content:center;padding:8px;font-size:13px;text-align:center; ${borderStyle} ${item && !isAether ? `background:${style.bg};` : ''}">
-                          ${item ? `<div>
+                if (!item) return `<div class="kv-card item-card" style="min-height:44px;display:flex; flex-direction:column; align-items:center;justify-content:center;padding:8px;font-size:13px;text-align:center;">(비어 있음)</div>`;
+
+                const style = rarityStyle(item.rarity);
+                const isAether = (String(item.rarity||'').toLowerCase()) === 'aether';
+                const inlineStyle = isAether ? '' : `border-left: 3px solid ${style.border}; background:${style.bg};`;
+
+                return `<div class="kv-card item-card ${isAether ? 'rarity-aether' : ''}" style="min-height:44px;display:flex; flex-direction:column; align-items:center;justify-content:center;padding:8px;font-size:13px;text-align:center; ${inlineStyle}">
+                          <div>
                             <div style="font-weight:bold; color:${style.text};">${esc(item.name)}</div>
                             <div style="font-size:12px; opacity:.8">${esc(item.desc_soft || item.desc || '-')}</div>
                           </div>` : '(비어 있음)'}
