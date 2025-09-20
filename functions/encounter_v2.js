@@ -83,7 +83,6 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         const { myCharId, opponentCharId } = req.data;
         if (!myCharId || !opponentCharId) throw new HttpsError('invalid-argument', '캐릭터 ID가 필요합니다.');
 
-        // [추가] 디버깅을 위해 에러 발생 단계를 추적합니다.
         let debugStep = '초기화';
         try {
             debugStep = '캐릭터 및 관계 정보 조회';
@@ -91,8 +90,10 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
             const [myCharSnap, oppCharSnap, relationSnap] = await Promise.all([
                 db.collection('chars').doc(myCharId).get(),
                 db.collection('chars').doc(opponentCharId).get(),
+                // [핵심 수정] 'array-contains-all' 대신 'array-contains'를 두 번 사용하여 쿼리합니다.
                 db.collection('relations')
-                  .where('pair', 'array-contains-all', [myCharId, opponentCharId])
+                  .where('pair', 'array-contains', myCharId)
+                  .where('pair', 'array-contains', opponentCharId)
                   .limit(1).get()
             ]);
 
@@ -125,7 +126,16 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                 skills: (c.abilities_all || []).slice(0, 2).map(a => a.name).join(', ')
             });
 
-            const userPrompt = `...`; // 내용은 이전과 동일하므로 생략
+            const userPrompt = `
+                ## 캐릭터 A
+                ${JSON.stringify(simplifyChar(myChar), null, 2)}
+
+                ## 캐릭터 B
+                ${JSON.stringify(simplifyChar(opponentChar), null, 2)}
+
+                ## 두 캐릭터의 기존 관계
+                ${relationNote}
+            `;
 
             debugStep = 'Gemini AI 호출';
             logger.log(debugStep);
@@ -167,13 +177,14 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
             return { ok: true, logId: logRef.id };
 
         } catch (error) {
-            // [핵심 수정] 에러가 발생하면, 원본 메시지와 발생 단계를 포함하여 클라이언트에 전달합니다.
             logger.error('startEncounter failed:', { step: debugStep, message: error.message, stack: error.stack });
             if (error instanceof HttpsError) throw error;
-            // 이제 클라이언트 개발자 콘솔에서 더 자세한 오류를 볼 수 있습니다.
             throw new HttpsError('internal', `[서버 오류] 단계: ${debugStep}, 내용: ${error.message}`);
         }
     });
+
+    return { startEncounter };
+};
 
     return { startEncounter };
 };
