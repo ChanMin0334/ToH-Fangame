@@ -344,7 +344,7 @@ export async function showBattle(){
     renderOpponentCard(document.getElementById('matchArea'), opponentCharData);
 
     const btnStart = document.getElementById('btnStart');
-    mountCooldownOnButton(btnStart, '배틀 시작');
+    mountCooldownOnButton(btnStart, 'battle', '배틀 시작'); // <-- 'battle' 모드와 기본 라벨을 전달하도록 수정
     btnStart.onclick = async () => {
         const hasSkills = myCharData.abilities_all && myCharData.abilities_all.length > 0;
         if (hasSkills && myCharData.abilities_equipped?.length !== 2) {
