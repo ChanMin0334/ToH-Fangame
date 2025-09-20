@@ -96,54 +96,29 @@ exports.requestMatch = require('./match').requestMatch;
 
 
 exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
-  try{
-    const uid = req.auth?.uid;
-    if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
-
-    const seconds = Math.max(1, Math.min(600, Number(req.data?.seconds || 60)));
-    const userRef = db.doc(`users/${uid}`);
-
-    await db.runTransaction(async (tx)=>{
-      const now = Timestamp.now();
-      const snap = await tx.get(userRef);
-      const exist = snap.exists ? snap.get('cooldown_all_until') : null;
-      const baseMs = Math.max(exist?.toMillis?.() || 0, now.toMillis());
-      const until = Timestamp.fromMillis(baseMs + seconds*1000);
-      tx.set(userRef, { cooldown_all_until: until }, { merge:true });
-    });
-
-    return { ok:true };
-  }catch(err){
-    logger.error('[setGlobalCooldown] fail', err);
-    if (err instanceof HttpsError) throw err;
-    throw new HttpsError('internal','cooldown-internal-error',{message:err?.message||String(err)});
-  }
-});
-
-
-// === [추가] 모드별 쿨타임 설정 ===
-exports.setModeCooldown = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
-  if (!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
+  if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
 
-  const mode = String(req.data?.mode||'');
-  const seconds = Math.max(1, Math.min(600, Number(req.data?.seconds||300)));
-  if (!['battle','encounter'].includes(mode)) {
-    throw new HttpsError('invalid-argument','mode must be battle|encounter');
-  }
-
+  const seconds = Math.max(1, Math.min(600, Number(req.data?.seconds || 60)));
   const userRef = db.doc(`users/${uid}`);
+
   await db.runTransaction(async (tx)=>{
     const snap = await tx.get(userRef);
-    const data = snap.exists ? snap.data() : {};
-    const nowSec = Math.floor(Date.now()/1000);
-    const field = `cooldown_${mode}_until`;
-    const base = Math.max(Number(data?.[field]||0), nowSec); // 남은 시간 “연장만”
-    tx.set(userRef, { [field]: base + seconds }, { merge:true });
+    const exist = snap.exists ? snap.get('cooldown_all_until') : null;
+
+    // 기존 값이 Timestamp여도 OK: 초로 환산
+    const nowSec   = Math.floor(Date.now()/1000);
+    const existSec = (typeof exist === 'number')
+      ? Number(exist)||0
+      : (exist?.toMillis ? Math.floor(exist.toMillis()/1000) : 0);
+
+    const base = Math.max(existSec, nowSec); // “연장만”
+    tx.set(userRef, { cooldown_all_until: base + seconds }, { merge:true });
   });
 
   return { ok:true };
 });
+
 
 
 
@@ -749,22 +724,26 @@ exports.adminListAssets = onCall({ region: 'us-central1' }, async (req) => {
 exports.getCooldownStatus = onCall({ region:'us-central1' }, async (req) => {
   const uid = req.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
+
   const userSnap = await db.collection('users').doc(uid).get();
-  if (!userSnap.exists) return { ok: true, battle: 0, encounter: 0, explore: 0 };
-  const data = userSnap.data();
-  const now = Date.now();
+  const data = userSnap.exists ? userSnap.data() : {};
+  const nowMs = Date.now();
 
-  // Firestore에 초(second) 단위로 저장된 값을 밀리초로 변환하여 남은 시간 계산
-  const getRemainMsFromSec = (sec) => Math.max(0, (sec || 0) * 1000 - now);
+  // 공용: 숫자(초) 또는 Timestamp 모두 지원
+  const allSec = (() => {
+    const v = data?.cooldown_all_until;
+    if (typeof v === 'number') return Number(v)||0;
+    if (v?.toMillis) return Math.floor(v.toMillis()/1000);
+    return 0;
+  })();
 
-  return {
-    ok: true,
-    battle: getRemainMsFromSec(data.cooldown_battle_until),
-    encounter: getRemainMsFromSec(data.cooldown_encounter_until),
-    // explore는 Firestore Timestamp 객체이므로 기존 방식 유지
-    explore: Math.max(0, (data.cooldown_explore_until?.toMillis() || 0) - now),
-  };
+  const remainMs   = Math.max(0, allSec*1000 - nowMs);
+  const exploreMs  = Math.max(0, (data?.cooldown_explore_until?.toMillis?.() || 0) - nowMs);
+
+  // 프론트가 mode별 키를 읽으므로 동일 값으로 뿌려줌
+  return { ok: true, battle: remainMs, encounter: remainMs, explore: exploreMs };
 });
+
 // /functions/index.js
 
 // (기존 exports 객체 내부에 추가)
@@ -790,25 +769,3 @@ exports.setAppVersion = onCall({ region: 'us-central1' }, async (req) => {
 });
 
 
-// (기존 functions/index.js 파일 내용 ... )
-
-// === [추가] 클라이언트용 쿨타임 조회 함수 ===
-exports.getCooldownStatus = onCall({ region:'us-central1' }, async (req) => {
-  const uid = req.auth?.uid;
-  if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
-  const userSnap = await db.collection('users').doc(uid).get();
-  if (!userSnap.exists) return { ok: true, battle: 0, encounter: 0, explore: 0 };
-  const data = userSnap.data();
-  const now = Date.now();
-
-  // Firestore에 초(second) 단위로 저장된 값을 밀리초로 변환하여 남은 시간 계산
-  const getRemainMsFromSec = (sec) => Math.max(0, (sec || 0) * 1000 - now);
-
-  return {
-    ok: true,
-    battle: getRemainMsFromSec(data.cooldown_battle_until),
-    encounter: getRemainMsFromSec(data.cooldown_encounter_until),
-    // explore는 Firestore Timestamp 객체이므로 기존 방식 유지
-    explore: Math.max(0, (data.cooldown_explore_until?.toMillis() || 0) - now),
-  };
-});
