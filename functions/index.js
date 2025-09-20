@@ -714,3 +714,21 @@ exports.adminListAssets = onCall({ region: 'us-central1' }, async (req) => {
 });
 // === END: admin tools (search) ===
 
+
+// functions/index.js 파일 맨 아래 exports 부분에 추가
+
+// === [추가] 클라이언트용 쿨타임 조회 함수 ===
+exports.getCooldownStatus = onCall({ region:'us-central1' }, async (req) => {
+  const uid = req.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
+  const userSnap = await db.collection('users').doc(uid).get();
+  if (!userSnap.exists) return { ok: true, battle: 0, encounter: 0, explore: 0 };
+  const data = userSnap.data();
+  const now = Date.now();
+  return {
+    ok: true,
+    battle: Math.max(0, (data.cooldown_battle_until || 0) * 1000 - now),
+    encounter: Math.max(0, (data.cooldown_encounter_until || 0) * 1000 - now),
+    explore: Math.max(0, (data.cooldown_explore_until?.toMillis() || 0) - now),
+  };
+});
