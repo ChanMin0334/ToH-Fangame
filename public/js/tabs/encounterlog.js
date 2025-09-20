@@ -13,11 +13,11 @@ function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// 텍스트를 간단한 서식있는 HTML로 렌더링 (내면 묘사, 대화 등)
+// 텍스트를 세련된 리치 HTML로 렌더링합니다.
 function renderRichText(text = '') {
     return esc(text)
-        .replace(/\[내면\]\s*(.*?)\s*\[\/내면\]/g, '<div class="rich-thought">$1</div>')
-        .replace(/\[대화\]\s*(.*?)\s*\[\/대화\]/g, '<div class="rich-dialogue">$1</div>')
+        .replace(/\[대화\]([\s\S]*?)\[\/대화\]/g, '<div class="rich-dialogue">$1</div>')
+        .replace(/\[내면\]([\s\S]*?)\[\/내면\]/g, '<div class="rich-thought">$1</div>')
         .replace(/\n/g, '<br>');
 }
 
@@ -60,7 +60,6 @@ async function render(root, log, charA, charB, logId) {
   const expA = Number(log.exp_a ?? log.exp_char_a ?? 0) | 0;
   const expB = Number(log.exp_b ?? log.exp_char_b ?? 0) | 0;
 
-  const escHtml = s => String(s??'');
   const characterCard = (char, exp) => `
     <a href="#/char/${char.id}" class="elog-card">
       ${char.thumb_url ? `<img src="${esc(char.thumb_url)}" class="elog-avatar" alt="">` : `<div class="elog-avatar ph"></div>`}
@@ -84,8 +83,8 @@ async function render(root, log, charA, charB, logId) {
       .elog-body{line-height:1.8;font-size:15px}
       .elog-title{font-size:22px;font-weight:900;text-align:center;margin:8px 0 14px}
       .elog-article{background:#0c1117;border:1px solid #273247;border-radius:14px;padding:16px}
-      .rich-thought{margin:12px 0;padding:12px;border-left:3px solid #7a9bff;background:rgba(122,155,255,.08);border-radius:8px}
-      .rich-dialogue{margin:12px 0;padding:12px;background:rgba(255,255,255,.05);border-radius:8px}
+      .rich-thought{margin:16px 0;padding:12px;border-left:3px solid #7a9bff;background:rgba(122,155,255,.08);border-radius:8px; font-style: italic; color: #d1d5db;}
+      .rich-dialogue{margin:16px 0;padding:12px;background:rgba(255,255,255,.05);border-radius:8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);}
       @media (max-width:860px){ .elog-grid{grid-template-columns:1fr;gap:12px} .elog-cc{order:-1} }
     </style>
 
@@ -117,17 +116,22 @@ async function render(root, log, charA, charB, logId) {
     </section>
   `;
 
-  // 액션: 공유
   const btnShare = root.querySelector('#btnShare');
-  if (btnShare && navigator?.share) {
-    btnShare.onclick = () => navigator.share({ title: escHtml(log.title), text: 'Encounter Log', url: location.href }).catch(()=>{});
-  } else if (btnShare) {
-    btnShare.onclick = async ()=>{
-      try{ await navigator.clipboard.writeText(location.href); btnShare.textContent='링크 복사됨'; }catch(_){}
-    };
+  if (btnShare) {
+    if (navigator?.share) {
+        btnShare.onclick = () => navigator.share({ title: esc(log.title), text: '조우 로그', url: location.href }).catch(()=>{});
+    } else {
+        btnShare.onclick = async ()=>{
+            try { 
+                await navigator.clipboard.writeText(location.href); 
+                showToast('로그 링크가 복사되었습니다.');
+            } catch(_) {
+                showToast('링크 복사에 실패했습니다.');
+            }
+        };
+    }
   }
 
-  // 액션: 리매치 (같은 상대로 조우 의도 저장 → encounter 화면으로 이동)
   const btnRematch = root.querySelector('#btnRematch');
   if (btnRematch) {
     btnRematch.onclick = ()=>{
@@ -136,7 +140,6 @@ async function render(root, log, charA, charB, logId) {
     };
   }
 
-  // 관계 분석
   const btnRelate = root.querySelector('#btnRelate');
   if (btnRelate) {
     btnRelate.onclick = async ()=>{
@@ -152,4 +155,5 @@ async function render(root, log, charA, charB, logId) {
     };
   }
 }
+
 export default showEncounterLog;
