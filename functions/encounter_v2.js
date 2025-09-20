@@ -176,6 +176,14 @@ module.exports = (admin, { HttpsError, logger }) => {
                 logger.error('관계 생성/업데이트 실패:', { message: relError.message });
             }
 
+          // [추가] 조우가 성공했으니 서버에서 쿨타임을 바로 기록(초 단위)
+          const nowSecAfter = Math.floor(Date.now() / 1000);
+          await db.collection('users').doc(uid).set(
+            { cooldown_encounter_until: nowSecAfter + 300 },
+            { merge: true }
+         );
+
+
             logger.log('조우 생성 완료');
             return { ok: true, logId: logRef.id };
 
