@@ -34,9 +34,15 @@ async function callGemini({ apiKey, systemText, userText, logger, modelName }) {
         throw new Error(`Gemini API Error: ${res.status}`);
     }
     const j = await res.json();
+//...
     const text = j?.candidates?.[0]?.content?.parts?.[0]?.text || '';
     try {
-        return JSON.parse(text);
+        let parsed = JSON.parse(text);
+        // [수정] AI가 가끔 배열로 응답하는 경우에 대한 방어 코드 추가
+        if (Array.isArray(parsed) && parsed.length > 0) {
+            parsed = parsed[0];
+        }
+        return parsed;
     } catch (e) {
         logger?.error?.("Gemini JSON parse failed", { rawText: text.slice(0, 500) , error: String(e?.message||e) });
         return {};
