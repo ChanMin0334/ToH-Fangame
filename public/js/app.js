@@ -12,10 +12,6 @@ import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, Googl
 import { getDocFromServer } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js'; // ◀◀◀ 이 줄 추가
 
 
-// firebase-auth 모듈을 미리 import 합니다.
-import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, GoogleAuthProvider, getRedirectResult } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js';
-
-
 
 const appScript = document.querySelector('script[src*="/js/app.js"]');
 const APP_VERSION = appScript ? (new URL(appScript.src)).searchParams.get('v') : null;
