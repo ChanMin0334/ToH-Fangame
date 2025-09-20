@@ -182,9 +182,11 @@ module.exports = (admin, { HttpsError, logger }) => {
             { cooldown_encounter_until: nowSecAfter + 300 },
             { merge: true }
          );
-          // 조우 성공 → 서버에서 300초 쿨타임 기록(초 단위)
+          // [공용 쿨타임 기록] 조우 성공 → cooldown_all_until 300초 연장
+          const _nowSec = Math.floor(Date.now()/1000);
           await db.collection('users').doc(uid)
-            .set({ cooldown_encounter_until: Math.floor(Date.now()/1000) + 300 }, { merge: true });
+            .set({ cooldown_all_until: _nowSec + 300 }, { merge: true });
+
 
 
             logger.log('조우 생성 완료');
