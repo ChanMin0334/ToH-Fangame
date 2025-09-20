@@ -762,3 +762,27 @@ exports.setAppVersion = onCall({ region: 'us-central1' }, async (req) => {
   logger.info(`App version updated to: ${version} by admin: ${uid}`);
   return { ok: true, version };
 });
+
+
+// (기존 functions/index.js 파일 내용 ... )
+
+// === [추가] 클라이언트용 쿨타임 조회 함수 ===
+exports.getCooldownStatus = onCall({ region:'us-central1' }, async (req) => {
+  const uid = req.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
+  const userSnap = await db.collection('users').doc(uid).get();
+  if (!userSnap.exists) return { ok: true, battle: 0, encounter: 0, explore: 0 };
+  const data = userSnap.data();
+  const now = Date.now();
+
+  // Firestore에 초(second) 단위로 저장된 값을 밀리초로 변환하여 남은 시간 계산
+  const getRemainMsFromSec = (sec) => Math.max(0, (sec || 0) * 1000 - now);
+
+  return {
+    ok: true,
+    battle: getRemainMsFromSec(data.cooldown_battle_until),
+    encounter: getRemainMsFromSec(data.cooldown_encounter_until),
+    // explore는 Firestore Timestamp 객체이므로 기존 방식 유지
+    explore: Math.max(0, (data.cooldown_explore_until?.toMillis() || 0) - now),
+  };
+});
