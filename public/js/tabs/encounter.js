@@ -257,7 +257,8 @@ export async function showEncounter(){
     renderOpponentCard(document.getElementById('matchArea'), opponentCharData);
 
     const btnStart = document.getElementById('btnStart');
-    mountCooldownOnButton(btnStart, '조우 시작');
+    mountCooldownOnButton(btnStart, 'encounter', '조우 시작');
+
     
     // --- [교체] 시작 버튼 클릭 시 startEncounterProcess 함수 호출 ---
 
