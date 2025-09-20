@@ -30,7 +30,6 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
   const ch = charSnap.data() as any;
   if(ch.owner_uid !== uid) throw new HttpsError('permission-denied', '남의 캐릭터');
 
-// (수정 후)
   const user = (userSnap.exists ? userSnap.data() : {}) as any;
   // [수정 시작] 모드에 따라 다른 쿨타임 필드를 확인합니다.
   const cooldownField = mode === 'battle' ? 'cooldown_battle_until' : 'cooldown_encounter_until';
@@ -124,7 +123,6 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
       a: charRef.path, b: oppRef.path, mode, token: matchesRef.id,
       createdAt: Timestamp.now(), expiresAt: Timestamp.fromMillis((expires)*1000), state: 'ready'
     });
-   // (수정 후)
     // [수정 시작] 모드에 맞는 쿨타임 필드에 값을 저장합니다.
     const cooldownField = mode === 'battle' ? 'cooldown_battle_until' : 'cooldown_encounter_until';
     tx.set(userRef, { [cooldownField]: nowSec() + COOLDOWN_SEC }, { merge: true });
