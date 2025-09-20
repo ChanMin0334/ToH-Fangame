@@ -112,8 +112,15 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
       ? Number(exist)||0
       : (exist?.toMillis ? Math.floor(exist.toMillis()/1000) : 0);
 
-    const base = Math.max(existSec, nowSec); // “연장만”
-    tx.set(userRef, { cooldown_all_until: base + seconds }, { merge:true });
+    // [슬롯 고정] 5분(300s) 경계로 보정: 같은 5분 안에서 여러 번 눌러도 누적 X
+    const WINDOW = 300;
+     const nextBoundary = Math.ceil(nowSec / WINDOW) * WINDOW; // 다음 5분 경계
+    // 이미 더 긴 쿨다운이 있으면 그걸 유지, 아니면 경계까지
+    const untilSec = Math.max(existSec, nextBoundary);
+       
+    // 트랜잭션 내에서 최종 기록
+    tx.set(userRef, { cooldown_all_until: untilSec }, { merge: true });
+
   });
 
   return { ok:true };
