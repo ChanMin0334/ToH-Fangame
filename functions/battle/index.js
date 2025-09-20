@@ -125,36 +125,7 @@ function nextElo(Ra=1000, Rb=1000, sA=1, sB=0, kA=24, kB=24){
   return [Ra2, Rb2];
 }
 
-// 쿨타임 유틸 (users/{uid}.cooldown_battle_until)
-async function _getUntilMs(uid){
-  const us = await db.doc(`users/${uid}`).get();
-  const u = us.data() || {};
-  return Number(u.cooldown_battle_until || 0);
-}
-async function _setUntilMs(uid, untilMs){
-  await db.doc(`users/${uid}`).set({ cooldown_battle_until: untilMs }, { merge:true });
-  return untilMs;
-}
-
-// ========== 1) 배틀 쿨타임 예약 ==========
-exports.reserveBattleCooldown = onCall({ region:'us-central1', secrets:[GEMINI_API_KEY] }, async (req) => {
-  const uid = req.auth?.uid;
-  if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
-  const seconds = Math.max(30, Math.min(3600, parseInt(req.data?.seconds||300,10)));
-  const now = Date.now();
-  const prev = await _getUntilMs(uid);
-  const until = Math.max(prev, now + seconds*1000);
-  await _setUntilMs(uid, until);
-  return { ok:true, untilMs: until };
-});
-
-// ========== 2) 배틀 쿨타임 조회 ==========
-exports.getBattleCooldown = onCall({ region:'us-central1', secrets:[GEMINI_API_KEY] }, async (req) => {
-  const uid = req.auth?.uid;
-  if(!uid) throw new HttpsError('unauthenticated','로그인이 필요해');
-  const untilMs = await _getUntilMs(uid);
-  return { ok:true, untilMs };
-});
+// ========== [삭제] 배틀 전용 쿨타임 함수들은 모두 제거 ==========
 
 // ========== 3) 배틀 실행(텍스트만) ==========
 exports.runBattleTextOnly = onCall({ region:'us-central1', secrets:[GEMINI_API_KEY] }, async (req) => {
@@ -164,18 +135,21 @@ exports.runBattleTextOnly = onCall({ region:'us-central1', secrets:[GEMINI_API_K
   const attackerId = String(req.data?.attackerId||'').replace(/^chars\//,'');
   const defenderId = String(req.data?.defenderId||'').replace(/^chars\//,'');
   const worldId    = String(req.data?.worldId||'gionkir');
-  const seconds    = Math.max(30, Math.min(3600, parseInt(req.data?.seconds||300,10)));
-
+  
   if(!attackerId || !defenderId) throw new HttpsError('invalid-argument','attackerId/defenderId 필요');
 
-  // 쿨타임 검사 (남아있으면 거절)
-  const now = Date.now();
-  const prev = await _getUntilMs(uid);
-  if (prev > now) {
-    throw new HttpsError('failed-precondition', 'cooldown-active');
+  const userRef = db.doc(`users/${uid}`);
+
+  // [수정] 쿨타임 검사: 공용 쿨타임 필드를 확인합니다.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const userSnap = await userRef.get();
+  const userData = userSnap.exists() ? userSnap.data() : {};
+  const cooldownUntil = Number(userData.cooldown_all_until || 0);
+  
+  if (cooldownUntil > nowSec) {
+    const left = cooldownUntil - nowSec;
+    throw new HttpsError('failed-precondition', `공용 쿨타임이 ${left}초 남았습니다.`);
   }
-  // 예약(연장)
-  await _setUntilMs(uid, now + seconds*1000);
 
   // 캐릭터 로드 & 권한
   const Aref = db.doc(`chars/${attackerId}`);
@@ -301,7 +275,13 @@ exports.runBattleTextOnly = onCall({ region:'us-central1', secrets:[GEMINI_API_K
   const sA = winner_id==='A' ? 1 : 0;
   const sB = winner_id==='B' ? 1 : 0;
 
+  const nowSecAfter = Math.floor(Date.now() / 1000);
+  const newCooldownUntil = nowSecAfter + 300; // 5분
+
   await db.runTransaction(async (tx) => {
+    // [수정] 공용 쿨타임 설정
+    tx.set(userRef, { cooldown_all_until: newCooldownUntil }, { merge: true });
+
     const Ashot = await tx.get(Aref);
     const Bshot = await tx.get(Bref);
     if(!Ashot.exists || !Bshot.exists) throw new HttpsError('aborted','char vanished');
@@ -353,6 +333,5 @@ exports.runBattleTextOnly = onCall({ region:'us-central1', secrets:[GEMINI_API_K
     });
   });
 
-  const untilMs = await _getUntilMs(uid);
-  return { ok:true, logId: logRef.id, winner: winner_id, itemsUsed, cooldownUntilMs: untilMs };
+  return { ok:true, logId: logRef.id, winner: winner_id, itemsUsed, cooldownUntilMs: newCooldownUntil * 1000 };
 });
