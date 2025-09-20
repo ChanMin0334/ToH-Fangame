@@ -51,9 +51,21 @@ async function callGemini({ apiKey, systemText, userText, logger, modelName }) {
 module.exports = (admin, { HttpsError, logger }) => {
     const db = admin.firestore();
 
+// (수정 후)
     const startEncounter = onCall({ secrets: [GEMINI_API_KEY], region: 'us-central1' }, async (req) => {
         const uid = req.auth?.uid;
         if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
+
+        // [추가 시작] 조우 시작 전, 서버에서 다시 한번 쿨타임을 확인합니다.
+        const userSnap = await db.collection('users').doc(uid).get();
+        const userData = userSnap.data() || {};
+        const nowSec = Math.floor(Date.now() / 1000);
+        const cooldownUntil = userData.cooldown_encounter_until || 0;
+        const left = cooldownUntil - nowSec;
+        if (left > 0) {
+            throw new HttpsError('failed-precondition', `조우 쿨타임이 ${left}초 남았습니다.`);
+        }
+        // [추가 끝]
 
         const { myCharId, opponentCharId, myChar_forAI, opponentChar_forAI, relation_note } = req.data;
         if (!myCharId || !opponentCharId || !myChar_forAI || !opponentChar_forAI) {
