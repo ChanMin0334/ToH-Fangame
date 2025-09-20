@@ -49,36 +49,6 @@ async function callGemini({ apiKey, systemText, userText, logger, modelName }) {
     }
 }
 
-async function mintByAddExp(tx, db, charRef, addExp, note) {
-  addExp = Math.max(0, Math.floor(Number(addExp) || 0));
-  if (addExp <= 0) return { minted: 0, expAfter: null, ownerUid: null };
-
-  const cSnap = await tx.get(charRef);
-  if (!cSnap.exists) throw new Error('char not found');
-  const c = cSnap.data() || {};
-  const ownerUid = c.owner_uid;
-  if (!ownerUid) throw new Error('owner_uid missing');
-
-  const exp0  = Math.floor(Number(c.exp || 0));
-  const exp1  = exp0 + addExp;
-  const minted  = Math.floor(exp1 / 100);
-  const exp2  = exp1 % 100;
-  const userRef = db.doc(`users/${ownerUid}`);
-
-  tx.update(charRef, {
-    exp: exp2,
-    exp_total: FieldValue.increment(addExp),
-    updatedAt: Timestamp.now(),
-  });
-
-  if (minted > 0) {
-    tx.set(userRef, { coins: FieldValue.increment(minted) }, { merge: true });
-  }
-
-  return { minted, expAfter: exp2, ownerUid };
-}
-
-
 module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
     const db = admin.firestore();
 
@@ -93,15 +63,12 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
         try {
             debugStep = '캐릭터 및 관계 정보 조회';
             logger.log(debugStep);
+            
             const sortedPair = [myCharId, opponentCharId].sort();
-
             const [myCharSnap, oppCharSnap, relationSnap] = await Promise.all([
                 db.collection('chars').doc(myCharId).get(),
                 db.collection('chars').doc(opponentCharId).get(),
-                // [핵심 수정] array-contains 중복 사용 대신 정렬된 배열('pair')을 직접 조회합니다.
-                db.collection('relations')
-                  .where('pair', '==', sortedPair)
-                  .limit(1).get()
+                db.collection('relations').where('pair', '==', sortedPair).limit(1).get()
             ]);
 
             if (!myCharSnap.exists || !oppCharSnap.exists) {
@@ -154,6 +121,11 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                 logger.warn(`Encounter 1차 모델(${primary}) 실패, 대체 모델(${fallback})로 재시도.`, { error: e.message });
                 result = await callGemini({ apiKey: GEMINI_API_KEY.value(), systemText: systemPrompt, userText: userPrompt, logger, modelName: fallback });
             }
+             
+            // [수정] AI 응답이 배열일 경우 첫 번째 요소 사용
+            if (Array.isArray(result) && result.length > 0) {
+                result = result[0];
+            }
 
             if (!result.title || !result.content) {
                 throw new HttpsError('internal', `AI가 유효한 조우 서사를 생성하지 못했습니다. 응답: ${JSON.stringify(result)}`);
@@ -165,7 +137,42 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
             const expB = Math.max(5, Math.min(250, Number(result.exp_char_b) || 20));
             
             const logRef = db.collection('encounter_logs').doc();
+            
+            // ▼▼▼▼▼ 트랜잭션 로직 수정 시작 ▼▼▼▼▼
             await db.runTransaction(async (tx) => {
+                // --- 1. 읽기(READ) 단계 ---
+                // 경험치/코인 계산에 필요한 모든 문서를 미리 읽어옵니다.
+                const charARef = db.collection('chars').doc(myChar.id);
+                const charBRef = db.collection('chars').doc(opponentChar.id);
+                const userARef = db.collection('users').doc(myChar.owner_uid);
+                const userBRef = db.collection('users').doc(opponentChar.owner_uid);
+
+                const [charASnap, charBSnap] = await Promise.all([
+                    tx.get(charARef),
+                    tx.get(charBRef)
+                ]);
+
+                if (!charASnap.exists || !charBSnap.exists) {
+                    throw new HttpsError('not-found', '트랜잭션 중 캐릭터 정보를 찾을 수 없습니다.');
+                }
+                const charAData = charASnap.data();
+                const charBData = charBSnap.data();
+
+                // --- 2. 계산(COMPUTE) 단계 ---
+                // 캐릭터 A의 경험치 및 코인 계산
+                const expA_total = (charAData.exp || 0) + expA;
+                const coinsToMintA = Math.floor(expA_total / 100);
+                const finalExpA = expA_total % 100;
+
+                // 캐릭터 B의 경험치 및 코인 계산
+                const expB_total = (charBData.exp || 0) + expB;
+                const coinsToMintB = Math.floor(expB_total / 100);
+                const finalExpB = expB_total % 100;
+
+                // --- 3. 쓰기(WRITE) 단계 ---
+                // 모든 쓰기 작업을 여기서 한 번에 수행합니다.
+
+                // 3-1. 조우 로그 생성
                 tx.set(logRef, {
                     a_char: `chars/${myChar.id}`, b_char: `chars/${opponentChar.id}`,
                     a_snapshot: { name: myChar.name, thumb_url: myChar.thumb_url || null },
@@ -173,12 +180,32 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
                     title: result.title, content: result.content, exp_a: expA, exp_b: expB,
                     createdAt: Timestamp.now(), endedAt: Timestamp.now(),
                 });
-                tx.update(db.collection('chars').doc(myChar.id), { encounter_count: FieldValue.increment(1) });
-                tx.update(db.collection('chars').doc(opponentChar.id), { encounter_count: FieldValue.increment(1) });
                 
-                await mintByAddExp(tx, db, db.collection('chars').doc(myChar.id), expA, `encounter:${logRef.id}`);
-                await mintByAddExp(tx, db, db.collection('chars').doc(opponentChar.id), expB, `encounter:${logRef.id}`);
+                // 3-2. 캐릭터 A 정보 업데이트 (경험치, 조우 횟수)
+                tx.update(charARef, { 
+                    encounter_count: FieldValue.increment(1),
+                    exp_total: FieldValue.increment(expA),
+                    exp: finalExpA,
+                    updatedAt: Timestamp.now()
+                });
+
+                // 3-3. 캐릭터 B 정보 업데이트
+                tx.update(charBRef, { 
+                    encounter_count: FieldValue.increment(1),
+                    exp_total: FieldValue.increment(expB),
+                    exp: finalExpB,
+                    updatedAt: Timestamp.now()
+                });
+                
+                // 3-4. 코인 지급 (필요한 경우)
+                if (coinsToMintA > 0) {
+                    tx.set(userARef, { coins: FieldValue.increment(coinsToMintA) }, { merge: true });
+                }
+                if (coinsToMintB > 0) {
+                    tx.set(userBRef, { coins: FieldValue.increment(coinsToMintB) }, { merge: true });
+                }
             });
+            // ▲▲▲▲▲ 트랜잭션 로직 수정 끝 ▲▲▲▲▲
             
             logger.log('조우 생성 완료');
             return { ok: true, logId: logRef.id };
@@ -192,4 +219,3 @@ module.exports = (admin, { onCall, HttpsError, logger, GEMINI_API_KEY }) => {
 
     return { startEncounter };
 };
-
