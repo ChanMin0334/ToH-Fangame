@@ -13,6 +13,8 @@ function nowSec(){ return Math.floor(Date.now()/1000); }
 // 'battle' 모드를 위해 가우시안 가중치 함수는 유지합니다.
 function gaussWeight(delta: number, sigma=150){ return Math.exp(-(delta*delta)/(2*sigma*sigma)); }
 
+// (기존 functions/match.ts 파일 상단 ... )
+
 export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
   const uid = req.auth?.uid;
   if(!uid) throw new HttpsError('unauthenticated', '로그인이 필요해');
@@ -118,7 +120,7 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
     if((me.match?.locked_until||0) > nowSec()) throw new HttpsError('aborted','이미 잠금 중');
     if((op.match?.locked_until||0) > nowSec()) throw new HttpsError('aborted','상대 잠금 중');
     tx.update(charRef, { match: { mode, opponent: oppRef.path, locked_until: expires } });
-    tx.update(oppRef,  { match: { mode, opponent: charRef.path, locked_until: expires } });
+    tx.update(oppRef,  { match: { mode, opponent: charRef.path, locked_until: expires } });ㄴ
     tx.set(matchesRef, {
       a: charRef.path, b: oppRef.path, mode, token: matchesRef.id,
       createdAt: Timestamp.now(), expiresAt: Timestamp.fromMillis((expires)*1000), state: 'ready'
@@ -137,6 +139,8 @@ export const requestMatch = onCall({ region: 'us-central1' }, async (req) => {
     opponent: { id: pick.id, name: pick.name || '(상대)', elo: pick.elo || 1000, thumb_url: pick.thumb_url || '' }
   };
 });
+
+// ( ... 기존 cancelMatch 함수는 그대로 ... )
 
 // cancelMatch 함수는 변경하지 않습니다.
 export const cancelMatch = onCall({ region: 'us-central1' }, async (req)=>{
