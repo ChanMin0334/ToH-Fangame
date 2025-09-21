@@ -1,4 +1,5 @@
 // /public/js/tabs/me.js
+import { auth } from '../api/firebase.js'; // [추가] auth 객체를 직접 가져옵니다.
 import { loadUserProfile, updateNickname, leftMsForNicknameChange,
          uploadAvatarBlob, restoreAvatarFromGoogle } from '../api/user.js';
 import { showToast } from '../ui/toast.js';
@@ -27,6 +28,14 @@ export function showMe(){
               <button id="btnNickSave">저장</button>
             </div>
             <div id="nickHint" class="text-dim mt4"></div>
+          </div>
+
+          <div class="col" style="width: 100%; max-width: 400px; margin-top: 16px;">
+            <label class="label">고유 ID (UID)</label>
+            <div class="row gap8">
+              <input id="uidInput" class="w100" readonly style="cursor: default;"/>
+              <button id="btnCopyUid">복사</button>
+            </div>
           </div>
         </div>
       </div>
@@ -67,8 +76,7 @@ async function boot(){
     document.getElementById('nickInput').value = me.nickname||'';
     renderNickHint(me);
 
-
-               // [추가] UID 필드 채우기 및 복사 버튼 이벤트
+    // [추가] UID 필드 채우기 및 복사 버튼 이벤트
     const uidInput = document.getElementById('uidInput');
     if (auth.currentUser) {
         uidInput.value = auth.currentUser.uid;
@@ -79,6 +87,7 @@ async function boot(){
             showToast('UID가 복사되었습니다.');
         }
     };
+
 
     // Avatar
     document.getElementById('btnAvatarChange').onclick = ()=> document.getElementById('fileAvatar').click();
@@ -96,20 +105,20 @@ async function boot(){
       }catch(e){ showToast(e.message||'닉네임 저장 실패'); }
     };
 
-    // [추가] 후원 버튼 이벤트
+    // 후원 버튼 이벤트
     document.getElementById('btnSupport').onclick = () => {
-      // TODO: 'YOUR_SUPPORT_URL'를 실제 후원 페이지 주소로 변경해주세요.
-      window.open('https://ko-fi.com/kemonomimilover', '_blank');
+      window.open('https://toss.me/테일오브히어로즈', '_blank');
     };
 
   }catch(e){
-    // [수정] 로그인 실패 시 후원 버튼도 숨깁니다.
     const view = document.getElementById('view');
     view.innerHTML = `<section class="container narrow"><div class="kv-card">로그인이 필요해</div></section>`;
     showToast('로그인이 필요해');
   }
 }
 
+// (이하 함수들은 기존과 동일하게 유지)
+// renderNickHint, onResetAvatar, onPickAvatar, openCropModal, redraw
 function renderNickHint(profile){
   const left = leftMsForNicknameChange(profile);
   const hint = document.getElementById('nickHint');
@@ -118,7 +127,6 @@ function renderNickHint(profile){
   hint.textContent = `다음 변경까지 약 ${h}시간 ${m}분`;
 }
 
-// 아바타를 구글 프로필로 복원
 async function onResetAvatar(){
   try{
     const url = await restoreAvatarFromGoogle();
@@ -129,7 +137,6 @@ async function onResetAvatar(){
   }
 }
 
-// === Avatar Cropper (기존과 동일) ===
 let cropCtx, rawImg=null, scale=1, offset={x:0,y:0}, dragging=false, last={x:0,y:0};
 
 function onPickAvatar(e){
@@ -138,7 +145,6 @@ function onPickAvatar(e){
   rawImg = new Image();
   rawImg.onload = ()=>{
     URL.revokeObjectURL(url);
-    // 초기 배치: 짧은 변이 512에 맞도록
     const short = Math.min(rawImg.width, rawImg.height);
     scale = 512/short;
     offset = { x:(512 - rawImg.width*scale)/2, y:(512 - rawImg.height*scale)/2 };
@@ -155,7 +161,6 @@ function openCropModal(){
   redraw();
   modal.style.display='grid';
 
-  // 드래그
   cvs.onpointerdown = (ev)=>{ dragging=true; last={x:ev.clientX,y:ev.clientY}; cvs.setPointerCapture(ev.pointerId); };
   cvs.onpointermove = (ev)=>{ if(!dragging) return; const dx=ev.clientX-last.x, dy=ev.clientY-last.y; last={x:ev.clientX,y:ev.clientY}; offset.x+=dx; offset.y+=dy; redraw(); };
   cvs.onpointerup   = ()=>{ dragging=false; };
@@ -184,7 +189,6 @@ function redraw(){
     offset.x, offset.y, rawImg.width*scale, rawImg.height*scale);
   cropCtx.restore();
 
-  // 경계 가이드(테두리)
   cropCtx.strokeStyle='rgba(255,255,255,0.6)';
   cropCtx.lineWidth=2; cropCtx.strokeRect(1,1,cvs.width-2,cvs.height-2);
 }
