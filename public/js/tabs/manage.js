@@ -1,7 +1,7 @@
 // /public/js/tabs/manage.js
-// 관리자 도구: [메일 발송] / [검색] / [버전 관리] 탭 UI
+// 관리자 도구: [메일 발송] / [검색] / [버전 관리] / [후원자 목록] 탭 UI
 
-import { func } from '../api/firebase.js';
+import { func, db, fx } from '../api/firebase.js'; // db, fx 추가
 import { ensureAdmin, isAdminCached } from '../api/admin.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
@@ -29,6 +29,7 @@ function stylesOnce(){
     .manage-tab.active { color: var(--pri1); border-bottom-color: var(--pri1); font-weight: 600; }
 
     .manage-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .manage-grid3 { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px; } /* 추가 */
     @media (max-width: 640px) { .manage-grid2 { grid-template-columns: 1fr; } }
     
     .manage-col { display: flex; flex-direction: column; gap: 12px; }
@@ -71,9 +72,7 @@ function mainTpl(){
         <button class="manage-tab" data-tab="search">검색</button>
         <button class="manage-tab" data-tab="version">버전 관리</button>
         <button class="manage-tab" data-tab="supporter">후원자 설정</button>
-        {/* ▼▼▼▼▼ 여기에 새 탭 버튼 추가 ▼▼▼▼▼ */}
         <button class="manage-tab" data-tab="supporter-list">후원자 목록</button>
-        {/* ▲▲▲▲▲ 여기에 새 탭 버튼 추가 ▲▲▲▲▲ */}
       </div>
       <div id="manage-tab-content"></div>
     </div>
@@ -81,6 +80,7 @@ function mainTpl(){
   `;
 }
 
+// (기존 sendTpl, searchTpl, versionTpl, supporterTpl 함수는 그대로 유지)
 function sendTpl(){
   return `
   <div class="manage-col">
@@ -154,8 +154,6 @@ function searchTpl(){
   </div>`;
 }
 
-
-
 function supporterTpl() {
   return `
   <div class="manage-col">
@@ -168,9 +166,7 @@ function supporterTpl() {
       <select id="supporter-tier" class="manage-select">
         <option value="">없음 (효과 제거)</option>
         <option value="nexus">Nexus Traveler (포탈 이펙트)</option>
-        {/* ▼▼▼▼▼ 여기에 새 옵션 추가 ▼▼▼▼▼ */}
         <option value="orbits">Orbits 이펙트</option>
-        {/* ▲▲▲▲▲ 여기에 새 옵션 추가 ▲▲▲▲▲ */}
         <option value="flame">불꽃 이펙트</option>
         <option value="galaxy">갤럭시 이펙트</option>
         <option value="forest">숲 이펙트</option>
@@ -178,18 +174,6 @@ function supporterTpl() {
     </div>
     <div class="manage-row" style="justify-content:flex-end">
       <button id="btn-set-supporter" class="btn primary">설정 저장</button>
-    </div>
-  </div>`;
-}
-
-
-function supporterListTpl() {
-  return `
-  <div class="manage-col">
-    <h4 style="margin-top:0">후원자 캐릭터 목록</h4>
-    <div class="manage-hint">후원자 등급이 부여된 유저들의 캐릭터 중, 가장 최근에 업데이트된 캐릭터를 최대 50개까지 표시합니다. 클릭 시 해당 캐릭터의 상세 페이지로 이동합니다.</div>
-    <div id="supporter-char-list" class="grid3" style="gap:12px; margin-top:12px;">
-      <div class="kv-card text-dim">불러오는 중...</div>
     </div>
   </div>`;
 }
@@ -206,49 +190,16 @@ function versionTpl() {
   </div>`;
 }
 
-
-
-// (기존 bindSupporterEvents 함수 바로 아래에 추가)
-
-function bindSupporterListEvents() {
-  const listContainer = document.getElementById('supporter-char-list');
-  if (!listContainer) return;
-
-  const loadSupporterChars = async () => {
-    try {
-      // 1. 'adminGetSupporterChars' 라는 새로운 Cloud Function을 호출합니다.
-      const getSupporterChars = httpsCallable(func, 'adminGetSupporterChars');
-      const result = await getSupporterChars();
-      
-      const chars = result.data.chars || [];
-
-      if (chars.length === 0) {
-        listContainer.innerHTML = `<div class="kv-card text-dim">후원자 등급이 부여된 유저가 없거나, 해당 유저의 캐릭터가 없습니다.</div>`;
-        return;
-      }
-
-      // 2. 받아온 캐릭터 목록으로 카드 UI를 생성합니다.
-      listContainer.innerHTML = chars.map(c => `
-        <a href="#/char/${c.id}" target="_blank" class="kv-card" style="text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 8px;">
-          <img src="${c.thumb_url || ''}" onerror="this.style.display='none'" style="width: 100%; aspect-ratio: 1/1; object-fit: cover; border-radius: 10px; background: #111;">
-          <div>
-            <div style="font-weight: 700;">${esc(c.name)}</div>
-            <div class="manage-hint" style="font-size: 11px;">
-              ${esc(c.supporter_tier)} / by ${esc(c.owner_nickname)}
-            </div>
-          </div>
-        </a>
-      `).join('');
-
-    } catch (e) {
-      console.error("후원자 캐릭터 목록 로딩 실패:", e);
-      listContainer.innerHTML = `<div class="kv-card error" style="color: #ef4444;">목록을 불러오는 중 오류가 발생했습니다: ${esc(e.message)}</div>`;
-    }
-  };
-
-  loadSupporterChars();
+function supporterListTpl() {
+  return `
+  <div class="manage-col">
+    <h4 style="margin-top:0">후원자 목록</h4>
+    <div class="manage-hint">후원자 등급이 부여된 모든 유저를 표시합니다. UID를 클릭하면 복사됩니다.</div>
+    <div id="supporter-user-list" class="manage-grid3" style="gap:12px; margin-top:12px;">
+      <div class="manage-card text-dim">불러오는 중...</div>
+    </div>
+  </div>`;
 }
-
 
 
 export async function showManage(){
@@ -282,9 +233,9 @@ export async function showManage(){
     } else if (tabId === 'supporter') {
         contentWrap.innerHTML = supporterTpl();
         bindSupporterEvents();
-    } else if (tabId === 'supporter-list') { // [수정] 이 else if 블록 추가
+    } else if (tabId === 'supporter-list') {
         contentWrap.innerHTML = supporterListTpl();
-        bindSupporterListEvents(); // [수정] 새 이벤트 바인딩 함수 호출
+        bindSupporterListEvents();
     }
   };
 
@@ -301,6 +252,7 @@ export async function showManage(){
   renderTabContent('send');
 }
 
+// (기존 bindSendEvents, bindSearchEvents, bindVersionEvents, bindSupporterEvents 함수는 그대로 유지)
 function bindSendEvents() {
     const $switch = document.getElementById('gacha-switch');
     const $panel  = document.getElementById('gacha-panel');
@@ -465,6 +417,53 @@ function bindSupporterEvents() {
     });
 }
 
+function bindSupporterListEvents() {
+  const listContainer = document.getElementById('supporter-user-list');
+  if (!listContainer) return;
+
+  const loadSupporterUsers = async () => {
+    try {
+      // 'adminGetSupporterUsers' 라는 새로운 Cloud Function을 호출합니다.
+      const getSupporterUsers = httpsCallable(func, 'adminGetSupporterUsers');
+      const result = await getSupporterUsers();
+      
+      const users = result.data.users || [];
+
+      if (users.length === 0) {
+        listContainer.innerHTML = `<div class="manage-card text-dim">후원자 등급이 부여된 유저가 없습니다.</div>`;
+        return;
+      }
+
+      // 받아온 유저 목록으로 프로필 카드 UI를 생성합니다.
+      listContainer.innerHTML = users.map(u => `
+        <div class="manage-card" style="display: flex; flex-direction: column; gap: 8px; padding: 10px;">
+          <div class="manage-row">
+            <img src="${u.avatarURL || ''}" onerror="this.style.display='none'" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #111;">
+            <div style="font-weight: 700;">${esc(u.nickname)}</div>
+          </div>
+          <div class="manage-hint" style="font-size: 11px; cursor: pointer;" data-uid="${esc(u.uid)}">
+            UID: ${esc(u.uid)}
+          </div>
+          <div class="chip" style="align-self: flex-start;">${esc(u.supporter_tier)}</div>
+        </div>
+      `).join('');
+
+      // UID 클릭 시 복사 기능 추가
+      listContainer.querySelectorAll('[data-uid]').forEach(el => {
+        el.addEventListener('click', () => {
+          navigator.clipboard.writeText(el.dataset.uid);
+          showToast('UID가 복사되었습니다.');
+        });
+      });
+
+    } catch (e) {
+      console.error("후원자 목록 로딩 실패:", e);
+      listContainer.innerHTML = `<div class="manage-card error" style="color: #ef4444;">목록을 불러오는 중 오류가 발생했습니다: ${esc(e.message)}</div>`;
+    }
+  };
+
+  loadSupporterUsers();
+}
 
 
 export const showAdmin = showManage;
