@@ -6,10 +6,8 @@ import { requestMatch } from '../api/match.js';
 import { getUserInventory } from '../api/user.js';
 import { showItemDetailModal, rarityStyle, ensureItemCss, esc } from './char.js';
 import { getRelationBetween, updateAbilitiesEquipped } from '../api/store.js';
-import { fetchBattlePrompts, generateBattleSketches, chooseBestSketch, generateFinalBattleLog } from '../api/ai.js';
 
 const getCooldownStatus = httpsCallable(func, 'getCooldownStatus');
-const setGlobalCooldown = httpsCallable(func, 'setGlobalCooldown');
 
 // ---------- utils (기존과 동일) ----------
 function intentGuard(mode){
@@ -138,7 +136,9 @@ async function startEncounterProcess(myChar, opponentChar) {
 
         // AI 입력을 위해 캐릭터 정보와 아이템 정보를 가공
         const myInv = await getUserInventory(myChar.owner_uid);
-        const oppInv = await getUserInventory(opponentChar.owner_uid);
+        let oppInv = [];
+try { oppInv = await getUserInventory(opponentChar.owner_uid); } catch { oppInv = []; }
+
         
         const simplifyForAI = (char, inv) => {
             const equippedItems = (char.items_equipped || []).map(id => inv.find(i => i.id === id)).filter(Boolean);
@@ -286,6 +286,7 @@ export async function showEncounter(){
   renderOpponentCard(document.getElementById('matchArea'), opponentCharData);
 }
 
+const btnStart = document.getElementById('btnStart');
 
     mountCooldownOnButton(btnStart, 'encounter', labelReady);
 
@@ -293,13 +294,8 @@ export async function showEncounter(){
     
     // --- [교체] 시작 버튼 클릭 시 startEncounterProcess 함수 호출 ---
 
-  btnStart.onclick = async () => {
+btnStart.onclick = async () => {
   btnStart.disabled = true;
-
-  // ★ 공용 쿨타임 즉시 잠금(서버+로컬) : 4모드(일반/모의/배틀/조우) 공유
-  try { await setGlobalCooldown({ seconds: 300 }); } catch (e) { console.warn('setGlobalCooldown pre-start failed', e); }
-  try { if (typeof applyGlobalCooldown === 'function') applyGlobalCooldown(300); } catch (_){}
-
   try {
     await startEncounterProcess(myCharData, opponentCharData);
   } catch (e) {
@@ -308,6 +304,7 @@ export async function showEncounter(){
     await mountCooldownOnButton(btnStart, 'encounter', labelReady);
   }
 };
+
 
 
 
