@@ -70,7 +70,7 @@ function mainTpl(){
         <button class="manage-tab active" data-tab="send">메일 발송</button>
         <button class="manage-tab" data-tab="search">검색</button>
         <button class="manage-tab" data-tab="version">버전 관리</button>
-      </div>
+        <button class="manage-tab" data-tab="supporter">후원자 설정</button> </div>
       <div id="manage-tab-content"></div>
     </div>
   </section>
@@ -150,6 +150,31 @@ function searchTpl(){
   </div>`;
 }
 
+
+
+function supporterTpl() {
+  return `
+  <div class="manage-col">
+    <h4 style="margin-top:0">후원자 등급 및 이펙트 설정</h4>
+    <div class="manage-hint">특정 유저에게 후원자 등급을 부여합니다. 등급에 따라 캐릭터 카드에 특별한 시각 효과가 적용됩니다. 등급을 '없음'으로 설정하면 효과가 제거됩니다.</div>
+    <div class="manage-row">
+      <input id="supporter-uid" class="manage-input" placeholder="대상 유저의 UID">
+    </div>
+    <div class="manage-row">
+      <select id="supporter-tier" class="manage-select">
+        <option value="">없음 (효과 제거)</option>
+        <option value="flame">불꽃 이펙트</option>
+        <option value="galaxy">갤럭시 이펙트</option>
+        <option value="forest">숲 이펙트</option>
+        </select>
+    </div>
+    <div class="manage-row" style="justify-content:flex-end">
+      <button id="btn-set-supporter" class="btn primary">설정 저장</button>
+    </div>
+  </div>`;
+}
+
+
 function versionTpl() {
   return `
   <div class="manage-col">
@@ -161,6 +186,8 @@ function versionTpl() {
     </div>
   </div>`;
 }
+
+
 
 
 export async function showManage(){
@@ -191,6 +218,9 @@ export async function showManage(){
     } else if (tabId === 'version') {
         contentWrap.innerHTML = versionTpl();
         bindVersionEvents();
+    } else if (tabId === 'supporter') { // [추가]
+        contentWrap.innerHTML = supporterTpl();
+        bindSupporterEvents();
     }
   };
 
@@ -339,6 +369,38 @@ function bindVersionEvents() {
         }
     });
 }
+
+function bindSupporterEvents() {
+    const btn = document.getElementById('btn-set-supporter');
+    btn.addEventListener('click', async () => {
+        const targetUid = document.getElementById('supporter-uid').value.trim();
+        const tier = document.getElementById('supporter-tier').value;
+
+        if (!targetUid) {
+            showToast('대상 유저의 UID를 입력해주세요.');
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = '설정 중...';
+        
+        try {
+            const setSupporterTier = httpsCallable(func, 'adminSetSupporterTier');
+            const result = await setSupporterTier({ targetUid, tier });
+            if (result.data.ok) {
+                showToast(`[${targetUid}] 유저의 후원자 등급을 '${tier || '없음'}'으로 설정했습니다.`);
+            } else {
+                throw new Error('서버에서 설정에 실패했습니다.');
+            }
+        } catch (e) {
+            showToast(`설정 실패: ${e.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '설정 저장';
+        }
+    });
+}
+
 
 
 export const showAdmin = showManage;
