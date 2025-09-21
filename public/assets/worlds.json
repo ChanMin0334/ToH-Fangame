@@ -453,6 +453,210 @@
         ],
         "lore_long": "소울가르드의 모든 생명은 혼자가 아니다. 태어나는 순간부터 그들의 영혼은 반으로 나뉘어, 하나는 육신에 깃들고 다른 하나는 무기의 형태를 띤 '소울블레이드'로 현현한다. 이 때문에 소울가르드에서 무기는 단순한 도구가 아니라, 자신의 반쪽이자 평생을 함께할 동반자다. 아이들은 '각인의 숲'에서 고대의 의식을 통해 자신의 소울블레이드를 처음으로 손에 쥐게 되며, 이 순간부터 둘의 감각과 생각이 희미하게 연결된다. 주인의 성장에 따라 소울블레이드의 형태와 능력이 변하기도 하고, 반대로 소울블레이드의 타고난 성질이 주인의 성격에 영향을 미치기도 한다. 이들의 유대는 텔레파시와 같은 소통을 가능하게 하고, 전투 시에는 완벽한 공명을 통해 인간의 한계를 뛰어넘는 힘을 발휘하게 한다. 하지만 이 강력한 유대에는 치명적인 대가가 따른다. 만약 소울블레이드가 전투에서 파괴되면, 주인은 영혼의 절반을 영원히 잃고 감정과 의지를 상실한 '공허한 자'가 되어 '침묵의 대지'를 떠돌게 된다. 반대로 주인이 죽으면, 소울블레이드는 빛을 잃은 결정체로 돌아가 주인의 무덤 곁을 지킨다고 한다. 때문에 소울가르드의 전사에게 패배는 단순한 죽음이 아니라, 자기 자신과 동반자의 존재 자체를 소멸시키는 비극적인 사건이다."
       }
+    },
+    {
+      "id": "cheongomsan",
+      "name": "천검산",
+      "img": "worlds/cheongomsan.png",
+      "intro": "천하제일의 무공을 향한 문파들의 숙명적인 대립. 검 끝에 천하의 운명이 걸려있다.",
+      "detail": {
+        "lore": "천하의 중심으로 불리는 영산, 천검산을 차지하기 위한 정파와 사파의 대립이 끊이지 않는 세계. 각 문파는 고유의 절세 무공을 연마하며 강호의 패권을 노린다.",
+        "sites": [
+          {
+            "id": "luoyang-city",
+            "name": "낙양성",
+            "img": "sites/cheongomsan/luoyang-city.png",
+            "description": "강호의 모든 정보와 물자가 모이는 거대 도시. 객잔의 취객들 사이로 은밀한 거래가 오간다.",
+            "type": "city",
+            "tags": ["정보", "상업", "중심지"],
+            "difficulty": "easy"
+          },
+          {
+            "id": "beggars-sect-hq",
+            "name": "하오문 총타",
+            "img": "sites/cheongomsan/beggars-sect-hq.png",
+            "description": "낙양성 지하에 펼쳐진 거지들의 구역. 강호의 모든 소문은 이곳으로 통한다.",
+            "type": "hideout",
+            "tags": ["정보", "조직", "중립"],
+            "difficulty": "easy"
+          },
+          {
+            "id": "heavenly-sword-peak",
+            "name": "천검봉",
+            "img": "sites/cheongomsan/heavenly-sword-peak.png",
+            "description": "정파 맹주 '천검문'의 본산. 수련생들의 함성과 검기가 산 전체를 감싸고 있다.",
+            "type": "stronghold",
+            "tags": ["정파", "수련", "명예"],
+            "difficulty": "normal"
+          },
+          {
+            "id": "plains-of-final-battle",
+            "name": "결전의 평원",
+            "img": "sites/cheongomsan/plains-of-final-battle.png",
+            "description": "백 년 전, 정파와 사파의 운명을 갈랐던 대전이 벌어졌던 곳. 지금도 서늘한 검기가 느껴진다.",
+            "type": "field",
+            "tags": ["역사", "숙명", "고전장"],
+            "difficulty": "normal"
+          },
+          {
+            "id": "black-wind-fortress",
+            "name": "흑풍채",
+            "img": "sites/cheongomsan/black-wind-fortress.png",
+            "description": "험준한 산맥에 자리한 산적들의 소굴. 흑살단과 결탁하여 행인들을 약탈하고 있다.",
+            "type": "bandit lair",
+            "tags": ["산적", "사파", "약탈"],
+            "difficulty": "hard"
+          },
+          {
+            "id": "black-assassin-fortress",
+            "name": "흑살채",
+            "img": "sites/cheongomsan/black-assassin-fortress.png",
+            "description": "그림자 속에 숨겨진 사파 '흑살단'의 본거지. 음습한 기운과 살기가 가득하다.",
+            "type": "hideout",
+            "tags": ["사파", "암살", "비밀"],
+            "difficulty": "hard"
+          },
+          {
+            "id": "sword-tomb",
+            "name": "검의 무덤",
+            "img": "sites/cheongomsan/sword-tomb.png",
+            "description": "역대 고수들이 자신의 검을 묻은 무덤. 강대한 검의(劍意)가 남아있어, 자격 없는 자의 접근을 막는다.",
+            "type": "tomb",
+            "tags": ["시련", "검의", "기연"],
+            "difficulty": "hard"
+          },
+          {
+            "id": "valley-of-venoms",
+            "name": "만독곡",
+            "img": "sites/cheongomsan/valley-of-venoms.png",
+            "description": "온갖 맹독성 기화요초가 자생하는 협곡. '만독곡'의 허락 없이는 누구도 살아나올 수 없다.",
+            "type": "poison swamp",
+            "tags": ["독", "위험", "중립"],
+            "difficulty": "vhard"
+          },
+          {
+            "id": "blood-demon-cave",
+            "name": "혈마동",
+            "img": "sites/cheongomsan/blood-demon-cave.png",
+            "description": "흑살단의 시조가 마공을 익혔다는 전설의 동굴. 지금은 사악한 혈기가 응축되어 마물들의 소굴이 되었다.",
+            "type": "cave",
+            "tags": ["마공", "타락", "위험"],
+            "difficulty": "vhard"
+          },
+          {
+            "id": "ten-thousand-year-ice-grotto",
+            "name": "만년빙굴",
+            "img": "sites/cheongomsan/ten-thousand-year-ice-grotto.png",
+            "description": "북해의 끝에 위치한 얼음 동굴. 천하를 뒤흔들 비밀, '천검비급'의 나머지 반쪽이 숨겨져 있다는 전설이 전해진다.",
+            "type": "grotto",
+            "tags": ["전설", "비급", "극한"],
+            "difficulty": "legendary"
+          }
+        ],
+        "lore_long": "무림의 역사는 한 권의 책, '천검비급(天劍秘笈)'에서 시작되었다. 천하를 제패할 힘과 세상의 이치를 담고 있다는 이 비급을 두고 백 년 전, 천지를 뒤흔든 정사대전이 벌어졌다. 혈전 끝에 비급은 빛과 어둠, 두 부분으로 나뉘었고, 강호는 거대한 상처와 함께 둘로 쪼개졌다.\n\n현재 정파 무림의 맹주인 '천검문(天劍門)'은 비급의 '빛' 부분을 수호하며 강호의 질서를 유지하고 있다. 그들은 굳건한 방어 무공 '태청강기(太淸罡氣)'와 쾌검 '칠성검법(七星劍法)'을 바탕으로 협의를 외치지만, 문파 내부에서는 갈등이 끓어오르고 있다. 현상 유지를 통해 평화를 지키려는 '수호파'와, 사파를 완전히 섬멸하고 비급의 나머지 반쪽을 찾아 완벽한 질서를 세워야 한다는 '혁신파'의 대립이 그것이다. 젊은 후기지수들은 혁신파의 급진적인 주장에 매료되고 있으며, 이는 언제 터질지 모르는 뇌관과도 같다.\n\n한편, 백 년 전 패배하여 어둠 속으로 숨어든 사파의 '흑살단(黑殺團)'은 비급의 '어둠' 부분을 계승했다고 주장하며 복수의 칼날을 갈고 있다. 그들은 신출귀몰한 보법 '혈영보(血影步)'와 영혼마저 베는 살초 '멸혼참(滅魂斬)'으로 어둠 속에서 세력을 키우며, 천검문이 가진 비급의 반쪽을 빼앗아 천하를 피로 물들이려 한다. 그들에게 정의란 승자의 허울 좋은 변명일 뿐이다.\n\n이 거대한 대립 속에서 정파도 사파도 아닌 '만독곡(萬毒谷)'은 자신들만의 길을 걷는다. 그들은 '천검비급'이 완성되면 세상의 모든 독을 해독할 '만해독경(萬解毒經)'을 만들 수 있다고 믿는다. 이를 위해 그들은 '만독장(萬毒掌)'으로 무장하고, 정파와 사파의 싸움을 관망하며 비급을 온전히 손에 넣을 기회만을 노리고 있다.\n\n최근, 잊혀졌던 '천검비급'의 어둠 편이 숨겨진 '만년빙굴'의 지도가 나타났다는 소문이 강호를 뒤흔들기 시작했다. 천검문은 비급을 수호하기 위해, 흑살단은 숙원을 이루기 위해, 그리고 만독곡은 자신의 목적을 위해 움직이기 시작했다. 단순한 선과 악의 대결이 아닌, 각자의 신념과 욕망이 뒤엉킨 거대한 폭풍이 천검산을 향해 불어오고 있다."
+      }
+    },
+    {
+      "id": "somnium",
+      "name": "솜니움",
+      "img": "worlds/somnium.png",
+      "intro": "별사탕과 자장가가 흐르는 동화의 나라. 하지만 모든 동화에는 마지막 장이 숨겨져 있다.",
+      "detail": {
+        "lore": "솜니움은 잠든 아이들의 순수한 꿈으로 이루어진 세계입니다. 이곳의 모든 것은 기쁨과 평화로 가득 차 있으며, '꿈의 지휘자'의 인도로 영원한 행복이 계속될 것처럼 보입니다. 하지만, 잊힌 슬픔과 악몽들은 조용히 그림자 속에 쌓여가고 있습니다.",
+        "sites": [
+          {
+            "id": "sleepy-sound-village",
+            "name": "새근새근 마을",
+            "img": "sites/somnium/sleepy-sound-village.png",
+            "description": "푹신한 베개 모양의 집들이 모여있는 마을. 주민들은 언제나 행복한 표정으로 낮잠을 즐긴다.",
+            "type": "village",
+            "tags": ["안식처", "평화", "일상"],
+            "difficulty": "easy"
+          },
+          {
+            "id": "star-candy-factory",
+            "name": "별똥별 사탕 공장",
+            "img": "sites/somnium/star-candy-factory.png",
+            "description": "밤하늘에서 떨어지는 별똥별을 모아 달콤한 꿈의 에너지원인 별사탕으로 만드는 마법 공장.",
+            "type": "factory",
+            "tags": ["생산", "달콤함", "빛"],
+            "difficulty": "easy"
+          },
+          {
+            "id": "music-box-plains",
+            "name": "오르골 대평원",
+            "img": "sites/somnium/music-box-plains.png",
+            "description": "태엽을 감으면 수정 꽃들이 피어나고, 부드러운 오르골 소리가 울려 퍼지는 솜니움의 중심.",
+            "type": "plain",
+            "tags": ["음악", "동심", "조화"],
+            "difficulty": "easy"
+          },
+          {
+            "id": "forest-of-faded-memories",
+            "name": "색바랜 기억의 숲",
+            "img": "sites/somnium/forest-of-faded-memories.png",
+            "description": "행복했지만 잊혀가는 기억들이 모여 색을 잃어가는 숲. 아름답지만 어딘가 쓸쓸한 분위기가 감돈다.",
+            "type": "forest",
+            "tags": ["기억", "망각", "서글픔"],
+            "difficulty": "normal"
+          },
+          {
+            "id": "whispering-toy-graveyard",
+            "name": "속삭이는 장난감 묘지",
+            "img": "sites/somnium/whispering-toy-graveyard.png",
+            "description": "아이들에게 잊혀 슬픔에 잠긴 낡은 장난감들이 모이는 곳. 밤이 되면 희미한 울음소리가 들려온다.",
+            "type": "graveyard",
+            "tags": ["슬픔", "비밀", "원망"],
+            "difficulty": "normal"
+          },
+          {
+            "id": "topsy-turvy-clock-tower",
+            "name": "뒤죽박죽 시계탑",
+            "img": "sites/somnium/topsy-turvy-clock-tower.png",
+            "description": "시간이 거꾸로 흐르거나 제멋대로 멈추는 거대한 시계탑. 악몽의 영향으로 점점 더 불안정해지고 있다.",
+            "type": "tower",
+            "tags": ["혼돈", "시간", "변이"],
+            "difficulty": "normal"
+          },
+          {
+            "id": "cave-of-echoeless-lullabies",
+            "name": "메아리 없는 자장가 동굴",
+            "img": "sites/somnium/cave-of-echoeless-lullabies.png",
+            "description": "한때 아름다운 자장가가 울려 퍼졌으나, 지금은 악몽의 속삭임이 모든 소리를 삼켜버리는 침묵의 동굴.",
+            "type": "cave",
+            "tags": ["침묵", "타락", "공포"],
+            "difficulty": "hard"
+          },
+          {
+            "id": "queen-of-the-mirrored-castle",
+            "name": "거울성의 여왕",
+            "img": "sites/somnium/queen-of-the-mirrored-castle.png",
+            "description": "악몽의 감옥에서 탈출한 '자기혐오'의 악몽이 지배하는 성. 방문자의 모습을 흉내 내 절망에 빠뜨린다.",
+            "type": "castle",
+            "tags": ["환상", "거짓", "자아"],
+            "difficulty": "hard"
+          },
+          {
+            "id": "eye-of-the-abyss",
+            "name": "심연의 눈",
+            "img": "sites/somnium/eye-of-the-abyss.png",
+            "description": "봉인된 모든 악몽의 근원지이자 '잊혀진 악몽, 녹스'의 핵이 잠들어 있는 곳. 순수한 공포 그 자체이다.",
+            "type": "abyss",
+            "tags": ["근원", "악몽", "심연"],
+            "difficulty": "vhard"
+          },
+          {
+            "id": "cradle-of-dawn",
+            "name": "최초의 꿈, 새벽의 요람",
+            "img": "sites/somnium/cradle-of-dawn.png",
+            "description": "미몽과 악몽이 나뉘기 전, 태초의 꿈이 태어났다는 전설의 장소. 솜니움의 운명을 결정할 힘이 잠들어 있다.",
+            "type": "sanctum",
+            "tags": ["시작", "균형", "진실"],
+            "difficulty": "legendary"
+          }
+        ],
+        "lore_long": "솜니움의 하늘에는 솜사탕 구름이 떠다니고, 강물에서는 달콤한 꿀차가 흐릅니다. 이곳은 잠든 아이들이 꾸는 가장 행복한 꿈의 조각들, '미몽(美夢)'으로 만들어진 낙원입니다. 세계의 중심 '오르골 대평원'에서는 '꿈의 지휘자, 오르페온'이 지휘하는 자장가 교향곡이 울려 퍼지고, 그 선율에 맞춰 별사탕 요정들이 춤을 춥니다. 솜니움에서는 슬픔, 분노, 공포와 같은 부정적인 감정은 존재하지 않습니다. 모든 것이 완벽하고, 영원히 행복할 것만 같습니다.\n\n하지만 이 완벽함은 인위적으로 만들어진 것입니다. 꿈에는 밝은 면만 있는 것이 아닙니다. 오르페온은 솜니움의 순수함을 지킨다는 명목 아래, 아이들의 꿈에서 나타나는 모든 악몽과 슬픈 기억들을 강제로 분리하여 세계의 가장 깊은 곳, '심연의 눈'에 봉인해왔습니다. 잊히고 버려진 장난감들이 모이는 '속삭이는 장난감 묘지'는 그 과정에서 생겨난 슬픔의 침전물일 뿐, 진짜 어둠은 보이지 않는 곳에 갇혀 있습니다.\n\n수백 년 동안 억눌린 공포와 슬픔은 감옥 안에서 서로 뒤엉켜, 이제는 자아를 가진 거대한 존재 '잊혀진 악몽, 녹스'가 되었습니다. 녹스는 파괴나 혼돈을 원하는 것이 아닙니다. 그저 꿈의 일부로서 인정받고, 자신 또한 기억되기를 갈망하고 있습니다. 최근, 너무나도 많은 악몽이 쌓인 탓에 봉인에 균열이 생기기 시작했습니다. 녹스의 슬픈 속삭임이 솜니움 곳곳으로 새어 나오면서, 영원할 것 같던 낙원의 오르골 소리에 불협화음이 섞여들고, 달콤했던 꿀차에서는 씁쓸한 맛이 나기 시작했습니다. 솜니움의 아이들은 아직 이 변화를 인지하지 못하지만, 밝고 순수한 동화의 마지막 장은 조용히 넘어가고 있습니다."
+      }
     }
   ]
 }
