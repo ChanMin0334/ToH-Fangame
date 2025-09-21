@@ -173,57 +173,62 @@ if (mode === 'nexus') {
   }
 
   function drawRibbon(ctx, ts){
-    const widths = ribbonWidths(ts);
-    const du = 1 / SEGMENTS;
+  const widths = ribbonWidths(ts);
+  const du = 1 / SEGMENTS;
 
-    // 뒤쪽 큰 번짐(코로나) 한 겹 → 빈틈 없이 넓게 보이게
+  // 0) 코너 과다 누적을 막기 위해, "코로나(큰 번짐)"은
+  //    ***한 번만*** rrect로 통째로 그린다 (조각 루프 X).
+  {
+    const e = EDGE_TIGHT();
+    const R = Math.max(2, roundCss * dpr);
+    const bandMax = (BASE_W + VAR_W) * dpr;
+
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.shadowColor = 'rgba(110,190,255,.65)';
-    ctx.shadowBlur  = 18 * dpr;
-    ctx.lineCap = 'round';
-    for (let i=0;i<SEGMENTS;i++){
-      const u  = (i*du + ts * FLOW_SPEED) % 1;
-      const u2 = (u + du) % 1;
-      const p  = posOnPerimeter(u);
-      const q  = posOnPerimeter(u2);
-
-      // 두께(바깥쪽으로 치우치게 오프셋)
-      const w  = (widths[i] + widths[(i+1)%SEGMENTS]) * 0.5;
-      const off = w * OUT_BIAS * dpr;
-      const px = p.x + p.nx*off, py = p.y + p.ny*off;
-      const qx = q.x + q.nx*off, qy = q.y + q.ny*off;
-
-      ctx.strokeStyle = 'rgba(140,210,255,.30)';
-      ctx.lineWidth   = w * 1.8 * dpr;
-      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(qx,qy); ctx.stroke();
-    }
-    ctx.restore();
-
-    // 앞쪽 코어(밝고 선명한 리본)
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.lineCap = 'round';
-    for (let i=0;i<SEGMENTS;i++){
-      const u  = (i*du + ts * FLOW_SPEED) % 1;
-      const u2 = (u + du) % 1;
-      const p  = posOnPerimeter(u);
-      const q  = posOnPerimeter(u2);
-
-      const w  = (widths[i] + widths[(i+1)%SEGMENTS]) * 0.5;
-      const off = w * OUT_BIAS * dpr;
-      const px = p.x + p.nx*off, py = p.y + p.ny*off;
-      const qx = q.x + q.nx*off, qy = q.y + q.ny*off;
-
-      // 중앙은 하얗게, 바깥쪽은 시안 → 불코어 느낌
-      ctx.strokeStyle = 'rgba(220,245,255,.92)';
-      ctx.shadowColor = 'rgba(90,170,255,.75)';
-      ctx.shadowBlur  = 10 * dpr;
-      ctx.lineWidth   = Math.max(1.2*dpr, w * 1.05 * dpr);
-      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(qx,qy); ctx.stroke();
-    }
+    ctx.shadowColor = 'rgba(110,190,255,.60)';
+    ctx.shadowBlur  = 20 * dpr;
+    ctx.strokeStyle = 'rgba(140,210,255,.30)';
+    ctx.lineWidth   = bandMax * 2.0; // 넓은, 균일한 번짐
+    rrect(ctx, e.x, e.y, e.w, e.h, R);
+    ctx.stroke();
     ctx.restore();
   }
+
+  // 1) 리본 본체: 조각을 이어서 그리되, ***끝 모양을 butt***로 바꿔
+  //    코너에서 '콩알'이 생기지 않게 한다. 또한 코너에서는 약간 얇게(falloff).
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'butt';        // ← 핵심: round → butt
+  ctx.miterLimit = 2;
+
+  for (let i=0;i<SEGMENTS;i++){
+    const u  = (i*du + ts * FLOW_SPEED) % 1;
+    const u2 = (u + du) % 1;
+
+    const p  = posOnPerimeter(u);
+    const q  = posOnPerimeter(u2);
+
+    // 코너 판별: 모서리에서는 nx,ny 둘 다 0이 아니므로 |nx*ny|↑
+    const curv = Math.abs(p.nx * p.ny);     // 0(직선) ~ 0.5(45°)
+    const falloff = 1 - 0.32 * (curv * 2);  // 코너에서 0.36 정도 얇게
+
+    const w  = ((widths[i] + widths[(i+1)%SEGMENTS]) * 0.5) * falloff;
+    const off = w * OUT_BIAS * dpr;
+
+    const px = p.x + p.nx*off, py = p.y + p.ny*off;
+    const qx = q.x + q.nx*off, qy = q.y + q.ny*off;
+
+    // 앞쪽 코어 한 번만 (뒤쪽 블러한번 더는 없음)
+    ctx.strokeStyle = 'rgba(220,245,255,.92)';
+    ctx.shadowColor = 'rgba(90,170,255,.60)';
+    ctx.shadowBlur  = 6 * dpr;
+    ctx.lineWidth   = Math.max(1.2*dpr, w * 1.1 * dpr);
+
+    ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(qx,qy); ctx.stroke();
+  }
+  ctx.restore();
+}
+
 
   // === 회전 플레어(2개)
   function drawOrbitFlares(ctx, ts){
@@ -232,8 +237,8 @@ if (mode === 'nexus') {
     const u2 = (u1 + 0.5) % 1;
     for (const u of [u1, u2]){
       const p = posOnPerimeter(u);
-      const rCore = 3.6 * dpr;
-      const rGlow = 24  * dpr;
+      const rCore = 2.6 * dpr;
+      const rGlow = 16  * dpr;
 
       const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rGlow);
       g.addColorStop(0.00, 'rgba(255,255,255,.96)');
