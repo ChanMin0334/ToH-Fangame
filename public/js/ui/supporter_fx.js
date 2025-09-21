@@ -233,42 +233,6 @@ const WAVE_SPEED = 0.00050;// 두께 요동 속도
   ctx.restore();
 }
 
-  // 1) 리본 본체: 조각을 이어서 그리되, ***끝 모양을 butt***로 바꿔
-  //    코너에서 '콩알'이 생기지 않게 한다. 또한 코너에서는 약간 얇게(falloff).
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.lineCap = 'butt';        // ← 핵심: round → butt
-  ctx.miterLimit = 2;
-
-  for (let i=0;i<SEGMENTS;i++){
-    const u  = (i*du + ts * FLOW_SPEED) % 1;
-    const u2 = (u + du) % 1;
-
-    const p  = posOnPerimeter(u);
-    const q  = posOnPerimeter(u2);
-
-    // 코너 판별: 모서리에서는 nx,ny 둘 다 0이 아니므로 |nx*ny|↑
-    const curv = Math.abs(p.nx * p.ny);     // 0(직선) ~ 0.5(45°)
-    const falloff = 1 - 0.32 * (curv * 2);  // 코너에서 0.36 정도 얇게
-
-    const w  = ((widths[i] + widths[(i+1)%SEGMENTS]) * 0.5) * falloff;
-    const off = w * OUT_BIAS * dpr;
-
-    const px = p.x + p.nx*off, py = p.y + p.ny*off;
-    const qx = q.x + q.nx*off, qy = q.y + q.ny*off;
-
-    // 앞쪽 코어 한 번만 (뒤쪽 블러한번 더는 없음)
-    ctx.strokeStyle = 'rgba(220,245,255,.92)';
-    ctx.shadowColor = 'rgba(90,170,255,.60)';
-    ctx.shadowBlur  = 6 * dpr;
-    ctx.lineWidth   = Math.max(1.2*dpr, w * 1.1 * dpr);
-
-    ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(qx,qy); ctx.stroke();
-  }
-  ctx.restore();
-}
-
-
   // === 회전 플레어(2개)
   function drawOrbitFlares(ctx, ts){
     const speed = 0.00007; // 천천히
