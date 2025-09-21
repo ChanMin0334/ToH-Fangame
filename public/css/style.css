@@ -438,3 +438,15 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
   height: 100%; /* 높이를 컨테이너에 100% 맞춤 */
   object-fit: cover; /* 비율을 유지하며 컨테이너를 가득 채움 */
 }
+
+/* /public/css/style.css */
+
+/* 모의전 버튼 보라색 스타일 */
+.btn.btn-mock {
+  background: #6d28d9;
+  border-color: #5b21b6;
+  color: white;
+}
+.btn.btn-mock:hover {
+  background: #7c3aed;
+}
