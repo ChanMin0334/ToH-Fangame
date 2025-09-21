@@ -284,6 +284,23 @@ try {
   const battleTitle   = String(finalJson.title || '치열한 결투');
   const battleContent = String(finalJson.content || '결과를 생성하는 데 실패했습니다.');
 
+  const WINDOW = 300;
+const nowSecAfter = Math.floor(Date.now() / 1000);
+
+// 현재 저장된 값(숫자/타임스탬프 모두 수용)
+const uShot = await userRef.get();
+const exist = uShot.exists ? uShot.get('cooldown_all_until') : 0;
+const existSec = (typeof exist === 'number')
+  ? (Number(exist) || 0)
+  : (exist?.toMillis ? Math.floor(exist.toMillis() / 1000) : 0);
+
+// 다음 5분 경계
+const nextBoundary = Math.ceil(nowSecAfter / WINDOW) * WINDOW;
+const untilSec = Math.max(existSec, nextBoundary);
+
+// 트랜잭션 밖에서 병합 저장 (경합에 충분히 안전)
+await userRef.set({ cooldown_all_until: untilSec }, { merge: true });
+
   // ★ 모의전: 통계/보상 갱신 없이 로그만 기록 + 공용 쿨타임 설정
 if (simulate) {
   const logRef = db.collection('battle_logs').doc();
