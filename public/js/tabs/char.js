@@ -466,6 +466,10 @@ if (btnLike) {
 }
 // (이하 코드 동일)
 
+// /public/js/tabs/char.js
+
+// /public/js/tabs/char.js
+
 function mountFixedActions(c, isOwner){
   document.querySelector('.fixed-actions')?.remove();
 
@@ -496,27 +500,15 @@ function mountFixedActions(c, isOwner){
     return;
   }
 
-  // ★ 다른 사람 캐릭터일 때: 모의 버튼 제공
+  // ★ 다른 사람 캐릭터일 때: 모의 버튼 제공 (보라색 스타일 추가)
   bar.innerHTML = `
-    <button class="btn large" id="fabMockEncounter">모의조우</button>
-    <button class="btn large primary" id="fabMockBattle">모의전투</button>
+    <button class="btn large btn-mock" id="fabMockEncounter">모의조우</button>
+    <button class="btn large btn-mock" id="fabMockBattle">모의전투</button>
   `;
   document.body.appendChild(bar);
 
-  // 내 대표 캐릭터 하나 고르기(최근 업데이트 순 1개)
-  async function getMyDefaultCharId(){
-    const q = fx.query(
-      fx.collection(db,'chars'),
-      fx.where('owner_uid','==', auth.currentUser.uid),
-      fx.orderBy('updatedAt','desc'),
-      fx.limit(1)
-    );
-    const s = await getDocsFromServer(q);
-    return s.docs[0]?.id || null;
-  }
-
-  async function goMock(mode){
-    const myCharId = await getMyDefaultCharId();
+  // 모의전/조우 시작 함수 (선택된 내 캐릭터 ID를 받음)
+  function goMock(myCharId, mode){
     if(!myCharId){
       showToast('내 캐릭터가 없어. 먼저 캐릭터를 만들어줘!');
       return;
@@ -532,10 +524,10 @@ function mountFixedActions(c, isOwner){
     location.hash = mode === 'battle' ? '#/battle' : '#/encounter';
   }
 
-  bar.querySelector('#fabMockBattle').onclick = ()=> goMock('battle');
-  bar.querySelector('#fabMockEncounter').onclick = ()=> goMock('encounter');
+  // 모의전 버튼 클릭 시 캐릭터 선택창 열기
+  bar.querySelector('#fabMockBattle').onclick = () => openMyCharPickerForMock(c.id, 'battle', goMock);
+  bar.querySelector('#fabMockEncounter').onclick = () => openMyCharPickerForMock(c.id, 'encounter', goMock);
 }
-
 
 
 // ---------- views ----------
@@ -1321,6 +1313,65 @@ function showRelationDetailModal(myChar, otherChar, relation) {
   });
 
   document.body.appendChild(modal);
+}
+
+// /public/js/tabs/char.js
+
+// 모의전을 위한 내 캐릭터 선택 모달
+async function openMyCharPickerForMock(opponentId, mode, onSelect) {
+  ensureModalCss();
+  const u = auth.currentUser;
+  if (!u) {
+    showToast('로그인이 필요합니다.');
+    return;
+  }
+
+  const q = fx.query(
+    fx.collection(db, 'chars'),
+    fx.where('owner_uid', '==', u.uid)
+  );
+  const snap = await fx.getDocs(q);
+  const myChars = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  if (myChars.length === 0) {
+    showToast('모의전을 진행할 내 캐릭터가 없습니다. 먼저 캐릭터를 생성해주세요.');
+    return;
+  }
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal-card">
+      <div style="font-weight:900; font-size:18px; margin-bottom:12px;">모의전에 사용할 내 캐릭터 선택</div>
+      <div class="grid2" style="gap:10px; max-height: 400px; overflow-y: auto;">
+        ${myChars.map(char => `
+          <button class="kv-card" data-char-id="${char.id}" style="text-align:left; cursor:pointer;">
+            <div style="font-weight:700;">${esc(char.name)}</div>
+            <div class="text-dim" style="font-size:12px;">Elo: ${char.elo || 1000}</div>
+          </button>
+        `).join('')}
+      </div>
+      <div style="text-align:right; margin-top:12px;">
+        <button class="btn ghost" id="mClose">닫기</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(back);
+
+  const closeModal = () => back.remove();
+  back.querySelector('#mClose').onclick = closeModal;
+  back.addEventListener('click', e => {
+    if (e.target === back) closeModal();
+  });
+
+  back.querySelectorAll('button[data-char-id]').forEach(btn => {
+    btn.onclick = () => {
+      const selectedCharId = btn.dataset.charId;
+      closeModal();
+      onSelect(selectedCharId, mode);
+    };
+  });
 }
 
 
