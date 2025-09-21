@@ -232,6 +232,9 @@ async function startBattleProcess(myChar, opponentChar) {
         finalLog.exp_char1 = isSimNow ? 0 : clamp(finalLog.exp_char1, 5, 50);
 
 
+// public/js/tabs/battle.js
+
+// ... (생략) ...
         const logData = {
             attacker_uid: myChar.owner_uid,
             attacker_char: `chars/${myChar.id}`,
@@ -239,10 +242,11 @@ async function startBattleProcess(myChar, opponentChar) {
             attacker_snapshot: { name: myChar.name, thumb_url: myChar.thumb_url || null },
             defender_snapshot: { name: opponentChar.name, thumb_url: opponentChar.thumb_url || null },
             relation_at_battle: relation || null,
-            simulated: isSimNow ? true : undefined,   // ★ 모의전 플래그
+            ...(isSimNow && { simulated: true }),   // ★ 모의전 플래그
             ...finalLog,
             endedAt: fx.serverTimestamp()
         };
+// ... (생략) ...
 
 
         const logRef = await fx.addDoc(fx.collection(db, 'battle_logs'), logData);
