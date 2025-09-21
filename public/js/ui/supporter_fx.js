@@ -53,19 +53,24 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   document.addEventListener('visibilitychange', () => { running = !prefersReduced && (document.visibilityState === 'visible'); });
 
   // ▼▼▼▼▼ 테마에 따른 분기 처리 ▼▼▼▼▼
-  if (mode === 'nexus') {
-  // === 카드 테두리 네온 프레임/스파크 효과 ===
+if (mode === 'nexus') {
+  // ===== 카드 테두리 "불꽃 프레임 + 2개 회전 플레어" =====
+  // - 테두리에 딱 붙게 맞춤
+  // - 불꽃 혀가 들쑥날쑥 타오르는 느낌
+  // - 강조용 밝은 불빛 2개만 천천히 회전
+
   const cs = getComputedStyle(root);
   const roundCss = parseFloat(cs.getPropertyValue('--round')) || parseFloat(cs.borderRadius) || 18;
-  const R = Math.max(2, roundCss * dpr);
 
-  const EDGE = () => ({
-    x: HALO * dpr,
-    y: HALO * dpr,
-    w: bw - 2 * HALO * dpr,
-    h: bh - 2 * HALO * dpr
-  });
+  // 캔버스 좌표계에서의 사각 경계(테두리 정확히 맞춤)
+  function EDGE_TIGHT() {
+    const px = HALO * dpr; // fx 캔버스가 HALO만큼 더 크므로, 그만큼 안쪽으로 이동
+    const w  = bw - 2 * px;
+    const h  = bh - 2 * px;
+    return { x: px + 0.5 * dpr, y: px + 0.5 * dpr, w: w - 1 * dpr, h: h - 1 * dpr };
+  }
 
+  // 라운드 사각 경로
   function rrect(ctx, x, y, w, h, r){
     const rr = Math.min(r, Math.min(w, h) / 2);
     ctx.beginPath();
@@ -81,72 +86,137 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
     ctx.closePath();
   }
 
-  function drawBaseGlow(ctx){
-    const e = EDGE();
-    // 바깥쪽 부드러운 광채
+  // 라운드 사각 테두리 위의 위치/법선 벡터(0~1 퍼센트 길이로 접근)
+  function posOnPerimeter(u){
+    const e = EDGE_TIGHT();
+    const R = Math.max(2, roundCss * dpr);
+    const Lh = Math.max(0, e.w - 2*R);
+    const Lv = Math.max(0, e.h - 2*R);
+    const Pa = (Math.PI/2) * R;     // 모서리 한 귀퉁이 호길이
+    const P  = 2*(Lh + Lv) + 4*Pa;  // 총 둘레
+    let s = (u % 1) * P;
+
+    // 위변
+    if (s < Lh) return { x: e.x + R + s, y: e.y, nx: 0, ny: -1 };
+    s -= Lh;
+    // 우상단 호
+    if (s < Pa){ const a = -Math.PI/2 + (s/R); const cx = e.x + e.w - R, cy = e.y + R;
+      return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a) };
+    }
+    s -= Pa;
+    // 오른쪽 변
+    if (s < Lv) return { x: e.x + e.w, y: e.y + R + s, nx: 1, ny: 0 };
+    s -= Lv;
+    // 우하단 호
+    if (s < Pa){ const a = 0 + (s/R); const cx = e.x + e.w - R, cy = e.y + e.h - R;
+      return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a) };
+    }
+    s -= Pa;
+    // 아래변
+    if (s < Lh) return { x: e.x + e.w - R - s, y: e.y + e.h, nx: 0, ny: 1 };
+    s -= Lh;
+    // 좌하단 호
+    if (s < Pa){ const a = Math.PI/2 + (s/R); const cx = e.x + R, cy = e.y + e.h - R;
+      return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a) };
+    }
+    s -= Pa;
+    // 왼쪽 변
+    if (s < Lv) return { x: e.x, y: e.y + e.h - R - s, nx: -1, ny: 0 };
+    s -= Lv;
+    // 좌상단 호
+    const a = Math.PI + (s/R); const cx = e.x + R, cy = e.y + R;
+    return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a) };
+  }
+
+  // 베이스 네온(얇은 라인)
+  function drawBase(ctx){
+    const e = EDGE_TIGHT();
+    const R = Math.max(2, roundCss * dpr);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.shadowColor = 'rgba(80,160,255,.65)';
-    ctx.shadowBlur  = 22 * dpr;
-    ctx.strokeStyle = 'rgba(90,180,255,.85)';
-    ctx.lineWidth   = 2.5 * dpr;
+    ctx.shadowColor = 'rgba(80,160,255,.55)';
+    ctx.shadowBlur  = 14 * dpr;
+    ctx.strokeStyle = 'rgba(140,210,255,.9)';
+    ctx.lineWidth   = 1.6 * dpr;
     rrect(ctx, e.x, e.y, e.w, e.h, R);
-    ctx.stroke();
-    ctx.restore();
-
-    // 안쪽 얇은 라인
-    ctx.save();
-    ctx.strokeStyle = 'rgba(190,235,255,.95)';
-    ctx.lineWidth   = 1.1 * dpr;
-    rrect(ctx, e.x + 0.5 * dpr, e.y + 0.5 * dpr, e.w - 1 * dpr, e.h - 1 * dpr, Math.max(0, R - 0.5 * dpr));
     ctx.stroke();
     ctx.restore();
   }
 
-  function drawMovingGlints(ctx, ts){
-    const e = EDGE();
-    // 대시가 흐르는 하이라이트 (테두리 따라 반짝임 이동)
+  // 불꽃 혀(여러 개의 짧은 광선이 테두리 바깥으로 흔들리며 타오름)
+  function drawFlames(ctx, ts){
+    const N = 46;                          // 혀 개수
+    const t = ts * 0.0012;
     ctx.save();
-    ctx.setLineDash([14 * dpr, Math.max(60, (e.w + e.h) * 0.25)]);
-    ctx.lineDashOffset = - (ts * 0.16) * Math.max(e.w, e.h) / dpr;
-    ctx.strokeStyle = 'rgba(220,245,255,.95)';
-    ctx.lineWidth   = 3.5 * dpr;
-    ctx.shadowColor = 'rgba(120,200,255,.9)';
-    ctx.shadowBlur  = 10 * dpr;
-    rrect(ctx, e.x, e.y, e.w, e.h, R);
-    ctx.stroke();
-    ctx.restore();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
 
-    // 작은 스파클 점 몇 개 (앞 레이어, 살짝 튀는 느낌)
-    const P = 2 * (e.w + e.h);
-    for (let i = 0; i < 10; i++) {
-      const u = ((ts * 0.0005) + i * 0.083) % 1; // 0~1
-      let s = u * P;
-      let x = e.x, y = e.y;
-      if (s < e.w) { x += s; }
-      else if (s < e.w + e.h) { x += e.w; y += (s - e.w); }
-      else if (s < 2 * e.w + e.h) { x += (2 * e.w + e.h - s); y += e.h; }
-      else { y += (P - s); }
+    for (let i = 0; i < N; i++){
+      const u = (i / N + (Math.sin(t*0.7 + i*0.73)*0.03)) % 1;
+      const p = posOnPerimeter(u);
+      // 길이/밝기/굵기 요동 (부드러운 불꽃 느낌)
+      const jitter = Math.sin(t*2.2 + i*1.3) * 0.5 + Math.sin(t*1.1 + i*2.7) * 0.5;
+      const L = (10 + 18 * (0.5 + 0.5*jitter)) * dpr;    // 혀 길이
+      const W = (0.9 + 0.9*(0.5 + 0.5*jitter)) * dpr;    // 혀 굵기
+      const A = 0.25 + 0.35*(0.5 + 0.5*Math.sin(t*1.7 + i*1.9)); // 밝기
 
-      const flick = (Math.sin(ts * 0.007 + i) * 0.5 + 0.5);
+      const x2 = p.x + p.nx * L;
+      const y2 = p.y + p.ny * L;
+      const g  = ctx.createLinearGradient(p.x, p.y, x2, y2);
+      g.addColorStop(0.00, `rgba(210,245,255,${0.85*A})`);
+      g.addColorStop(0.45, `rgba(120,200,255,${0.55*A})`);
+      g.addColorStop(1.00, `rgba(20,60,160,0)`);
+      ctx.strokeStyle = g;
+      ctx.lineWidth   = W;
       ctx.beginPath();
-      ctx.fillStyle = `rgba(200,240,255,${0.55 + 0.45 * flick})`;
-      ctx.arc(x, y, (1.4 + flick * 0.6) * dpr, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // 회전하는 강조 플레어 2개(밝은 점 + 넓은 퍼짐)
+  function drawOrbitFlares(ctx, ts){
+    const speed = 0.00008;
+    const u1 = (ts * speed) % 1;
+    const u2 = (u1 + 0.5) % 1;
+    for (const u of [u1, u2]){
+      const p = posOnPerimeter(u);
+      const rCore = 3.5 * dpr;
+      const rGlow = 22  * dpr;
+
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rGlow);
+      g.addColorStop(0.00, 'rgba(255,255,255,.95)');
+      g.addColorStop(0.25, 'rgba(180,230,255,.70)');
+      g.addColorStop(1.00, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.x, p.y, rGlow, 0, Math.PI*2); ctx.fill();
+
+      ctx.fillStyle = 'rgba(220,245,255,.95)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, rCore, 0, Math.PI*2); ctx.fill();
     }
   }
 
+  // 메인 루프
   const step = (ts) => {
     if (!running) { requestAnimationFrame(step); return; }
     bctx.clearRect(0, 0, bw, bh);
-    fctx.clearRect(0, 0, fw, fh);
-    bctx.globalCompositeOperation = fctx.globalCompositeOperation = 'lighter';
-    drawBaseGlow(bctx);        // 뒤 레이어: 부드러운 네온
-    drawMovingGlints(fctx, ts); // 앞 레이어: 흘러가는 밝은 조각 + 스파클
+    fctx.clearRect(0, 0, bw, bh);
+
+    // 뒤 레이어: 베이스 네온 + 불꽃 혀
+    drawBase(bctx);
+    drawFlames(bctx, ts);
+
+    // 앞 레이어: 회전 플레어 2개(항상 위에 보이도록)
+    drawOrbitFlares(fctx, ts);
+
     requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
 } else {
+  // (다음 테마 분기 유지)
+
     // --- 기존 'orbits' 이펙트 로직 ---
     const ORBITS = 2;
     const SATS = 1;
