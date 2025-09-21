@@ -54,68 +54,99 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
 
   // ▼▼▼▼▼ 테마에 따른 분기 처리 ▼▼▼▼▼
   if (mode === 'nexus') {
-    // --- 'nexus' (포탈) 이펙트 로직 ---
-    const portalParticles = [];
-    const RIPPLE_COUNT = 5;
-    const PARTICLE_COUNT = 80;
+  // === 카드 테두리 네온 프레임/스파크 효과 ===
+  const cs = getComputedStyle(root);
+  const roundCss = parseFloat(cs.getPropertyValue('--round')) || parseFloat(cs.borderRadius) || 18;
+  const R = Math.max(2, roundCss * dpr);
 
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-        portalParticles.push({
-            angle: Math.random() * Math.PI * 2,
-            radius: 1 + Math.random() * 0.1,
-            speed: 0.01 + Math.random() * 0.02,
-            size: 1 + Math.random() * 1.5,
-            alpha: 0.2 + Math.random() * 0.5
-        });
+  const EDGE = () => ({
+    x: HALO * dpr,
+    y: HALO * dpr,
+    w: bw - 2 * HALO * dpr,
+    h: bh - 2 * HALO * dpr
+  });
+
+  function rrect(ctx, x, y, w, h, r){
+    const rr = Math.min(r, Math.min(w, h) / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr);
+    ctx.quadraticCurveTo(x, y, x + rr, y);
+    ctx.closePath();
+  }
+
+  function drawBaseGlow(ctx){
+    const e = EDGE();
+    // 바깥쪽 부드러운 광채
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.shadowColor = 'rgba(80,160,255,.65)';
+    ctx.shadowBlur  = 22 * dpr;
+    ctx.strokeStyle = 'rgba(90,180,255,.85)';
+    ctx.lineWidth   = 2.5 * dpr;
+    rrect(ctx, e.x, e.y, e.w, e.h, R);
+    ctx.stroke();
+    ctx.restore();
+
+    // 안쪽 얇은 라인
+    ctx.save();
+    ctx.strokeStyle = 'rgba(190,235,255,.95)';
+    ctx.lineWidth   = 1.1 * dpr;
+    rrect(ctx, e.x + 0.5 * dpr, e.y + 0.5 * dpr, e.w - 1 * dpr, e.h - 1 * dpr, Math.max(0, R - 0.5 * dpr));
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawMovingGlints(ctx, ts){
+    const e = EDGE();
+    // 대시가 흐르는 하이라이트 (테두리 따라 반짝임 이동)
+    ctx.save();
+    ctx.setLineDash([14 * dpr, Math.max(60, (e.w + e.h) * 0.25)]);
+    ctx.lineDashOffset = - (ts * 0.16) * Math.max(e.w, e.h) / dpr;
+    ctx.strokeStyle = 'rgba(220,245,255,.95)';
+    ctx.lineWidth   = 3.5 * dpr;
+    ctx.shadowColor = 'rgba(120,200,255,.9)';
+    ctx.shadowBlur  = 10 * dpr;
+    rrect(ctx, e.x, e.y, e.w, e.h, R);
+    ctx.stroke();
+    ctx.restore();
+
+    // 작은 스파클 점 몇 개 (앞 레이어, 살짝 튀는 느낌)
+    const P = 2 * (e.w + e.h);
+    for (let i = 0; i < 10; i++) {
+      const u = ((ts * 0.0005) + i * 0.083) % 1; // 0~1
+      let s = u * P;
+      let x = e.x, y = e.y;
+      if (s < e.w) { x += s; }
+      else if (s < e.w + e.h) { x += e.w; y += (s - e.w); }
+      else if (s < 2 * e.w + e.h) { x += (2 * e.w + e.h - s); y += e.h; }
+      else { y += (P - s); }
+
+      const flick = (Math.sin(ts * 0.007 + i) * 0.5 + 0.5);
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(200,240,255,${0.55 + 0.45 * flick})`;
+      ctx.arc(x, y, (1.4 + flick * 0.6) * dpr, 0, Math.PI * 2);
+      ctx.fill();
     }
-    
-    const drawPortalEffect = (ctx, time) => {
-        const cx = bw / 2;
-        const cy = bh / 2;
-        const baseRx = (bw / 2) - (HALO * dpr * 0.5);
-        const baseRy = (bh / 2) - (HALO * dpr * 0.5);
+  }
 
-        const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseRx);
-        gradient.addColorStop(0, 'rgba(100, 180, 255, 0.4)');
-        gradient.addColorStop(0.7, 'rgba(50, 100, 255, 0.2)');
-        gradient.addColorStop(1, 'rgba(20, 50, 150, 0.1)');
-        
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, baseRx, baseRy, 0, 0, 2 * Math.PI);
-        ctx.fill();
-
-        ctx.lineWidth = 1.5 * dpr;
-        for (let i = 0; i < RIPPLE_COUNT; i++) {
-            const rippleProgress = (time / 2000 + i * 0.2) % 1;
-            ctx.strokeStyle = `rgba(150, 200, 255, ${1 - rippleProgress})`;
-            ctx.beginPath();
-            ctx.ellipse(cx, cy, baseRx * (0.95 + rippleProgress * 0.05), baseRy * (0.95 + rippleProgress * 0.05), 0, 0, 2 * Math.PI);
-            ctx.stroke();
-        }
-
-        portalParticles.forEach(p => {
-            p.angle += p.speed;
-            const x = cx + Math.cos(p.angle) * baseRx * p.radius;
-            const y = cy + Math.sin(p.angle) * baseRy * p.radius;
-
-            ctx.fillStyle = `rgba(200, 225, 255, ${p.alpha})`;
-            ctx.beginPath();
-            ctx.arc(x, y, p.size * dpr, 0, 2 * Math.PI);
-            ctx.fill();
-        });
-    };
-    
-    const step = (ts) => {
-        if (!running) { requestAnimationFrame(step); return; }
-        bctx.clearRect(0, 0, bw, bh);
-        fctx.clearRect(0, 0, fw, fh);
-        drawPortalEffect(bctx, ts); // 포탈은 배경(bctx)에만 그립니다.
-        requestAnimationFrame(step);
-    };
+  const step = (ts) => {
+    if (!running) { requestAnimationFrame(step); return; }
+    bctx.clearRect(0, 0, bw, bh);
+    fctx.clearRect(0, 0, fw, fh);
+    bctx.globalCompositeOperation = fctx.globalCompositeOperation = 'lighter';
+    drawBaseGlow(bctx);        // 뒤 레이어: 부드러운 네온
+    drawMovingGlints(fctx, ts); // 앞 레이어: 흘러가는 밝은 조각 + 스파클
     requestAnimationFrame(step);
-
-  } else {
+  };
+  requestAnimationFrame(step);
+} else {
     // --- 기존 'orbits' 이펙트 로직 ---
     const ORBITS = 2;
     const SATS = 1;
