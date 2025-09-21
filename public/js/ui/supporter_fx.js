@@ -133,12 +133,12 @@ if (mode === 'nexus') {
   // =======================
   // 아이디어: 테두리 전체를 "짧은 탄젠트 조각"으로 이으면서, 각 조각의 굵기를
   //           부드러운 노이즈로 바꿔서 '넓은 파도'처럼 보이게.
-  const SEGMENTS   = 420;     // 조각 수(↑ = 더 매끈, 스파이크 제거)
-  const BASE_W     = 8;       // 기본 두께(px)
-  const VAR_W      = 12;      // 변동 두께(px) → 불이 넓게/좁게 숨쉰다
-  const OUT_BIAS   = 0.65;    // 두께의 몇 %를 바깥쪽으로 치우칠지 (0~1)
-  const FLOW_SPEED = 0.00010; // 불띠가 둘레를 따라 이동하는 속도(느리게)
-  const WAVE_SPEED = 0.00070; // 두께 요동(숨쉬기) 속도
+const SEGMENTS   = 320;    // 조각 수(너무 크면 과한 계산/겹침 → 320이 안정)
+const BASE_W     = 6;      // 기본 두께(px)
+const VAR_W      = 10;     // 변동 두께(px) → “숨쉬기” 폭
+const OUT_BIAS   = 0.58;   // 바깥쪽 비중(너무 크면 밖으로 튐)
+const FLOW_SPEED = 0.00008;// 불띠가 흐르는 속도(느림)
+const WAVE_SPEED = 0.00050;// 두께 요동 속도
 
   // 샘플별 위상 고정(조각마다 패턴이 살짝 다르게)
   const phase1 = new Array(SEGMENTS).fill(0).map(()=> Math.random()*Math.PI*2);
@@ -173,26 +173,65 @@ if (mode === 'nexus') {
   }
 
   function drawRibbon(ctx, ts){
-  const widths = ribbonWidths(ts);
-  const du = 1 / SEGMENTS;
-
-  // 0) 코너 과다 누적을 막기 위해, "코로나(큰 번짐)"은
-  //    ***한 번만*** rrect로 통째로 그린다 (조각 루프 X).
-  {
-    const e = EDGE_TIGHT();
-    const R = Math.max(2, roundCss * dpr);
-    const bandMax = (BASE_W + VAR_W) * dpr;
-
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.shadowColor = 'rgba(110,190,255,.60)';
-    ctx.shadowBlur  = 20 * dpr;
-    ctx.strokeStyle = 'rgba(140,210,255,.30)';
-    ctx.lineWidth   = bandMax * 2.0; // 넓은, 균일한 번짐
-    rrect(ctx, e.x, e.y, e.w, e.h, R);
-    ctx.stroke();
-    ctx.restore();
+  // 1) 샘플 두께 만들기 + 이웃 보정(갑자기 두꺼워지는 걸 막아 코너 덩어리 방지)
+  const raw = ribbonWidths(ts); // 0번에서 만든 너비(픽셀)
+  const widths = raw.slice();
+  const MAX_STEP = 2.2; // 인접 샘플 간 최대 증감(px)
+  for (let i=1;i<SEGMENTS;i++){
+    const prev = widths[i-1], want = raw[i];
+    const d = Math.max(-MAX_STEP, Math.min(MAX_STEP, want - prev));
+    widths[i] = prev + d;
   }
+  // 끝-처음 이음새도 한 번 더 완화
+  const seam = Math.max(-MAX_STEP, Math.min(MAX_STEP, widths[0] - widths[SEGMENTS-1]));
+  widths[0] = widths[SEGMENTS-1] + seam;
+
+  // 2) 바깥/안쪽 경계 좌표 만들기(한 바퀴)
+  const du = 1 / SEGMENTS;
+  const outer = new Array(SEGMENTS);
+  const inner = new Array(SEGMENTS);
+  for (let i=0;i<SEGMENTS;i++){
+    const u = (i*du + ts * FLOW_SPEED) % 1;
+    const p = posOnPerimeter(u);
+
+    const w = widths[i];           // px
+    const offOut =  w * OUT_BIAS * dpr;          // 바깥으로
+    const offIn  = -w * (1-OUT_BIAS) * dpr;      // 안쪽으로
+
+    outer[i] = [ p.x + p.nx*offOut, p.y + p.ny*offOut ];
+    inner[i] = [ p.x + p.nx*offIn,  p.y + p.ny*offIn  ];
+  }
+
+  // 3) 넓은 불띠: 폴리곤으로 "한 번에" 채우기(코너 누적/루프 없음)
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle  = 'rgba(150,220,255,0.30)';  // 메인 불빛
+  ctx.shadowColor = 'rgba(110,190,255,0.60)'; // 바깥 번짐
+  ctx.shadowBlur  = 16 * dpr;
+
+  ctx.beginPath();
+  // 바깥 경로(정방향)
+  ctx.moveTo(outer[0][0], outer[0][1]);
+  for (let i=1;i<SEGMENTS;i++) ctx.lineTo(outer[i][0], outer[i][1]);
+  // 안쪽 경로(역방향)
+  for (let i=SEGMENTS-1;i>=0;i--) ctx.lineTo(inner[i][0], inner[i][1]);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // 4) 중심 윤곽(얇은 하이라이트) – 테두리에 딱 붙는 선으로 정리
+  const e = EDGE_TIGHT();
+  const R = Math.max(2, roundCss * dpr);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = 'rgba(235,250,255,0.9)';
+  ctx.lineWidth   = 1.2 * dpr;
+  ctx.shadowColor = 'rgba(90,170,255,0.55)';
+  ctx.shadowBlur  = 6 * dpr;
+  rrect(ctx, e.x, e.y, e.w, e.h, R);
+  ctx.stroke();
+  ctx.restore();
+}
 
   // 1) 리본 본체: 조각을 이어서 그리되, ***끝 모양을 butt***로 바꿔
   //    코너에서 '콩알'이 생기지 않게 한다. 또한 코너에서는 약간 얇게(falloff).
