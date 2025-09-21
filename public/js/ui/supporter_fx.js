@@ -53,15 +53,15 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   document.addEventListener('visibilitychange', () => { running = !prefersReduced && (document.visibilityState === 'visible'); });
 
 if (mode === 'nexus') {
-  // ===== 넓은 불꽃 프레임 + 회전 플레어(2개) =====
+  // ===== 넓은 "리본 불꽃" 프레임 + 회전 플레어(2개) =====
   // - 테두리에 '정확히' 밀착
-  // - 얇은 스파이크 대신, 연속된 '불꽃 띠'가 파도치며 일렁임
-  // - 강조 플레어 2개만 천천히 회전(과하지 않게)
+  // - 불꽃을 "짧은 스파이크"가 아니라 "한 줄 두꺼운 리본"으로 그려서 파도치게 함
+  // - 강조 플레어 2개만 천천히 회전
 
   const cs = getComputedStyle(root);
   const roundCss = parseFloat(cs.getPropertyValue('--round')) || parseFloat(cs.borderRadius) || 18;
 
-  // HALO가 있어도 실제 테두리에 딱 맞게 보정
+  // === 테두리 경계(halo 보정 포함: 실제 카드 테두리에 딱 맞춘다)
   function EDGE_TIGHT() {
     const px = HALO * dpr;
     const w  = bw - 2 * px;
@@ -84,7 +84,7 @@ if (mode === 'nexus') {
     ctx.closePath();
   }
 
-  // 둘레 위의 위치/법선
+  // 둘레 위의 위치/법선(+길이 계산용 총둘레)
   function posOnPerimeter(u){
     const e = EDGE_TIGHT();
     const R = Math.max(2, roundCss * dpr);
@@ -92,26 +92,28 @@ if (mode === 'nexus') {
     const Lv = Math.max(0, e.h - 2*R);
     const Pa = (Math.PI/2) * R;
     const P  = 2*(Lh + Lv) + 4*Pa;
-    let s = (u % 1) * P;
+    let s = ((u % 1) + 1) % 1; // 0~1
+    s *= P;
 
-    if (s < Lh) return { x: e.x + R + s, y: e.y, nx: 0, ny: -1 }; s -= Lh;
+    if (s < Lh) return { x: e.x + R + s, y: e.y, nx: 0, ny: -1, P };
+    s -= Lh;
     if (s < Pa){ const a = -Math.PI/2 + (s/R); const cx = e.x + e.w - R, cy = e.y + R;
-      return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a) }; }
+      return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a), P }; }
     s -= Pa;
-    if (s < Lv) return { x: e.x + e.w, y: e.y + R + s, nx: 1, ny: 0 }; s -= Lv;
+    if (s < Lv) return { x: e.x + e.w, y: e.y + R + s, nx: 1, ny: 0, P };
+    s -= Lv;
     if (s < Pa){ const a = (s/R); const cx = e.x + e.w - R, cy = e.y + e.h - R;
-      return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a) }; }
+      return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a), P }; }
     s -= Pa;
-    if (s < Lh) return { x: e.x + e.w - R - s, y: e.y + e.h, nx: 0, ny: 1 }; s -= Lh;
-    if (s < Pa){ const a = Math.PI/2 + (s/R); const cx = e.x + R, cy = e.y + e.h - R;
-      return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a) }; }
-    s -= Pa;
-    if (s < Lv) return { x: e.x, y: e.y + e.h - R - s, nx: -1, ny: 0 };
+    if (s < Lh) return { x: e.x + e.w - R - s, y: e.y + e.h, nx: 0, ny: 1, P };
+    s -= Lh;
+    if (s < Lv) { const a = Math.PI/2 + ( (s/R) ); const cx = e.x + R, cy = e.y + e.h - R;
+      return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a), P }; }
     const a = Math.PI + ( (s - Lv) / R ); const cx = e.x + R, cy = e.y + R;
-    return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a) };
+    return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a), P };
   }
 
-  // ===== 베이스: 아주 얇은 네온 라인(안 흔들림)
+  // === 얇은 베이스 네온(테두리 윤곽만 살짝)
   function drawBase(ctx){
     const e = EDGE_TIGHT();
     const R = Math.max(2, roundCss * dpr);
@@ -126,109 +128,104 @@ if (mode === 'nexus') {
     ctx.restore();
   }
 
-  // ===== 넓은 불꽃 띠 생성 =====
-  // 핵심: (1) 둘레를 N등분 샘플 → (2) 여러 주파수 Sine를 섞어 '폭'을 만들고
-  //       (3) 이 폭 배열을 3~4회 평활화해서 스파이크를 없애 '넓은 파도'로 만든 뒤
-  //       (4) 굵은 곡선들을 촘촘히 겹쳐서 하나의 큰 불꽃처럼 보이게 함.
-  const BAND_SAMPLES = 160;      // 둘레 샘플 개수(조금 크다 = 더 매끈)
-  const FLAME_PASSES = 3;        // 평활화 횟수(↑ = 더 넓고 매끈)
-  const BASE_LEN     = 10;       // 최소 불꽃 길이(px)
-  const VAR_LEN      = 28;       // 가변 길이(px) → 넓은 파도폭
-  const BASE_THICK   = 1.6;      // 기본 굵기(px)
-  const SPEED_U      = 0.00015;  // 불꽃 띠가 둘레를 따라 흐르는 속도(느리게)
-  const SPEED_WAV    = 0.0009;   // 파도 요동 속도
+  // =======================
+  // 리본 불꽃(핵심 로직)
+  // =======================
+  // 아이디어: 테두리 전체를 "짧은 탄젠트 조각"으로 이으면서, 각 조각의 굵기를
+  //           부드러운 노이즈로 바꿔서 '넓은 파도'처럼 보이게.
+  const SEGMENTS   = 420;     // 조각 수(↑ = 더 매끈, 스파이크 제거)
+  const BASE_W     = 8;       // 기본 두께(px)
+  const VAR_W      = 12;      // 변동 두께(px) → 불이 넓게/좁게 숨쉰다
+  const OUT_BIAS   = 0.65;    // 두께의 몇 %를 바깥쪽으로 치우칠지 (0~1)
+  const FLOW_SPEED = 0.00010; // 불띠가 둘레를 따라 이동하는 속도(느리게)
+  const WAVE_SPEED = 0.00070; // 두께 요동(숨쉬기) 속도
 
-  // 고정 위상(각 샘플마다 조금씩 다름)
-  const phaseA = new Array(BAND_SAMPLES).fill(0).map(()=> Math.random()*Math.PI*2);
-  const phaseB = new Array(BAND_SAMPLES).fill(0).map(()=> Math.random()*Math.PI*2);
-  const phaseC = new Array(BAND_SAMPLES).fill(0).map(()=> Math.random()*Math.PI*2);
+  // 샘플별 위상 고정(조각마다 패턴이 살짝 다르게)
+  const phase1 = new Array(SEGMENTS).fill(0).map(()=> Math.random()*Math.PI*2);
+  const phase2 = new Array(SEGMENTS).fill(0).map(()=> Math.random()*Math.PI*2);
+  const phase3 = new Array(SEGMENTS).fill(0).map(()=> Math.random()*Math.PI*2);
 
-  function makeBandHeights(ts){
-    const t = ts * SPEED_WAV;
-    // 1) 원시 파형
-    const h = new Array(BAND_SAMPLES);
-    for (let i=0;i<BAND_SAMPLES;i++){
-      const u = i / BAND_SAMPLES;
-      // 여러 주파수 합성(넓은 언듈레이션)
-      const a = Math.sin( (u*2*Math.PI) * 1.0 + t*1.2 + phaseA[i]) * 0.55;
-      const b = Math.sin( (u*2*Math.PI) * 2.2 + t*0.7 + phaseB[i]) * 0.30;
-      const c = Math.sin( (u*2*Math.PI) * 3.7 + t*1.7 + phaseC[i]) * 0.15;
-      // 0~1로 정규화
-      h[i] = 0.5 + 0.5*(a + b + c);
+  function ribbonWidths(ts){
+    const t = ts * WAVE_SPEED;
+    // 1) 원시 파형(저·중·고 주파수 합성)
+    const raw = new Array(SEGMENTS);
+    for (let i=0;i<SEGMENTS;i++){
+      const u = i / SEGMENTS;
+      const a = Math.sin(u*2*Math.PI*1.0 + t*1.2 + phase1[i]) * 0.55;
+      const b = Math.sin(u*2*Math.PI*2.0 + t*0.8 + phase2[i]) * 0.30;
+      const c = Math.sin(u*2*Math.PI*3.5 + t*1.6 + phase3[i]) * 0.15;
+      raw[i] = 0.5 + 0.5*(a + b + c); // 0~1
     }
-    // 2) 평활화(인접 평균으로 여러 번)
-    for (let p=0; p<FLAME_PASSES; p++){
-      const tmp = h.slice();
-      for (let i=0;i<BAND_SAMPLES;i++){
-        const L = tmp[(i-1+BAND_SAMPLES)%BAND_SAMPLES];
-        const C = tmp[i];
-        const R = tmp[(i+1)%BAND_SAMPLES];
-        h[i] = (L + 2*C + R) / 4;  // 스파이크 제거 → 넓은 파도
+    // 2) 평활화(인접 평균)로 스파이크 제거 → 넓은 물결
+    for (let pass=0; pass<3; pass++){
+      const tmp = raw.slice();
+      for (let i=0;i<SEGMENTS;i++){
+        const L = tmp[(i-1+SEGMENTS)%SEGMENTS], C = tmp[i], R = tmp[(i+1)%SEGMENTS];
+        raw[i] = (L + 2*C + R) / 4;
       }
     }
-    return h;
+    // 3) 두께로 변환
+    const W = new Array(SEGMENTS);
+    for (let i=0;i<SEGMENTS;i++){
+      W[i] = (BASE_W + VAR_W * raw[i]); // px
+    }
+    return W;
   }
 
-  function drawFlameBand(ctx, ts){
-    const e = EDGE_TIGHT();
-    const R = Math.max(2, roundCss * dpr);
-    const heights = makeBandHeights(ts);
+  function drawRibbon(ctx, ts){
+    const widths = ribbonWidths(ts);
+    const du = 1 / SEGMENTS;
 
+    // 뒤쪽 큰 번짐(코로나) 한 겹 → 빈틈 없이 넓게 보이게
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.shadowColor = 'rgba(110,190,255,.65)';
+    ctx.shadowBlur  = 18 * dpr;
+    ctx.lineCap = 'round';
+    for (let i=0;i<SEGMENTS;i++){
+      const u  = (i*du + ts * FLOW_SPEED) % 1;
+      const u2 = (u + du) % 1;
+      const p  = posOnPerimeter(u);
+      const q  = posOnPerimeter(u2);
+
+      // 두께(바깥쪽으로 치우치게 오프셋)
+      const w  = (widths[i] + widths[(i+1)%SEGMENTS]) * 0.5;
+      const off = w * OUT_BIAS * dpr;
+      const px = p.x + p.nx*off, py = p.y + p.ny*off;
+      const qx = q.x + q.nx*off, qy = q.y + q.ny*off;
+
+      ctx.strokeStyle = 'rgba(140,210,255,.30)';
+      ctx.lineWidth   = w * 1.8 * dpr;
+      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(qx,qy); ctx.stroke();
+    }
+    ctx.restore();
+
+    // 앞쪽 코어(밝고 선명한 리본)
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
+    for (let i=0;i<SEGMENTS;i++){
+      const u  = (i*du + ts * FLOW_SPEED) % 1;
+      const u2 = (u + du) % 1;
+      const p  = posOnPerimeter(u);
+      const q  = posOnPerimeter(u2);
 
-    // 뒤쪽 '코로나'를 한번 크게 깔아주어 빈틈을 덮어 넓은 불처럼 보이게
-    ctx.save();
-    ctx.shadowColor = 'rgba(90,170,255,.65)';
-    ctx.shadowBlur  = 18 * dpr;
-    ctx.strokeStyle = 'rgba(140,210,255,.35)';
-    ctx.lineWidth   = 10 * dpr; // 넓은 번짐
-    rrect(ctx, e.x, e.y, e.w, e.h, R);
-    ctx.stroke();
-    ctx.restore();
+      const w  = (widths[i] + widths[(i+1)%SEGMENTS]) * 0.5;
+      const off = w * OUT_BIAS * dpr;
+      const px = p.x + p.nx*off, py = p.y + p.ny*off;
+      const qx = q.x + q.nx*off, qy = q.y + q.ny*off;
 
-    // 본체: 촘촘한 곡선들을 겹쳐 하나의 연속 띠처럼
-    for (let i=0;i<BAND_SAMPLES;i++){
-      const u = (i / BAND_SAMPLES + ts * SPEED_U) % 1;
-      const p = posOnPerimeter(u);
-      const tx = -p.ny, ty = p.nx; // 접선
-
-      const H = (BASE_LEN + VAR_LEN * heights[i]) * dpr;      // 길이(넓은 파도)
-      const W = (BASE_THICK + 1.5 * heights[i]) * dpr;        // 굵기 변화
-
-      // 살짝 옆으로 휘도록(넓은 불 끝 윤곽이 '물결'처럼)
-      const curl = (heights[i] - 0.5) * 0.6; // -0.3 ~ 0.3 정도
-      const x1 = p.x,               y1 = p.y;
-      const x2 = p.x + p.nx*H,      y2 = p.y + p.ny*H;
-      const cx = p.x + p.nx*(H*0.55) + tx*(H*curl*0.35);
-      const cy = p.y + p.ny*(H*0.55) + ty*(H*curl*0.35);
-
-      // 코어 그라데이션(넓은 불 → 끝은 투명)
-      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
-      grad.addColorStop(0.00, 'rgba(255,255,255,0.92)');
-      grad.addColorStop(0.20, 'rgba(195,235,255,0.82)');
-      grad.addColorStop(0.60, 'rgba(120,200,255,0.55)');
-      grad.addColorStop(1.00, 'rgba(0,0,0,0)');
-
-      // 뒤로 부드러운 퍼짐
-      ctx.save();
-      ctx.shadowColor = 'rgba(110,190,255,.75)';
-      ctx.shadowBlur  = 12 * dpr;
-      ctx.strokeStyle = grad;
-      ctx.lineWidth   = W * 1.6;
-      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.quadraticCurveTo(cx,cy,x2,y2); ctx.stroke();
-      ctx.restore();
-
-      // 앞쪽 얇은 밝은 코어
-      ctx.strokeStyle = grad;
-      ctx.lineWidth   = Math.max(0.9*dpr, W * 0.95);
-      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.quadraticCurveTo(cx,cy,x2,y2); ctx.stroke();
+      // 중앙은 하얗게, 바깥쪽은 시안 → 불코어 느낌
+      ctx.strokeStyle = 'rgba(220,245,255,.92)';
+      ctx.shadowColor = 'rgba(90,170,255,.75)';
+      ctx.shadowBlur  = 10 * dpr;
+      ctx.lineWidth   = Math.max(1.2*dpr, w * 1.05 * dpr);
+      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(qx,qy); ctx.stroke();
     }
     ctx.restore();
   }
 
-  // ===== 회전 플레어 2개 =====
+  // === 회전 플레어(2개)
   function drawOrbitFlares(ctx, ts){
     const speed = 0.00007; // 천천히
     const u1 = (ts * speed) % 1;
@@ -250,21 +247,22 @@ if (mode === 'nexus') {
     }
   }
 
-  // 메인 루프
+  // === 루프
   const step = (ts) => {
     if (!running) { requestAnimationFrame(step); return; }
     bctx.clearRect(0, 0, bw, bh);
     fctx.clearRect(0, 0, bw, bh);
 
-    drawBase(bctx);           // 얇은 테두리
-    drawFlameBand(bctx, ts);  // 넓은 불꽃 띠
-    drawOrbitFlares(fctx, ts);// 플레어 2개(앞 레이어)
+    drawBase(bctx);        // 얇은 윤곽
+    drawRibbon(bctx, ts);  // 넓은 리본 불꽃
+    drawOrbitFlares(fctx, ts); // 플레어 2개(앞 레이어)
 
     requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
 } else {
   // (다음 테마 분기 유지)
+
 
 
 
