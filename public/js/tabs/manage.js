@@ -70,7 +70,11 @@ function mainTpl(){
         <button class="manage-tab active" data-tab="send">메일 발송</button>
         <button class="manage-tab" data-tab="search">검색</button>
         <button class="manage-tab" data-tab="version">버전 관리</button>
-        <button class="manage-tab" data-tab="supporter">후원자 설정</button> </div>
+        <button class="manage-tab" data-tab="supporter">후원자 설정</button>
+        {/* ▼▼▼▼▼ 여기에 새 탭 버튼 추가 ▼▼▼▼▼ */}
+        <button class="manage-tab" data-tab="supporter-list">후원자 목록</button>
+        {/* ▲▲▲▲▲ 여기에 새 탭 버튼 추가 ▲▲▲▲▲ */}
+      </div>
       <div id="manage-tab-content"></div>
     </div>
   </section>
@@ -163,8 +167,9 @@ function supporterTpl() {
     <div class="manage-row">
       <select id="supporter-tier" class="manage-select">
         <option value="">없음 (효과 제거)</option>
-        {/* ▼▼▼▼▼ 여기에 새 옵션 추가 ▼▼▼▼▼ */}
         <option value="nexus">Nexus Traveler (포탈 이펙트)</option>
+        {/* ▼▼▼▼▼ 여기에 새 옵션 추가 ▼▼▼▼▼ */}
+        <option value="orbits">Orbits 이펙트</option>
         {/* ▲▲▲▲▲ 여기에 새 옵션 추가 ▲▲▲▲▲ */}
         <option value="flame">불꽃 이펙트</option>
         <option value="galaxy">갤럭시 이펙트</option>
@@ -178,6 +183,17 @@ function supporterTpl() {
 }
 
 
+function supporterListTpl() {
+  return `
+  <div class="manage-col">
+    <h4 style="margin-top:0">후원자 캐릭터 목록</h4>
+    <div class="manage-hint">후원자 등급이 부여된 유저들의 캐릭터 중, 가장 최근에 업데이트된 캐릭터를 최대 50개까지 표시합니다. 클릭 시 해당 캐릭터의 상세 페이지로 이동합니다.</div>
+    <div id="supporter-char-list" class="grid3" style="gap:12px; margin-top:12px;">
+      <div class="kv-card text-dim">불러오는 중...</div>
+    </div>
+  </div>`;
+}
+
 function versionTpl() {
   return `
   <div class="manage-col">
@@ -190,6 +206,48 @@ function versionTpl() {
   </div>`;
 }
 
+
+
+// (기존 bindSupporterEvents 함수 바로 아래에 추가)
+
+function bindSupporterListEvents() {
+  const listContainer = document.getElementById('supporter-char-list');
+  if (!listContainer) return;
+
+  const loadSupporterChars = async () => {
+    try {
+      // 1. 'adminGetSupporterChars' 라는 새로운 Cloud Function을 호출합니다.
+      const getSupporterChars = httpsCallable(func, 'adminGetSupporterChars');
+      const result = await getSupporterChars();
+      
+      const chars = result.data.chars || [];
+
+      if (chars.length === 0) {
+        listContainer.innerHTML = `<div class="kv-card text-dim">후원자 등급이 부여된 유저가 없거나, 해당 유저의 캐릭터가 없습니다.</div>`;
+        return;
+      }
+
+      // 2. 받아온 캐릭터 목록으로 카드 UI를 생성합니다.
+      listContainer.innerHTML = chars.map(c => `
+        <a href="#/char/${c.id}" target="_blank" class="kv-card" style="text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 8px;">
+          <img src="${c.thumb_url || ''}" onerror="this.style.display='none'" style="width: 100%; aspect-ratio: 1/1; object-fit: cover; border-radius: 10px; background: #111;">
+          <div>
+            <div style="font-weight: 700;">${esc(c.name)}</div>
+            <div class="manage-hint" style="font-size: 11px;">
+              ${esc(c.supporter_tier)} / by ${esc(c.owner_nickname)}
+            </div>
+          </div>
+        </a>
+      `).join('');
+
+    } catch (e) {
+      console.error("후원자 캐릭터 목록 로딩 실패:", e);
+      listContainer.innerHTML = `<div class="kv-card error" style="color: #ef4444;">목록을 불러오는 중 오류가 발생했습니다: ${esc(e.message)}</div>`;
+    }
+  };
+
+  loadSupporterChars();
+}
 
 
 
@@ -221,9 +279,12 @@ export async function showManage(){
     } else if (tabId === 'version') {
         contentWrap.innerHTML = versionTpl();
         bindVersionEvents();
-    } else if (tabId === 'supporter') { // [추가]
+    } else if (tabId === 'supporter') {
         contentWrap.innerHTML = supporterTpl();
         bindSupporterEvents();
+    } else if (tabId === 'supporter-list') { // [수정] 이 else if 블록 추가
+        contentWrap.innerHTML = supporterListTpl();
+        bindSupporterListEvents(); // [수정] 새 이벤트 바인딩 함수 호출
     }
   };
 
