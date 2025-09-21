@@ -295,8 +295,8 @@ async function render(c){
     try {
       const ownerSnap = await fx.getDoc(fx.doc(db, 'users', c.owner_uid));
       // 'supporter_tier' 필드가 존재하고 문자열이면 값을 사용합니다.
-      if (ownerSnap.exists() && typeof ownerSnap.data().supporter_tier === 'string') {
-        supporterTier = ownerSnap.data().supporter_tier;
+      if (ownerSnap.exists()) {
+        supporterTier = ownerSnap.data().supporter_tier; // 이 값은 undefined, null, "", "none" 또는 유효한 등급일 수 있습니다.
       }
     } catch (e) {
       console.warn("후원자 정보 조회 실패:", e);
@@ -365,21 +365,22 @@ async function render(c){
 
   // ANCHOR: [교체] 후원자 FX 부착 로직 수정
   const wrap = root.querySelector('.avatar-wrap');
-  if (wrap && !wrap.dataset.fxAttached) {
+
+  // 2. supporterTier에 유효한 값이 있고(null, undefined, ""가 아님), 'none'이 아닐 때만 FX를 부착합니다.
+  if (wrap && supporterTier && supporterTier !== 'none' && !wrap.dataset.fxAttached) {
     wrap.dataset.fxAttached = '1';
     
-    // 유효한 후원자 등급 목록 (이 목록에 없으면 기본값으로 처리)
-    const validTiers = ['nexus', 'flame', 'galaxy', 'forest'];
+    // 유효한 후원자 등급 목록
+    const validTiers = ['nexus', 'flame', 'galaxy', 'forest', 'orbits'];
     
-    // supporterTier 값이 유효한 목록에 포함되어 있으면 해당 값을, 그렇지 않으면 'orbits'를 기본값으로 사용
+    // supporterTier 값이 유효한 목록에 포함되어 있으면 해당 값을 사용하고,
+    // 목록에 없더라도 유효한 값이면 'orbits'를 기본값으로 사용합니다.
     const effectTheme = validTiers.includes(supporterTier) ? supporterTier : 'orbits';
     
-    // 결정된 테마로 이펙트 함수 호출
+    // 결정된 테마로 이펙트 함수를 호출합니다.
     attachSupporterFX(wrap, effectTheme);
   }
   // ANCHOR_END
-  
-  // (기존 코드와 동일)
 
   getCharMainImageUrl(c.id, {cacheFirst:true}).then(url=>{
     const img = document.getElementById('charAvatar');
