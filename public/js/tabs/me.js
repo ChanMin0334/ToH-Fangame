@@ -1,45 +1,47 @@
 // /public/js/tabs/me.js
 import { loadUserProfile, updateNickname, leftMsForNicknameChange,
          uploadAvatarBlob, restoreAvatarFromGoogle } from '../api/user.js';
-
-
 import { showToast } from '../ui/toast.js';
 
 export function showMe(){
   const v=document.getElementById('view');
   v.innerHTML = `
-    <section class="container narrow">
+    <section class="container narrow col" style="gap: 16px;">
       <div class="card p16">
-        <h3>내 정보</h3>
+        <h3 style="text-align: center; margin-bottom: 12px;">내 정보</h3>
 
-        <div class="row mt12">
-          <div>
-            <div class="avatar avatar-xl" id="meAvatarWrap">
-              <img id="meAvatar" alt="avatar" />
-            </div>
-            <div class="row mt8">
-              <button id="btnAvatarChange">이미지 변경</button>
-              <button id="btnAvatarReset" class="ghost">구글 프로필로 복원</button>
-            </div>
-
-            <input id="fileAvatar" type="file" accept="image/*" style="display:none"/>
+        <div class="col" style="align-items: center; gap: 12px;">
+          <div class="avatar avatar-xl" id="meAvatarWrap">
+            <img id="meAvatar" alt="avatar" />
           </div>
+          <div class="row" style="gap: 8px; justify-content: center;">
+            <button id="btnAvatarChange" class="btn small">이미지 변경</button>
+            <button id="btnAvatarReset" class="btn ghost small">구글 프로필로 복원</button>
+          </div>
+          <input id="fileAvatar" type="file" accept="image/*" style="display:none"/>
 
-          <div class="flex1">
+          <div class="col" style="width: 100%; max-width: 400px; margin-top: 16px;">
             <label class="label">닉네임 (최대 20자, 7일 쿨타임)</label>
             <div class="row gap8">
               <input id="nickInput" class="w100" maxlength="20" placeholder="닉네임"/>
               <button id="btnNickSave">저장</button>
             </div>
             <div id="nickHint" class="text-dim mt4"></div>
-
-            </div>
           </div>
+        </div>
+      </div>
+
+      <div class="card p16">
+        <div class="col" style="align-items: center; gap: 10px;">
+          <h3 style="margin: 0;">후원</h3>
+          <p class="text-dim" style="text-align: center; margin: 0;">
+            ToH 팬게임은 여러분의 후원으로 유지됩니다.<br>따뜻한 마음으로 개발을 응원해주세요!
+          </p>
+          <button id="btnSupport" class="btn primary large" style="width: 100%; max-width: 400px;">후원하러 가기 💖</button>
         </div>
       </div>
     </section>
 
-    <!-- 아바타 크롭 모달 -->
     <div id="cropModal" class="cropper-modal" style="display:none">
       <div class="cropper">
         <canvas id="cropCanvas" width="512" height="512"></canvas>
@@ -81,8 +83,16 @@ async function boot(){
       }catch(e){ showToast(e.message||'닉네임 저장 실패'); }
     };
 
-    document.getElementById('btnGemClear').onclick = ()=>{ inp.value=''; setLocalGeminiKey(''); showToast('삭제했어'); };
+    // [추가] 후원 버튼 이벤트
+    document.getElementById('btnSupport').onclick = () => {
+      // TODO: 'YOUR_SUPPORT_URL'를 실제 후원 페이지 주소로 변경해주세요.
+      window.open('https://ko-fi.com/kemonomimilover', '_blank');
+    };
+
   }catch(e){
+    // [수정] 로그인 실패 시 후원 버튼도 숨깁니다.
+    const view = document.getElementById('view');
+    view.innerHTML = `<section class="container narrow"><div class="kv-card">로그인이 필요해</div></section>`;
     showToast('로그인이 필요해');
   }
 }
@@ -106,8 +116,7 @@ async function onResetAvatar(){
   }
 }
 
-
-// === Avatar Cropper ===
+// === Avatar Cropper (기존과 동일) ===
 let cropCtx, rawImg=null, scale=1, offset={x:0,y:0}, dragging=false, last={x:0,y:0};
 
 function onPickAvatar(e){
