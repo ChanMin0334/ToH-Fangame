@@ -90,3 +90,15 @@
 @media (prefers-reduced-motion: reduce) {
   .avatar-wrap[data-tilt="1"] { transform: none !important; }
 }
+
+/* ===== Nexus (네온 프레임) 전용 보정 ===== */
+.avatar-wrap.supporter-nexus .supporter-fx-front{
+  /* 위쪽 레이어는 화면과 섞여 더 밝게 보이게 */
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.avatar-wrap.supporter-nexus .supporter-fx .fx-canvas{
+  /* 전체적인 광택 강조 (과하면 주석 처리) */
+  filter: drop-shadow(0 0 10px rgba(88,160,255,.75));
+}
