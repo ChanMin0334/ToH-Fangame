@@ -1,5 +1,5 @@
 // /public/js/tabs/me.js
-import { auth } from '../api/firebase.js'; // [추가] auth 객체를 직접 가져옵니다.
+import { auth } from '../api/firebase.js';
 import { loadUserProfile, updateNickname, leftMsForNicknameChange,
          uploadAvatarBlob, restoreAvatarFromGoogle } from '../api/user.js';
 import { showToast } from '../ui/toast.js';
@@ -41,27 +41,30 @@ export function showMe(){
       </div>
 
       <div class="card p16">
-        <div class="col" style="align-items: center; gap: 10px;">
-          <h3 style="margin: 0;">후원</h3>
-          <p class="text-dim" style="text-align: center; margin: 0;">
-            ToH 팬게임은 여러분의 후원으로 유지됩니다.<br>따뜻한 마음으로 개발을 응원해주세요!
+        <div class="col" style="align-items: center; gap: 12px;">
+          <h3 style="margin: 0;">개발자 후원</h3>
+          <p class="text-dim" style="text-align: center; margin: 0; font-size: 13px;">
+            ToH 팬게임은 여러분의 따뜻한 마음으로 유지됩니다.<br>
+            후원 후에는 아래 안내에 따라 방명록을 꼭 남겨주세요!
           </p>
-          <button id="btnSupport" class="btn primary large" style="width: 100%; max-width: 400px;">후원하러 가기 💖</button>
+          
+          <div class="kv-card" style="width: 100%; max-width: 400px; text-align: center; padding: 12px;">
+            <div class="kv-label" style="margin:0 0 4px">토스(Toss) 가상계좌</div>
+            <div id="account-number" style="font-weight: bold; font-size: 16px;">토스뱅크 1908-4175-3025</div>
+          </div>
+          
+          <button id="btnCopyAccount" class="btn primary large" style="width: 100%; max-width: 400px;">계좌번호 복사 💖</button>
+          
+          <div class="text-dim" style="font-size: 12px; text-align: center; margin-top: 8px; border-top: 1px dashed #39414b; padding-top: 12px; width: 100%;">
+            <b>후원 후 꼭 해주세요:</b><br>
+            디시인사이드 방명록에 [보낸 사람 이름], [금액], [UID]를 남겨주세요.
+          </div>
         </div>
       </div>
     </section>
 
     <div id="cropModal" class="cropper-modal" style="display:none">
-      <div class="cropper">
-        <canvas id="cropCanvas" width="512" height="512"></canvas>
-        <div class="ctrls">
-          <input id="zoomRange" type="range" min="0.5" max="3" step="0.01" value="1"/>
-          <div class="row gap8">
-            <button id="btnCropCancel">취소</button>
-            <button id="btnCropSave">자르기 & 업로드</button>
-          </div>
-        </div>
-      </div>
+        ...
     </div>
   `;
 
@@ -71,43 +74,40 @@ export function showMe(){
 async function boot(){
   try{
     const me = await loadUserProfile();
-    const img = document.getElementById('meAvatar');
-    img.src = me.avatar_b64 || me.avatarURL || '';
+    // (기존 UI 로직)
+    document.getElementById('meAvatar').src = me.avatar_b64 || me.avatarURL || '';
     document.getElementById('nickInput').value = me.nickname||'';
     renderNickHint(me);
-
-    // [추가] UID 필드 채우기 및 복사 버튼 이벤트
-    const uidInput = document.getElementById('uidInput');
     if (auth.currentUser) {
-        uidInput.value = auth.currentUser.uid;
+        document.getElementById('uidInput').value = auth.currentUser.uid;
     }
-    document.getElementById('btnCopyUid').onclick = () => {
-        if (uidInput.value) {
-            navigator.clipboard.writeText(uidInput.value);
-            showToast('UID가 복사되었습니다.');
-        }
-    };
 
-
-    // Avatar
+    // (기존 이벤트 핸들러)
     document.getElementById('btnAvatarChange').onclick = ()=> document.getElementById('fileAvatar').click();
     document.getElementById('fileAvatar').onchange = onPickAvatar;
     document.getElementById('btnAvatarReset').onclick = onResetAvatar;
-
-    // Nickname
     document.getElementById('btnNickSave').onclick = async ()=>{
       try{
         const name=document.getElementById('nickInput').value.trim();
         await updateNickname(name);
         showToast('닉네임을 저장했어');
-        const me2 = await loadUserProfile();
-        renderNickHint(me2);
+        renderNickHint(await loadUserProfile());
       }catch(e){ showToast(e.message||'닉네임 저장 실패'); }
     };
+    document.getElementById('btnCopyUid').onclick = () => {
+        const uid = document.getElementById('uidInput').value;
+        if (uid) {
+            navigator.clipboard.writeText(uid);
+            showToast('UID가 복사되었습니다.');
+        }
+    };
 
-    // 후원 버튼 이벤트
-    document.getElementById('btnSupport').onclick = () => {
-      window.open('https://ko-fi.com/kemonomimilover', '_blank');
+    // [수정] 후원 계좌번호 복사 버튼 이벤트
+    document.getElementById('btnCopyAccount').onclick = () => {
+      // TODO: 'XXX-XXX-XXXXXX'를 실제 토스 가상계좌 번호로 변경해주세요.
+      const accountNumber = '토스뱅크 1908-4175-3025'; 
+      navigator.clipboard.writeText(accountNumber);
+      showToast('계좌번호가 복사되었습니다.');
     };
 
   }catch(e){
