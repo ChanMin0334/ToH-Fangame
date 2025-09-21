@@ -776,3 +776,24 @@ exports.setAppVersion = onCall({ region: 'us-central1' }, async (req) => {
 });
 
 
+// functions/index.js
+
+// ... (기존 exports 객체 내부에 추가)
+exports.adminSetSupporterTier = onCall({ region: 'us-central1' }, async (req) => {
+  const uid = req.auth?.uid;
+  if (!await __isAdmin(uid)) {
+    throw new HttpsError('permission-denied', '관리자만 실행할 수 있습니다.');
+  }
+  const { targetUid, tier } = req.data;
+  if (!targetUid || typeof tier !== 'string') {
+    throw new HttpsError('invalid-argument', '대상 UID와 등급(tier)이 필요합니다.');
+  }
+
+  const userRef = db.doc(`users/${targetUid}`);
+  await userRef.set({
+    supporter_tier: tier // tier가 빈 문자열이면 필드가 삭제됨
+  }, { merge: true });
+
+  logger.info(`Supporter tier for ${targetUid} set to '${tier}' by admin: ${uid}`);
+  return { ok: true, uid: targetUid, tier };
+});
