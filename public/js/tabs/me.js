@@ -67,6 +67,19 @@ async function boot(){
     document.getElementById('nickInput').value = me.nickname||'';
     renderNickHint(me);
 
+
+               // [추가] UID 필드 채우기 및 복사 버튼 이벤트
+    const uidInput = document.getElementById('uidInput');
+    if (auth.currentUser) {
+        uidInput.value = auth.currentUser.uid;
+    }
+    document.getElementById('btnCopyUid').onclick = () => {
+        if (uidInput.value) {
+            navigator.clipboard.writeText(uidInput.value);
+            showToast('UID가 복사되었습니다.');
+        }
+    };
+
     // Avatar
     document.getElementById('btnAvatarChange').onclick = ()=> document.getElementById('fileAvatar').click();
     document.getElementById('fileAvatar').onchange = onPickAvatar;
