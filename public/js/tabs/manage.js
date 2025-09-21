@@ -163,6 +163,9 @@ function supporterTpl() {
     <div class="manage-row">
       <select id="supporter-tier" class="manage-select">
         <option value="">없음 (효과 제거)</option>
+        {/* ▼▼▼▼▼ 여기에 새 옵션 추가 ▼▼▼▼▼ */}
+        <option value="nexus">Nexus Traveler (포탈 이펙트)</option>
+        {/* ▲▲▲▲▲ 여기에 새 옵션 추가 ▲▲▲▲▲ */}
         <option value="flame">불꽃 이펙트</option>
         <option value="galaxy">갤럭시 이펙트</option>
         <option value="forest">숲 이펙트</option>
