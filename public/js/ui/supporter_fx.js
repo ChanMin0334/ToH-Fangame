@@ -52,16 +52,17 @@ export function attachSupporterFX(root, theme = 'orbits', opts = {}) {
   io.observe(root);
   document.addEventListener('visibilitychange', () => { running = !prefersReduced && (document.visibilityState === 'visible'); });
 
+
+
 if (mode === 'nexus') {
   // ===== 넓은 "리본 불꽃" 프레임 + 회전 플레어(2개) =====
-  // - 테두리에 '정확히' 밀착
-  // - 불꽃을 "짧은 스파이크"가 아니라 "한 줄 두꺼운 리본"으로 그려서 파도치게 함
-  // - 강조 플레어 2개만 천천히 회전
+  // - 테두리에 딱 붙는 넓은 불띠가 파도치듯 일렁임
+  // - 강조용 밝은 점 2개만 천천히 회전
 
   const cs = getComputedStyle(root);
   const roundCss = parseFloat(cs.getPropertyValue('--round')) || parseFloat(cs.borderRadius) || 18;
 
-  // === 테두리 경계(halo 보정 포함: 실제 카드 테두리에 딱 맞춘다)
+  // 실제 카드 테두리(픽셀 좌표) — HALO 보정 포함
   function EDGE_TIGHT() {
     const px = HALO * dpr;
     const w  = bw - 2 * px;
@@ -84,193 +85,154 @@ if (mode === 'nexus') {
     ctx.closePath();
   }
 
-  // 둘레 위의 위치/법선(+길이 계산용 총둘레)
+  // 둘레상의 위치/법선(0~1)
   function posOnPerimeter(u){
     const e = EDGE_TIGHT();
-    const R = Math.max(2, roundCss * dpr);
+    const R  = Math.max(2, roundCss * dpr);
     const Lh = Math.max(0, e.w - 2*R);
     const Lv = Math.max(0, e.h - 2*R);
     const Pa = (Math.PI/2) * R;
     const P  = 2*(Lh + Lv) + 4*Pa;
-    let s = ((u % 1) + 1) % 1; // 0~1
-    s *= P;
+    let s = ((u % 1) + 1) % 1; s *= P;
 
     if (s < Lh) return { x: e.x + R + s, y: e.y, nx: 0, ny: -1, P };
     s -= Lh;
-    if (s < Pa){ const a = -Math.PI/2 + (s/R); const cx = e.x + e.w - R, cy = e.y + R;
+    if (s < Pa){ const a=-Math.PI/2 + (s/R); const cx=e.x+e.w-R, cy=e.y+R;
       return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a), P }; }
     s -= Pa;
     if (s < Lv) return { x: e.x + e.w, y: e.y + R + s, nx: 1, ny: 0, P };
     s -= Lv;
-    if (s < Pa){ const a = (s/R); const cx = e.x + e.w - R, cy = e.y + e.h - R;
+    if (s < Pa){ const a=(s/R); const cx=e.x+e.w-R, cy=e.y+e.h-R;
       return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a), P }; }
     s -= Pa;
     if (s < Lh) return { x: e.x + e.w - R - s, y: e.y + e.h, nx: 0, ny: 1, P };
     s -= Lh;
-    if (s < Lv) { const a = Math.PI/2 + ( (s/R) ); const cx = e.x + R, cy = e.y + e.h - R;
+    if (s < Lv){ const a=Math.PI/2 + (s/R); const cx=e.x+R, cy=e.y+e.h-R;
       return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a), P }; }
-    const a = Math.PI + ( (s - Lv) / R ); const cx = e.x + R, cy = e.y + R;
+    const a = Math.PI + ((s - Lv) / R); const cx=e.x+R, cy=e.y+R;
     return { x: cx + Math.cos(a)*R, y: cy + Math.sin(a)*R, nx: Math.cos(a), ny: Math.sin(a), P };
   }
 
-  // === 얇은 베이스 네온(테두리 윤곽만 살짝)
-  function drawBase(ctx){
-    const e = EDGE_TIGHT();
-    const R = Math.max(2, roundCss * dpr);
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.shadowColor = 'rgba(70,140,255,.40)';
-    ctx.shadowBlur  = 8 * dpr;
-    ctx.strokeStyle = 'rgba(160,225,255,.80)';
-    ctx.lineWidth   = 1.0 * dpr;
-    rrect(ctx, e.x, e.y, e.w, e.h, R);
-    ctx.stroke();
-    ctx.restore();
-  }
+  // 파라미터(넓은 불)
+  const SEGMENTS   = 320;
+  const BASE_W     = 6;          // 기본 두께(px)
+  const VAR_W      = 10;         // 두께 변동(px)
+  const OUT_BIAS   = 0.58;       // 바깥쪽으로 더 넓게
+  const FLOW_SPEED = 0.00008;    // 띠가 도는 속도
+  const WAVE_SPEED = 0.00050;    // 두께 숨쉬기 속도
 
-  // =======================
-  // 리본 불꽃(핵심 로직)
-  // =======================
-  // 아이디어: 테두리 전체를 "짧은 탄젠트 조각"으로 이으면서, 각 조각의 굵기를
-  //           부드러운 노이즈로 바꿔서 '넓은 파도'처럼 보이게.
-const SEGMENTS   = 320;    // 조각 수(너무 크면 과한 계산/겹침 → 320이 안정)
-const BASE_W     = 6;      // 기본 두께(px)
-const VAR_W      = 10;     // 변동 두께(px) → “숨쉬기” 폭
-const OUT_BIAS   = 0.58;   // 바깥쪽 비중(너무 크면 밖으로 튐)
-const FLOW_SPEED = 0.00008;// 불띠가 흐르는 속도(느림)
-const WAVE_SPEED = 0.00050;// 두께 요동 속도
-
-  // 샘플별 위상 고정(조각마다 패턴이 살짝 다르게)
+  // 위상(샘플별 랜덤)
   const phase1 = new Array(SEGMENTS).fill(0).map(()=> Math.random()*Math.PI*2);
   const phase2 = new Array(SEGMENTS).fill(0).map(()=> Math.random()*Math.PI*2);
   const phase3 = new Array(SEGMENTS).fill(0).map(()=> Math.random()*Math.PI*2);
 
   function ribbonWidths(ts){
     const t = ts * WAVE_SPEED;
-    // 1) 원시 파형(저·중·고 주파수 합성)
     const raw = new Array(SEGMENTS);
     for (let i=0;i<SEGMENTS;i++){
       const u = i / SEGMENTS;
       const a = Math.sin(u*2*Math.PI*1.0 + t*1.2 + phase1[i]) * 0.55;
       const b = Math.sin(u*2*Math.PI*2.0 + t*0.8 + phase2[i]) * 0.30;
       const c = Math.sin(u*2*Math.PI*3.5 + t*1.6 + phase3[i]) * 0.15;
-      raw[i] = 0.5 + 0.5*(a + b + c); // 0~1
+      raw[i] = BASE_W + VAR_W * (0.5 + 0.5*(a+b+c)); // px
     }
-    // 2) 평활화(인접 평균)로 스파이크 제거 → 넓은 물결
-    for (let pass=0; pass<3; pass++){
+    // 이웃 부드럽게 + 급격 변화 캡
+    for (let pass=0; pass<2; pass++){
       const tmp = raw.slice();
       for (let i=0;i<SEGMENTS;i++){
         const L = tmp[(i-1+SEGMENTS)%SEGMENTS], C = tmp[i], R = tmp[(i+1)%SEGMENTS];
         raw[i] = (L + 2*C + R) / 4;
       }
     }
-    // 3) 두께로 변환
-    const W = new Array(SEGMENTS);
-    for (let i=0;i<SEGMENTS;i++){
-      W[i] = (BASE_W + VAR_W * raw[i]); // px
+    const widths = raw.slice();
+    const MAX_STEP = 2.2; // px
+    for (let i=1;i<SEGMENTS;i++){
+      const d = Math.max(-MAX_STEP, Math.min(MAX_STEP, raw[i] - widths[i-1]));
+      widths[i] = widths[i-1] + d;
     }
-    return W;
+    const seam = Math.max(-MAX_STEP, Math.min(MAX_STEP, widths[0] - widths[SEGMENTS-1]));
+    widths[0] = widths[SEGMENTS-1] + seam;
+    return widths;
   }
 
+  // 얇은 윤곽선(형태 정리)
+  function drawBase(ctx){
+    const e = EDGE_TIGHT();
+    const R = Math.max(2, roundCss * dpr);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(235,250,255,0.9)';
+    ctx.lineWidth   = 1.2 * dpr;
+    ctx.shadowColor = 'rgba(90,170,255,0.55)';
+    ctx.shadowBlur  = 6 * dpr;
+    rrect(ctx, e.x, e.y, e.w, e.h, R);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 넓은 불띠(면으로 한 번에)
   function drawRibbon(ctx, ts){
-  // 1) 샘플 두께 만들기 + 이웃 보정(갑자기 두꺼워지는 걸 막아 코너 덩어리 방지)
-  const raw = ribbonWidths(ts); // 0번에서 만든 너비(픽셀)
-  const widths = raw.slice();
-  const MAX_STEP = 2.2; // 인접 샘플 간 최대 증감(px)
-  for (let i=1;i<SEGMENTS;i++){
-    const prev = widths[i-1], want = raw[i];
-    const d = Math.max(-MAX_STEP, Math.min(MAX_STEP, want - prev));
-    widths[i] = prev + d;
+    const widths = ribbonWidths(ts);
+    const du = 1 / SEGMENTS;
+
+    const outer = new Array(SEGMENTS);
+    const inner = new Array(SEGMENTS);
+    for (let i=0;i<SEGMENTS;i++){
+      const u = (i*du + ts * FLOW_SPEED) % 1;
+      const p = posOnPerimeter(u);
+      const w = widths[i];
+      const out =  w * OUT_BIAS * dpr;
+      const inn = -w * (1-OUT_BIAS) * dpr;
+      outer[i] = [ p.x + p.nx*out, p.y + p.ny*out ];
+      inner[i] = [ p.x + p.nx*inn, p.y + p.ny*inn ];
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle   = 'rgba(150,220,255,0.30)';
+    ctx.shadowColor = 'rgba(110,190,255,0.60)';
+    ctx.shadowBlur  = 16 * dpr;
+
+    ctx.beginPath();
+    ctx.moveTo(outer[0][0], outer[0][1]);
+    for (let i=1;i<SEGMENTS;i++) ctx.lineTo(outer[i][0], outer[i][1]);
+    for (let i=SEGMENTS-1;i>=0;i--) ctx.lineTo(inner[i][0], inner[i][1]);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
-  // 끝-처음 이음새도 한 번 더 완화
-  const seam = Math.max(-MAX_STEP, Math.min(MAX_STEP, widths[0] - widths[SEGMENTS-1]));
-  widths[0] = widths[SEGMENTS-1] + seam;
 
-  // 2) 바깥/안쪽 경계 좌표 만들기(한 바퀴)
-  const du = 1 / SEGMENTS;
-  const outer = new Array(SEGMENTS);
-  const inner = new Array(SEGMENTS);
-  for (let i=0;i<SEGMENTS;i++){
-    const u = (i*du + ts * FLOW_SPEED) % 1;
-    const p = posOnPerimeter(u);
-
-    const w = widths[i];           // px
-    const offOut =  w * OUT_BIAS * dpr;          // 바깥으로
-    const offIn  = -w * (1-OUT_BIAS) * dpr;      // 안쪽으로
-
-    outer[i] = [ p.x + p.nx*offOut, p.y + p.ny*offOut ];
-    inner[i] = [ p.x + p.nx*offIn,  p.y + p.ny*offIn  ];
-  }
-
-  // 3) 넓은 불띠: 폴리곤으로 "한 번에" 채우기(코너 누적/루프 없음)
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.fillStyle  = 'rgba(150,220,255,0.30)';  // 메인 불빛
-  ctx.shadowColor = 'rgba(110,190,255,0.60)'; // 바깥 번짐
-  ctx.shadowBlur  = 16 * dpr;
-
-  ctx.beginPath();
-  // 바깥 경로(정방향)
-  ctx.moveTo(outer[0][0], outer[0][1]);
-  for (let i=1;i<SEGMENTS;i++) ctx.lineTo(outer[i][0], outer[i][1]);
-  // 안쪽 경로(역방향)
-  for (let i=SEGMENTS-1;i>=0;i--) ctx.lineTo(inner[i][0], inner[i][1]);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
-
-  // 4) 중심 윤곽(얇은 하이라이트) – 테두리에 딱 붙는 선으로 정리
-  const e = EDGE_TIGHT();
-  const R = Math.max(2, roundCss * dpr);
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.strokeStyle = 'rgba(235,250,255,0.9)';
-  ctx.lineWidth   = 1.2 * dpr;
-  ctx.shadowColor = 'rgba(90,170,255,0.55)';
-  ctx.shadowBlur  = 6 * dpr;
-  rrect(ctx, e.x, e.y, e.w, e.h, R);
-  ctx.stroke();
-  ctx.restore();
-}
-
-  // === 회전 플레어(2개)
+  // 회전 플레어 2개
   function drawOrbitFlares(ctx, ts){
-    const speed = 0.00007; // 천천히
-    const u1 = (ts * speed) % 1;
-    const u2 = (u1 + 0.5) % 1;
+    const speed = 0.00007;  // 느리게
+    const u1 = (ts * speed) % 1, u2 = (u1 + 0.5) % 1;
     for (const u of [u1, u2]){
       const p = posOnPerimeter(u);
-      const rCore = 2.6 * dpr;
-      const rGlow = 16  * dpr;
-
+      const rCore = 2.6 * dpr, rGlow = 16 * dpr;
       const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rGlow);
       g.addColorStop(0.00, 'rgba(255,255,255,.96)');
       g.addColorStop(0.28, 'rgba(190,235,255,.72)');
       g.addColorStop(1.00, 'rgba(0,0,0,0)');
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(p.x, p.y, rGlow, 0, Math.PI*2); ctx.fill();
-
       ctx.fillStyle = 'rgba(230,248,255,.96)';
       ctx.beginPath(); ctx.arc(p.x, p.y, rCore, 0, Math.PI*2); ctx.fill();
     }
   }
 
-  // === 루프
+  // 루프
   const step = (ts) => {
     if (!running) { requestAnimationFrame(step); return; }
     bctx.clearRect(0, 0, bw, bh);
     fctx.clearRect(0, 0, bw, bh);
-
-    drawBase(bctx);        // 얇은 윤곽
-    drawRibbon(bctx, ts);  // 넓은 리본 불꽃
-    drawOrbitFlares(fctx, ts); // 플레어 2개(앞 레이어)
-
+    drawRibbon(bctx, ts);   // 넓은 불띠
+    drawBase(bctx);         // 얇은 윤곽
+    drawOrbitFlares(fctx, ts); // 플레어 2개(앞)
     requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
 } else {
-  // (다음 테마 분기 유지)
-
+  // (오르빗 분기 기존 그대로 유지)
 
 
 
