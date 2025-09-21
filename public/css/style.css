@@ -450,3 +450,6 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
 .btn.btn-mock:hover {
   background: #7c3aed;
 }
+.card.card-mock {
+  border-left-color: #6d28d9; /* 보라색 */
+}
