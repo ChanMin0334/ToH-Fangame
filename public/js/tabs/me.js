@@ -107,7 +107,7 @@ async function boot(){
 
     // 후원 버튼 이벤트
     document.getElementById('btnSupport').onclick = () => {
-      window.open('https://toss.me/테일오브히어로즈', '_blank');
+      window.open('https://ko-fi.com/kemonomimilover', '_blank');
     };
 
   }catch(e){
