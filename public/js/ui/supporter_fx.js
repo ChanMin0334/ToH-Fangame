@@ -129,7 +129,7 @@ if (mode === 'nexus') {
   // ===== 핵심: 불꽃 리본 =====
   // 짧은 곡선(베지어)들이 테두리에서 바깥으로 '휘며' 솟는다.
   const FLAME_COUNT   = 42;   // 혀 개수
-  const FLAME_SPEED   = 0.00055; // 둘레를 따라 느리게 흐르는 속도
+  const FLAME_SPEED   = 0.000055; // 둘레를 따라 느리게 흐르는 속도
   const tongues = Array.from({length: FLAME_COUNT}, (_,i)=>({
     u: i / FLAME_COUNT,
     a: 12 + Math.random()*22,     // 길이 기본
