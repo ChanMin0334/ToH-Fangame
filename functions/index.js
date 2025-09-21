@@ -797,3 +797,45 @@ exports.adminSetSupporterTier = onCall({ region: 'us-central1' }, async (req) =>
   logger.info(`Supporter tier for ${targetUid} set to '${tier}' by admin: ${uid}`);
   return { ok: true, uid: targetUid, tier };
 });
+
+
+// /functions/index.js
+
+// (기존 adminSetSupporterTier 함수 바로 뒤에 추가)
+
+exports.adminGetSupporterUsers = onCall({ region: 'us-central1' }, async (req) => {
+  const uid = req.auth?.uid;
+  if (!await __isAdmin(uid)) {
+    throw new HttpsError('permission-denied', '관리자만 실행할 수 있습니다.');
+  }
+
+  try {
+    // 1. 'supporter_tier' 필드가 존재하는 모든 유저를 찾습니다.
+    // Firestore는 null이 아닌 모든 값을 '>' 비교로 찾을 수 있습니다.
+    const usersSnap = await db.collection('users').where('supporter_tier', '>', '').get();
+    
+    if (usersSnap.empty) {
+      return { ok: true, users: [] };
+    }
+
+    // 2. 필요한 정보만 정리하여 배열로 만듭니다.
+    const supporterUsers = usersSnap.docs.map(doc => {
+      const data = doc.data();
+      return {
+        uid: doc.id,
+        nickname: data.nickname || '(닉네임 없음)',
+        avatarURL: data.avatarURL || '',
+        supporter_tier: data.supporter_tier
+      };
+    });
+
+    // 3. 닉네임순으로 정렬하여 반환합니다.
+    supporterUsers.sort((a, b) => a.nickname.localeCompare(b.nickname));
+
+    return { ok: true, users: supporterUsers };
+
+  } catch (error) {
+    logger.error("Error fetching supporter users:", error);
+    throw new HttpsError('internal', '후원자 목록을 불러오는 중 오류가 발생했습니다.');
+  }
+});
