@@ -125,9 +125,8 @@ export async function uploadAvatarBlob(blob){
     jpgBlob = await toBlobWithQuality(q);
   }
 
-  // 3) Storage에 올리기 (파일명 고정: avatars/{uid}.jpg)
-  //    firebase.js에서 넘겨준 storage/sx 사용(ref, uploadBytes, getDownloadURL)
-  const r = sx.ref(storage, `avatars/${u.uid}.jpg`);
+  // 3) [수정] Storage에 올리기 (경로를 storage.rules와 일치시킴)
+  const r = sx.ref(storage, `users/${u.uid}/avatar.jpg`);
   await sx.uploadBytes(r, jpgBlob, { contentType: 'image/jpeg' });
 
   // 4) 다운로드 URL + 캐시버스터(?v=ts)
