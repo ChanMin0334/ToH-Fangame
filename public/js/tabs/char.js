@@ -1054,6 +1054,10 @@ function renderHistory(c, view){
 
   // /public/js/tabs/char.js
 // ❗️ 이 함수 전체를 복사하여 기존 appendItems 함수를 덮어쓰세요.
+// /public/js/tabs/char.js
+
+// ... (다른 함수들은 그대로 유지) ...
+
 function appendItems(items){
     if(items.length) empty.style.display = 'none';
     const frag = document.createDocumentFragment();
@@ -1066,7 +1070,12 @@ function appendItems(items){
         const myExp = isAttacker ? it.exp_char0 : it.exp_char1;
 
         let resultText, resultColor;
-        if ((isAttacker && it.winner === 0) || (!isAttacker && it.winner === 1)) {
+        
+        // ❗️ 모의전 여부(it.simulated)를 확인하여 색상과 텍스트를 결정합니다.
+        if (it.simulated) {
+            resultText = '모의전';
+            resultColor = '#8b5cf6'; // 보라색
+        } else if ((isAttacker && it.winner === 0) || (!isAttacker && it.winner === 1)) {
             resultText = '승리'; resultColor = '#3a8bff';
         } else if ((isAttacker && it.winner === 1) || (!isAttacker && it.winner === 0)) {
             resultText = '패배'; resultColor = '#ff425a';
@@ -1093,20 +1102,28 @@ function appendItems(items){
             </div>
           </div>`;
       } else if(mode==='encounter'){
-        // [수정] 올바른 조우 기록 템플릿
         const isA = it.a_char === `chars/${c.id}`;
         const opponentSnapshot = isA ? it.b_snapshot : it.a_snapshot;
         const myExp = isA ? it.exp_a : it.exp_b;
         const when = t(it.endedAt).toLocaleString();
         go = `#/encounter-log/${it.id}`;
+
+        // ❗️ 모의조우 여부(it.simulated)를 확인하여 색상과 텍스트를 결정합니다.
+        let resultText = '조우';
+        let resultColor = '#a3e635'; // 기본 녹색
+        if (it.simulated) {
+            resultText = '모의조우';
+            resultColor = '#8b5cf6'; // 보라색
+        }
+        
         html = `
-          <div class="kv-card tl-go" data-go="${go}" style="border-left:3px solid #a3e635; padding: 10px; display: flex; align-items: center; gap: 12px;">
+          <div class="kv-card tl-go" data-go="${go}" style="border-left:3px solid ${resultColor}; padding: 10px; display: flex; align-items: center; gap: 12px;">
             <div style="flex-shrink: 0;">
                 <img src="${esc(opponentSnapshot.thumb_url || '')}" onerror="this.style.display='none'" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover;">
             </div>
             <div style="flex-grow: 1; min-width: 0;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <strong style="color: #a3e635; font-size: 16px;">조우</strong>
+                    <strong style="color: ${resultColor}; font-size: 16px;">${resultText}</strong>
                     <span style="font-weight: 700;">with ${esc(opponentSnapshot.name)}</span>
                 </div>
                 <div class="text-dim" style="font-size: 12px; margin-top: 4px;">
