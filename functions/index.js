@@ -112,14 +112,14 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
       ? Number(exist)||0
       : (exist?.toMillis ? Math.floor(exist.toMillis()/1000) : 0);
 
-    // [슬롯 고정] 5분(300s) 경계로 보정: 같은 5분 안에서 여러 번 눌러도 누적 X
+    // [슬롯 고정] + [최소 유지시간 보장]
     const WINDOW = 300;
-     const nextBoundary = Math.ceil(nowSec / WINDOW) * WINDOW; // 다음 5분 경계
-    // 이미 더 긴 쿨다운이 있으면 그걸 유지, 아니면 경계까지
-    const untilSec = Math.max(existSec, nextBoundary);
-       
-    // 트랜잭션 내에서 최종 기록
+    const nextBoundary = Math.ceil(nowSec / WINDOW) * WINDOW;
+    const minBySeconds = nowSec + Math.max(1, Math.min(600, Number(req.data?.seconds || 60)));
+    const untilSec = Math.max(existSec, nextBoundary, minBySeconds);
+
     tx.set(userRef, { cooldown_all_until: untilSec }, { merge: true });
+
 
   });
 
@@ -175,7 +175,8 @@ exports.startExplore = onCall({ region:'us-central1' }, async (req)=>{
     if (c.explore_active_run) throw new HttpsError('aborted','이미 진행중');
 
     tx.set(runRef, payload);
-    tx.update(charRef, { explore_active_run: runRef.path, updatedAt: Date.now() });
+    tx.update(charRef, { explore_active_run: runRef.path, updatedAt: Timestamp.now() });
+
 
     // [쿨타임 1시간] — 현재 남은 쿨타임보다 “연장만”
     const baseMs = Math.max(coolMillis(userSnap.get?.('cooldown_explore_until')), Date.now());
@@ -345,15 +346,23 @@ async function sellItemsCore(uid, data) {
 
       // 1. 판매될 아이템을 장착한 내 모든 캐릭터를 찾습니다.
       const charsRef = db.collection('chars');
-      const query = charsRef.where('owner_uid', '==', uid).where('items_equipped', 'array-contains-any', itemIds);
-      const equippedCharsSnap = await tx.get(query);
+// Firestore 제한(<=30) 대비: 청크 분할
+const chunks = [];
+for (let i = 0; i < itemIds.length; i += 30) chunks.push(itemIds.slice(i, i + 30));
 
-      // 2. 각 캐릭터의 장착 목록에서 판매될 아이템 ID를 제거합니다.
-      equippedCharsSnap.forEach(doc => {
-        const charData = doc.data();
-        const newEquipped = (charData.items_equipped || []).filter(id => !soldItemIds.has(id));
-        tx.update(doc.ref, { items_equipped: newEquipped });
-      });
+const touched = new Map(); // doc.id → docSnap (중복 방지)
+for (const ids of chunks) {
+  const q = charsRef.where('owner_uid','==', uid).where('items_equipped','array-contains-any', ids);
+  const snap = await tx.get(q);
+  snap.forEach(doc => touched.set(doc.id, doc));
+}
+
+for (const [, doc] of touched) {
+  const data = doc.data();
+  const newEquipped = (data.items_equipped || []).filter(id => !soldItemIds.has(id));
+  tx.update(doc.ref, { items_equipped: newEquipped });
+}
+
 
       for (const item of currentItems) {
         if (soldItemIds.has(item.id)) {
