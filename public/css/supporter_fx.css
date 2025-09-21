@@ -62,15 +62,6 @@
 .avatar-wrap .top-actions { position:absolute; top:16px; right:16px; z-index:99; }
 .char-card{ overflow: visible; }
 
-/* 캔버스는 HALO까지 확장 */
-.supporter-fx .fx-canvas {
-  position: absolute;
-  top:  calc(var(--halo, 32px) * -1);
-  left: calc(var(--halo, 32px) * -1);
-  width:  calc(100% + calc(var(--halo, 32px) * 2));
-  height: calc(100% + calc(var(--halo, 32px) * 2));
-}
-
 /* 링/베일은 사용 안 함 (숨김) */
 .supporter-fx .ring, .supporter-fx .veil { display:none; }
 
