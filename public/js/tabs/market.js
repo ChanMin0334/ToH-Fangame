@@ -14,13 +14,23 @@ const cssEsc = (s) => (window.CSS?.escape ? CSS.escape(String(s ?? '')) : String
 const RARITY_ORDER = ['aether','myth','legend','epic','rare','normal'];
 
 function prettyTime(ts){
-  const ms = ts?.toMillis ? ts.toMillis() : (ts?._seconds ? ts._seconds * 1000 : 0);
-  if (!ms) return '-'; // 시간이 없으면 빈 값 대신 하이픈(-) 표시
-  const d = new Date(ms);
-  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
-  const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
-  return `${y}-${m}-${dd} ${hh}:${mm}`;
+  function fmt(ms){
+    if (!ms) return '-';
+    const d = new Date(ms);
+    const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
+    const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
+    return `${y}-${m}-${dd} ${hh}:${mm}`;
+  }
+  if (!ts) return '-';
+  if (typeof ts === 'number') return fmt(ts);
+  if (typeof ts === 'string') return fmt(Number(ts)); // 혹시 문자열 타임스탬프면 숫자로
+  if (typeof ts?.toMillis === 'function') return fmt(ts.toMillis());
+  const sec = (ts?._seconds ?? ts?.seconds);
+  const nano = (ts?._nanoseconds ?? ts?.nanoseconds ?? 0);
+  if (sec != null) return fmt(sec * 1000 + Math.floor(nano/1e6));
+  return '-';
 }
+
 
 function subpath(){
   const h = location.hash || '';
@@ -103,6 +113,46 @@ async function showTradeDetailModal(listing, onPurchase) {
   }
   document.body.appendChild(back);
 }
+
+
+async function showAuctionDetailModal(auctionId) {
+  ensureModalCss();
+  let data;
+  try {
+    const res = await call('auctionGetDetail')({ auctionId });
+    data = res.data;
+    if (!data?.ok) throw new Error('상세 정보 로딩 실패');
+  } catch (e) {
+    showToast(`오류: ${e.message}`);
+    return;
+  }
+
+  if (data.kind === 'special') {
+    showToast('특수 경매는 정보가 비공개야.');
+    return;
+  }
+
+  const item = data.item || {};
+  const style = rarityStyle(item.rarity);
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal-card" style="max-width: 520px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+        <div class="item-name" style="font-size:18px; font-weight: 800; color:${style.text}">${esc(item.name || '이름 없음')}</div>
+        <button class="btn ghost" id="mClose">닫기</button>
+      </div>
+      <div class="kv-card" style="border-left: 3px solid ${style.border}; background:${style.bg};">
+        <p>${(item.description || item.desc_long || item.desc_soft || item.desc || '상세 설명 없음').replace(/\n/g, '<br>')}</p>
+      </div>
+    </div>
+  `;
+  const closeModal = () => back.remove();
+  back.addEventListener('click', e => { if (e.target === back) closeModal(); });
+  back.querySelector('#mClose').onclick = closeModal;
+  document.body.appendChild(back);
+}
+
 
 // ===================================================
 // TAB: 일반거래
@@ -209,6 +259,7 @@ async function viewAuction(root, inv, coins){
     coins = data.coins;
     rows = await fetchAuctions('normal'); 
     render(); 
+    
   }
 
   function render(){
@@ -216,7 +267,7 @@ async function viewAuction(root, inv, coins){
     if (sortKey === 'rarity') sortedRows.sort((a,b) => RARITY_ORDER.indexOf(a.item_rarity) - RARITY_ORDER.indexOf(b.item_rarity) || (b.createdAt?._seconds||0)-(a.createdAt?._seconds||0));
     if (sortKey === 'new') sortedRows.sort((a,b)=> (b.createdAt?._seconds||0)-(a.createdAt?._seconds||0));
 
-    const listHTML = rows.length ? `<div class="grid">${rows.map(A=>{
+    const listHTML = sortedRows.length ? `<div class="grid">${sortedRows.map(A=>{
       const top = A.topBid?.amount ? `현재가 ${A.topBid.amount}` : `시작가 ${A.minBid}`;
       const style = rarityStyle(A.item_rarity);
       return `
@@ -228,6 +279,7 @@ async function viewAuction(root, inv, coins){
           <div class="text-dim" style="font-size:12px; margin-top:2px">마감: ${prettyTime(A.endsAt)}</div>
           <div class="chip" style="align-self: flex-start;">🪙 <b>${top}</b></div>
           <div class="row" style="margin-top:8px; gap:6px;">
+            <button class="btn" data-au-detail="${esc(A.id)}">상세보기</button>
             <input class="input" type="number" min="1" step="1" placeholder="입찰가" style="flex:1;" data-bid-for="${esc(A.id)}">
             <button class="btn primary" data-bid="${esc(A.id)}">입찰</button>
           </div>
@@ -283,6 +335,11 @@ async function viewAuction(root, inv, coins){
         try{ await call('auctionCreate')({ itemId:id, minBid:sb, minutes:mins, kind:'normal' }); showToast('경매 등록 완료!'); await handleRefresh(); mode='list'; render(); }
         catch(e){ showToast(`등록 실패: ${e.message}`); }
     }});
+
+    root.querySelectorAll('[data-au-detail]').forEach(btn=>{
+      btn.onclick = () => showAuctionDetailModal(btn.dataset.auDetail);
+    });
+
   }
   render();
 }
