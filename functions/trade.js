@@ -1,6 +1,4 @@
 // functions/trade.js
-// 거래소(일반거래/경매) 서버 모듈
-// 사용 필드: users.coins, users.coins_hold, users.items_all
 
 module.exports = (admin, { onCall, HttpsError, logger }) => {
   const db = admin.firestore();
@@ -12,22 +10,20 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     return `${y}-${m}-${dd}`;
   };
 
-  async function _loadCaps() {
-    try {
-      const snap = await db.doc('configs/item_price_caps').get();
-      const d = snap.exists ? snap.data() : {};
-      return {
-        byId: d.byId || {}, // { [itemId]: {min,max} }
-        byRarity: d.byRarity || { normal:[1,50], rare:[5,200], epic:[25,600], legend:[80,1500], myth:[160,3000], aether:[300,10000] }
-      };
-    } catch (_) {
-      return { byId:{}, byRarity:{ normal:[1,50], rare:[5,200], epic:[25,600], legend:[80,1500], myth:[160,3000], aether:[300,10000] } };
-    }
-  }
-
   function _assert(cond, code, msg) {
     if (!cond) throw new HttpsError(code, msg);
   }
+
+  // [신규] 아이템 기준 가격 계산 함수 (상점 판매가 로직과 동일)
+  function _calculatePrice(item) {
+    const prices = {
+      consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100, aether: 250 },
+      non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200, aether: 500 }
+    };
+    const isConsumable = item.isConsumable || item.consumable || item.consume;
+    const priceTier = isConsumable ? prices.consumable : prices.non_consumable;
+    return priceTier[item.rarity] || 0;
+  };
 
   // 아이템 이동
   function _removeItemFromUser(tx, userRef, userSnap, itemId) {
@@ -87,18 +83,10 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     }
   }
 
-  async function _getCapsForItem(item) {
-    const caps = await _loadCaps();
-    const id = String(item?.id||'');
-    if (id && caps.byId[id]) return caps.byId[id];
-    const rar = String(item?.rarity||'normal').toLowerCase();
-    const [min,max] = caps.byRarity[rar] || caps.byRarity.normal;
-    return { min, max };
-  }
-
   // ========== [일반거래] ==========
   const tradeCol = db.collection('market_trades');
 
+  // [수정] 가격 제한 로직 추가
   const tradeCreateListing = onCall({ region:'us-central1' }, async (req)=>{
     const uid = req.auth?.uid;
     _assert(uid, 'unauthenticated', '로그인이 필요해');
@@ -108,22 +96,21 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
 
     const userRef = db.doc(`users/${uid}`);
     const listingRef = tradeCol.doc();
-    let outId = listingRef.id;
 
     await db.runTransaction(async (tx)=>{
       const userSnap = await tx.get(userRef);
       _assert(userSnap.exists, 'not-found', '유저 없음');
 
-      // 일일 등록 카운터 +1 (<=5)
       _bumpDailyTradeCount(tx, userRef, userSnap);
-
-      // 아이템 꺼내기
       const item = _removeItemFromUser(tx, userRef, userSnap, String(itemId));
 
-      // 가격 캡
-      const { min, max } = await _getCapsForItem(item);
+      // [핵심 수정] 기준가의 +-50% 가격 제한 적용
+      const basePrice = _calculatePrice(item);
+      _assert(basePrice > 0, 'invalid-argument', '가격을 산정할 수 없는 아이템이야');
+      const minPrice = Math.floor(basePrice * 0.5);
+      const maxPrice = Math.floor(basePrice * 1.5);
       const p = Math.floor(Number(price));
-      _assert(p >= min && p <= max, 'failed-precondition', `가격은 ${min}~${max} 골드만 가능해`);
+      _assert(p >= minPrice && p <= maxPrice, 'failed-precondition', `가격은 ${minPrice}~${maxPrice} 골드 사이만 가능해`);
 
       tx.set(listingRef, {
         status:'active', seller_uid: uid, price: p, item,
@@ -131,29 +118,63 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       });
     });
 
-    return { ok:true, id: outId };
+    return { ok:true, id: listingRef.id };
+  });
+
+  // [신규] 판매 취소 함수
+  const tradeCancelListing = onCall({ region:'us-central1' }, async (req)=>{
+    const uid = req.auth?.uid;
+    _assert(uid, 'unauthenticated', '로그인이 필요해');
+    const { listingId } = req.data || {};
+    _assert(listingId, 'invalid-argument', 'listingId 필요');
+
+    const listingRef = tradeCol.doc(String(listingId));
+    await db.runTransaction(async (tx) => {
+      const listingSnap = await tx.get(listingRef);
+      _assert(listingSnap.exists, 'not-found', '판매 물품을 찾을 수 없어');
+      const listing = listingSnap.data();
+
+      _assert(listing.seller_uid === uid, 'permission-denied', '내 물건만 취소할 수 있어');
+      _assert(listing.status === 'active', 'failed-precondition', '이미 판매되었거나 취소된 물품이야');
+
+      const userRef = db.doc(`users/${uid}`);
+      _addItemToUser(tx, userRef, listing.item);
+      
+      tx.update(listingRef, { status: 'cancelled', cancelledAt: nowTs() });
+    });
+
+    return { ok: true };
+  });
+
+  // [신규] 상세 정보 조회 함수
+  const tradeGetListingDetail = onCall({ region:'us-central1' }, async (req) => {
+    const { listingId } = req.data || {};
+    _assert(listingId, 'invalid-argument', 'listingId 필요');
+
+    const snap = await tradeCol.doc(String(listingId)).get();
+    _assert(snap.exists, 'not-found', '판매 정보를 찾을 수 없어');
+    
+    const listing = snap.data();
+    // 공개적으로 안전한 정보만 반환 (여기서는 item 객체 전체가 필요)
+    return { ok: true, item: listing.item, price: listing.price, seller_uid: listing.seller_uid };
   });
 
   const tradeListPublic = onCall({ region:'us-central1' }, async (_req)=>{
-  // 인덱스가 준비되어 있다면 where+orderBy 사용, 아니면 orderBy만 써도 무방
-  const snap = await tradeCol.where('status','==','active').orderBy('createdAt','desc').limit(80).get();
-
-  // 공개 응답: 아이템 스펙은 감추고 최소 정보만
-  const rows = snap.docs.map(d=>{
-    const x = d.data(); const it = x.item || {};
-    return {
-      id: d.id,
-      price: Number(x.price||0),
-      seller_uid: x.seller_uid,        // 구매/신고 등에 필요하면 유지
-      item_id: String(it.id||''),
-      item_name: String(it.name||''),  // 이름/등급은 “보여짐” 요구사항 충족
-      item_rarity: String(it.rarity||'normal'),
-      createdAt: x.createdAt
-    };
+    const snap = await tradeCol.where('status','==','active').orderBy('createdAt','desc').limit(80).get();
+    const rows = snap.docs.map(d=>{
+      const x = d.data(); const it = x.item || {};
+      return {
+        id: d.id,
+        price: Number(x.price||0),
+        seller_uid: x.seller_uid,
+        item_id: String(it.id||''),
+        item_name: String(it.name||''),
+        item_rarity: String(it.rarity||'normal'),
+        createdAt: x.createdAt
+      };
+    });
+    return { ok:true, rows };
   });
-  return { ok:true, rows };
-});
-
 
   const tradeBuy = onCall({ region:'us-central1' }, async (req)=>{
     const uid = req.auth?.uid;
@@ -175,11 +196,8 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       const seller = await tx.get(sellerRef);
       _assert(buyer.exists && seller.exists, 'not-found', '유저 정보 없음');
 
-      // 구매자 결제
       _pay(tx, buyerRef, buyer, Number(L.price||0));
-      // 판매자 수령
       _give(tx, sellerRef, Number(L.price||0));
-      // 아이템 전달
       _addItemToUser(tx, buyerRef, L.item);
 
       tx.update(ref, { status:'sold', buyer_uid: uid, soldAt: nowTs() });
@@ -189,9 +207,10 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   });
 
   // ========== [경매(일반/특수)] ==========
+  // (기존 경매 로직은 변경 없음)
   const aucCol = db.collection('market_auctions');
-  const MIN_MINUTES = 30; // 최소 경매 시간(분)
-  const MIN_STEP = 1;     // 최소 호가 단위
+  const MIN_MINUTES = 30;
+  const MIN_STEP = 1;
 
   const auctionCreate = onCall({ region:'us-central1' }, async (req)=>{
     const uid = req.auth?.uid;
@@ -204,20 +223,11 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
 
     const userRef = db.doc(`users/${uid}`);
     const aucRef = aucCol.doc();
-    let outId = aucRef.id;
 
     await db.runTransaction(async (tx)=>{
       const userSnap = await tx.get(userRef);
       _assert(userSnap.exists, 'not-found', '유저 없음');
-
-      // 등록 즉시 취소 불가 — 정책만, 별도 필드 필요X
       const item = _removeItemFromUser(tx, userRef, userSnap, String(itemId));
-
-      // (참고) 가격 캡을 경매 시작가에 적용하고 싶다면 아래 주석 해제
-      // const { min, max } = await _getCapsForItem(item);
-      // const s = Math.floor(Number(minBid));
-      // _assert(s >= min && s <= max, 'failed-precondition', `시작가는 ${min}~${max} 사이여야 해`);
-
       const endMs = Date.now() + dur*60*1000;
       tx.set(aucRef, {
         status:'active', seller_uid: uid, kind: k,
@@ -228,43 +238,39 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       });
     });
 
-    return { ok:true, id: outId };
+    return { ok:true, id: aucRef.id };
   });
 
   const auctionListPublic = onCall({ region:'us-central1' }, async (req)=>{
-  const kindReq = (req.data?.kind === 'special') ? 'special' : null;
-  let q = aucCol.where('status','==','active');
-  if (kindReq) q = q.where('kind','==',kindReq);
-  const snap = await q.orderBy('createdAt','desc').limit(120).get();
+    const kindReq = (req.data?.kind === 'special') ? 'special' : null;
+    let q = aucCol.where('status','==','active');
+    if (kindReq) q = q.where('kind','==',kindReq);
+    const snap = await q.orderBy('createdAt','desc').limit(120).get();
 
-  const rows = snap.docs.map(d=>{
-    const x = d.data(); const it = x.item || {};
-    if (x.kind === 'special') {
-      // 특수 경매: 등급/스펙 감춤, 서술만
+    const rows = snap.docs.map(d=>{
+      const x = d.data(); const it = x.item || {};
+      if (x.kind === 'special') {
+        return {
+          id: d.id, kind: x.kind,
+          minBid: Number(x.minBid||1),
+          topBid: x.topBid || null,
+          endsAt: x.endsAt, createdAt: x.createdAt,
+          item_id: String(it.id||''),
+          description: String(it.desc || it.desc_short || '')
+        };
+      }
       return {
         id: d.id, kind: x.kind,
         minBid: Number(x.minBid||1),
         topBid: x.topBid || null,
         endsAt: x.endsAt, createdAt: x.createdAt,
         item_id: String(it.id||''),
-        description: String(it.desc || it.desc_short || '')
+        item_name: String(it.name||''),
+        item_rarity: String(it.rarity||'normal')
       };
-    }
-    // 일반 경매: 등급 “보여짐”
-    return {
-      id: d.id, kind: x.kind,
-      minBid: Number(x.minBid||1),
-      topBid: x.topBid || null,
-      endsAt: x.endsAt, createdAt: x.createdAt,
-      item_id: String(it.id||''),
-      item_name: String(it.name||''),
-      item_rarity: String(it.rarity||'normal')
-    };
+    });
+    return { ok:true, rows };
   });
-
-  return { ok:true, rows };
-});
-
 
   const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
     const uid = req.auth?.uid;
@@ -289,23 +295,15 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       const me = await tx.get(meRef);
       _assert(me.exists, 'not-found', '유저 없음');
 
-      // 새 입찰자 홀드
       _hold(tx, meRef, me, bid);
 
-      // 기존 1등 있으면 환불
       if (A.topBid?.uid) {
         const prevRef = db.doc(`users/${A.topBid.uid}`);
         const prev = await tx.get(prevRef);
         if (prev.exists) _release(tx, prevRef, prev, Number(A.topBid.amount||0));
       }
 
-      // 탑 입찰 갱신
-      tx.update(ref, {
-        topBid: { uid, amount: bid },
-        updatedAt: nowTs()
-      });
-
-      // 입찰 로그(필요시)
+      tx.update(ref, { topBid: { uid, amount: bid }, updatedAt: nowTs() });
       tx.set(ref.collection('bids').doc(), { uid, amount: bid, at: nowTs() });
     });
 
@@ -313,9 +311,8 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   });
 
   const auctionSettle = onCall({ region:'us-central1' }, async (req)=>{
-    const uid = req.auth?.uid; // 호출자 아무나 가능(공개 정산)
+    const uid = req.auth?.uid;
     _assert(uid, 'unauthenticated', '로그인이 필요해');
-
     const { auctionId } = req.data || {};
     _assert(auctionId, 'invalid-argument', 'auctionId 필요');
 
@@ -332,18 +329,16 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       _assert(seller.exists, 'not-found', '판매자 정보 없음');
 
       if (A.topBid?.uid) {
-        // 낙찰 정산
         const winRef = db.doc(`users/${A.topBid.uid}`);
         const win = await tx.get(winRef);
         _assert(win.exists, 'not-found', '낙찰자 정보 없음');
 
-        _capture(tx, winRef, win, Number(A.topBid.amount||0)); // 보증금 확정 차감
-        _give(tx, sellerRef, Number(A.topBid.amount||0));      // 판매자 수령
-        _addItemToUser(tx, winRef, A.item);                    // 아이템 지급
+        _capture(tx, winRef, win, Number(A.topBid.amount||0));
+        _give(tx, sellerRef, Number(A.topBid.amount||0));
+        _addItemToUser(tx, winRef, A.item);
 
         tx.update(ref, { status:'sold', buyer_uid: A.topBid.uid, soldAt: nowTs() });
       } else {
-        // 유찰: 서버가 1골드에 사감(판매자 1골드 지급, 아이템 소각 처리)
         _give(tx, sellerRef, 1);
         tx.update(ref, { status:'system_sold', buyer_uid:'__system__', soldAt: nowTs() });
       }
@@ -354,6 +349,8 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
 
   return {
     tradeCreateListing,
+    tradeCancelListing,      // [신규]
+    tradeGetListingDetail, // [신규]
     tradeListPublic,
     tradeBuy,
     auctionCreate,
