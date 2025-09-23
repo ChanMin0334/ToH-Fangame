@@ -206,8 +206,28 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     return { ok:true };
   });
 
+  // [신규] 내가 등록한 거래 목록 조회
+  const tradeListMyListings = onCall({ region:'us-central1' }, async (req)=>{
+      const uid = req.auth?.uid;
+      _assert(uid, 'unauthenticated', '로그인이 필요해');
+      const snap = await tradeCol.where('seller_uid','==',uid).orderBy('createdAt','desc').limit(50).get();
+      const rows = snap.docs.map(d=>{
+          const x = d.data(); const it = x.item || {};
+          return {
+              id: d.id,
+              status: x.status,
+              price: Number(x.price||0),
+              item_name: String(it.name||''),
+              item_rarity: String(it.rarity||'normal'),
+              createdAt: x.createdAt,
+              soldAt: x.soldAt || null,
+              buyer_uid: x.buyer_uid || null,
+          };
+      });
+      return { ok:true, rows };
+  });
+
   // ========== [경매(일반/특수)] ==========
-  // (기존 경매 로직은 변경 없음)
   const aucCol = db.collection('market_auctions');
   const MIN_MINUTES = 30;
   const MIN_STEP = 1;
@@ -270,6 +290,31 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       };
     });
     return { ok:true, rows };
+  });
+  
+    // [신규] 내가 등록한 경매 목록
+  const auctionListMyListings = onCall({ region: 'us-central1' }, async (req) => {
+      const uid = req.auth?.uid;
+      _assert(uid, 'unauthenticated', '로그인이 필요해');
+      const snap = await aucCol.where('seller_uid', '==', uid).orderBy('createdAt', 'desc').limit(50).get();
+      const rows = snap.docs.map(d => {
+          const x = d.data();
+          const it = x.item || {};
+          return {
+              id: d.id,
+              status: x.status,
+              kind: x.kind,
+              item_name: String(it.name || ''),
+              item_rarity: String(it.rarity || 'normal'),
+              minBid: Number(x.minBid || 1),
+              topBid: x.topBid || null,
+              createdAt: x.createdAt,
+              endsAt: x.endsAt,
+              soldAt: x.soldAt || null,
+              buyer_uid: x.buyer_uid || null,
+          };
+      });
+      return { ok: true, rows };
   });
 
   const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
@@ -352,9 +397,11 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     tradeCancelListing,      // [신규]
     tradeGetListingDetail, // [신규]
     tradeListPublic,
+    tradeListMyListings, // [신규]
     tradeBuy,
     auctionCreate,
     auctionListPublic,
+    auctionListMyListings, // [신규]
     auctionBid,
     auctionSettle,
   };
