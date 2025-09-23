@@ -1,4 +1,3 @@
-// /public/js/tabs/market.js (UI/UX 개선 및 버그 수정 최종본)
 
 import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
@@ -15,7 +14,7 @@ const RARITY_ORDER = ['aether','myth','legend','epic','rare','normal'];
 
 function prettyTime(ts){
   const ms = ts?.toMillis ? ts.toMillis() : (ts?.seconds ? ts.seconds * 1000 : 0);
-  if (!ms) return '-';
+  if (!ms) return '-'; // 시간이 없으면 빈 값 대신 하이픈(-) 표시
   const d = new Date(ms);
   const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
   const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
@@ -49,13 +48,12 @@ async function fetchAuctions(kind){
 }
 
 function header(tab, coins = 0){
+  // 모바일 화면을 위해 상점, 길드 탭 제거
   return `<div class="bookmarks">
-    <a href="#/plaza/shop"   class="bookmark">🛒 상점</a>
     <a href="#/market/trade"   class="bookmark ${tab==='trade'?'active':''}">↔️ 일반거래</a>
     <a href="#/market/auction" class="bookmark ${tab==='auction'?'active':''}">🏷️ 일반 경매</a>
     <a href="#/market/special" class="bookmark ${tab==='special'?'active':''}">🎭 특수 경매</a>
     <a href="#/market/my" class="bookmark ${tab==='my'?'active':''}">📦 내 등록품</a>
-    <a href="#/plaza/guilds" class="bookmark">🏰 길드</a>
     <div class="chip" style="margin-left: auto;">🪙 <b>${coins}</b></div>
   </div>`;
 }
@@ -69,7 +67,7 @@ async function showTradeDetailModal(listing, onPurchase) {
     if (!data.ok) throw new Error('상세 정보 로딩 실패');
     item = data.item; price = data.price; seller_uid = data.seller_uid;
   } catch(e) { showToast(`오류: ${e.message}`); return; }
-  
+
   const style = rarityStyle(item.rarity);
   const isMyItem = uid === seller_uid;
 
