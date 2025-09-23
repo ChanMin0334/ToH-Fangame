@@ -15,7 +15,7 @@ const RARITY_ORDER = ['aether','myth','legend','epic','rare','normal'];
 
 function prettyTime(ts){
   const ms = ts?.toMillis ? ts.toMillis() : (ts?._seconds ? ts._seconds * 1000 : 0);
-  if (!ms) return '-';
+  if (!ms) return '-'; // 시간이 없으면 빈 값 대신 하이픈(-) 표시
   const d = new Date(ms);
   const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
   const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
@@ -191,10 +191,7 @@ async function viewTrade(root, inv, coins){
       if (!await confirmModal({title: '등록 확인', lines: [`${item?.name}을(를) ${price}골드에 등록합니다.`]})) return;
       try {
         await call('tradeCreateListing')({ itemId:id, price });
-        showToast('등록 완료!');
-        await handleRefresh();
-        mode = 'list';
-        render();
+        showToast('등록 완료!'); await handleRefresh(); mode = 'list'; render();
       } catch(e) { showToast(`등록 실패: ${e.message}`); }
     });
   }
@@ -372,7 +369,7 @@ async function viewMyListings(root, coins){
             ]);
         } catch (e) {
             console.error("내 등록품 로딩 실패:", e);
-            root.innerHTML = `${header('my', coins)}<div class="bookview"><div class="empty card error" style="margin-top:12px;">데이터를 불러오는 데 실패했습니다. Firestore 색인이 배포되었는지 확인해주세요.</div></div>`;
+            root.innerHTML = `<div class="bookview">${header('my', coins)}<div class="empty card error" style="margin-top:12px;">데이터를 불러오는 데 실패했습니다. Firestore 색인이 배포되었는지 확인해주세요.</div></div>`;
             return;
         }
         render();
@@ -394,7 +391,7 @@ async function viewMyListings(root, coins){
                     </div>`;
             } else {
                 const top = item.topBid?.amount ? `현재가 ${item.topBid.amount}` : `시작가 ${item.minBid}`;
-                const isEnded = (item.endsAt?._seconds * 1000) <= Date.now();
+                const isEnded = (item.endsAt?._seconds * 1000 || 0) <= Date.now();
                 return `
                     <div class="card ${item.kind === 'special' ? 'special-card' : ''}">
                         <div class="item-name title">${esc(item.item_name || `비공개 물품 #${item.id.slice(-6)}`)}</div>
@@ -423,9 +420,6 @@ async function viewMyListings(root, coins){
     handleRefresh();
 }
 
-// ===================================================
-// ENTRY
-// ===================================================
 export default async function showMarket(){
   ensureModalCss();
   const root = document.getElementById('view');
