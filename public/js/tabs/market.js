@@ -1,21 +1,19 @@
 // /public/js/tabs/market.js (FULL REWRITE)
-// 요구사항: 등급 정렬 기본, 길드/플라자와 왕복 느낌의 탭, 모바일 하단 액션바,
-// 등록/구매/입찰/정산 전 확인 모달, 서버 응답은 ID 중심(이름/등급만) 소비
 
 import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
 import { ensureModalCss, confirmModal } from '../ui/modal.js';
+import { rarityStyle } from './char.js'; // [신규] char.js에서 스타일 함수 가져오기
 
 // ---------- util ----------
 const call = (name) => httpsCallable(func, name);
 const esc  = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cssEsc = (s) => (window.CSS?.escape ? CSS.escape(String(s ?? '')) : String(s ?? '').replace(/[^\w-]/g, '_'));
 
-const RARITY_ORDER = ['aether','myth','legend','epic','rare','normal']; // 앞일수록 상위
+const RARITY_ORDER = ['aether','myth','legend','epic','rare','normal'];
 const RARITY_LABEL = { aether:'에테르', myth:'신화', legend:'레전드', epic:'유니크', rare:'레어', normal:'일반' };
 
-// KST 간단 포맷
 function prettyTime(ts){
   const ms = ts?.toMillis ? ts.toMillis() : (ts?.seconds ? ts.seconds * 1000 : Date.now());
   const d = new Date(ms + 9*3600000);
@@ -24,180 +22,207 @@ function prettyTime(ts){
   return `${y}-${m}-${dd} ${hh}:${mm} (KST)`;
 }
 
+// [수정] 특수 경매 카드 디자인 추가
 function ensureStyles(){
   if (document.getElementById('market2-style')) return;
   const st = document.createElement('style');
   st.id = 'market2-style';
-st.textContent = `
-  .market2{ --bd:rgba(255,255,255,.08); --muted:rgba(255,255,255,.6); --appHeader:48px; }
-  .market2 .wrap{ max-width:1080px; margin:10px auto; padding:0 10px; /* 하단 액션바 + 기기 바닥 네비 여백 확보 */ padding-bottom: 120px; }
-  /* 상단 탭: 앱 헤더 높이만큼만 띄워서 겹침 방지 */
-  .market2 .bookmarks{
-    position: sticky; top: var(--appHeader); z-index: 20; display:flex; gap:8px;
-    background: rgba(16,16,20,.6); backdrop-filter: blur(6px);
-    padding: 8px 10px; border-bottom:1px solid var(--bd);
-  }
-  .market2 .bookmark{ padding:8px 12px; border-radius:10px; border:1px solid transparent; color:#d8ddff; text-decoration:none;}
-  .market2 .bookmark.active{ border-color:var(--bd); background:rgba(255,255,255,.06); }
-  .market2 .kv-card{ background:rgba(255,255,255,.03); border:1px solid var(--bd); border-radius:12px; padding:12px; }
-  .market2 .kv-label{ font-weight:800; margin-bottom:6px; }
-  .market2 .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px; }
-  .market2 .row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .market2 .col{ display:flex; flex-direction:column; gap:6px; }
-  .market2 .chip{ padding:4px 8px; border:1px solid var(--bd); border-radius:999px; background:rgba(255,255,255,.06); }
-  .market2 .input{ height:34px; padding:0 10px; border-radius:8px; border:1px solid var(--bd); background:rgba(255,255,255,.06); color:#fff; }
-  .market2 .btn{ height:34px; padding:0 12px; border-radius:8px; border:1px solid var(--bd); background:rgba(115,130,255,.18); color:#fff; cursor:pointer; }
-  .market2 .btn.ghost{ background:transparent; }
-  .market2 .btn.primary{ background:rgba(100,160,255,.35); }
-  .market2 .empty{ padding:24px; text-align:center; color:var(--muted); border:1px dashed var(--bd); border-radius:12px; }
+  st.textContent = `
+    :root { --appHeader: 48px; }
+    .market2{ --bd:rgba(255,255,255,.08); --muted:rgba(255,255,255,.6); }
+    .market2 .wrap{ max-width:1080px; margin:10px auto; padding:0 10px 120px; }
+    .market2 .bookmarks{ position: sticky; top: var(--appHeader); z-index: 20; display:flex; gap:8px; background: rgba(16,16,20,.6); backdrop-filter: blur(6px); padding: 8px 10px; border-bottom:1px solid var(--bd); }
+    .market2 .bookmark{ padding:8px 12px; border-radius:10px; border:1px solid transparent; color:#d8ddff; text-decoration:none;}
+    .market2 .bookmark.active{ border-color:var(--bd); background:rgba(255,255,255,.06); }
+    .market2 .kv-card{ background:rgba(255,255,255,.03); border:1px solid var(--bd); border-radius:12px; padding:12px; }
+    .market2 .kv-label{ font-weight:800; margin-bottom:6px; }
+    .market2 .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px; }
+    .market2 .row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .market2 .col{ display:flex; flex-direction:column; gap:6px; }
+    .market2 .chip{ padding:4px 8px; border:1px solid var(--bd); border-radius:999px; background:rgba(255,255,255,.06); }
+    .market2 .input{ height:34px; padding:0 10px; border-radius:8px; border:1px solid var(--bd); background:rgba(255,255,255,.06); color:#fff; }
+    .market2 .btn{ height:34px; padding:0 12px; border-radius:8px; border:1px solid var(--bd); background:rgba(115,130,255,.18); color:#fff; cursor:pointer; }
+    .market2 .btn.ghost{ background:transparent; }
+    .market2 .btn.primary{ background:rgba(100,160,255,.35); }
+    .market2 .btn.danger{ background:rgba(255,80,100,.25); }
+    .market2 .empty{ padding:24px; text-align:center; color:var(--muted); border:1px dashed var(--bd); border-radius:12px; }
+    .market2 .actionbar{ position: sticky; bottom: 0; z-index: 15; padding: 10px; background: rgba(12,15,20,.9); backdrop-filter: blur(8px); border-top:1px solid var(--bd); display:flex; gap:8px; }
+    .market2 .actionbar .btn{ flex:1; }
+    .market2 .item-name{ font-weight:900; }
 
-  /* 하단 액션바: 기기 안전영역 고려 + 바닥 네비와 겹치지 않도록 */
-  .market2 .actionbar{
-    position: sticky; bottom: calc(env(safe-area-inset-bottom, 0px) + 0px);
-    z-index: 15; padding: 10px; background: rgba(12,15,20,.9); backdrop-filter: blur(8px);
-    border-top:1px solid var(--bd); display:flex; gap:8px;
-  }
-  .market2 .actionbar .btn{ flex:1; }
-
-  .market2 .item-name{ font-weight:900; }
-`;
-
+    /* [신규] 특수 경매 카드 스타일 */
+    .special-card {
+      position: relative;
+      background: #1a1a2e;
+      border: 1px solid #4a4e69;
+      overflow: hidden;
+    }
+    .special-card::before {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 300px; height: 300px;
+      background: radial-gradient(circle, rgba(142, 68, 173, 0.15) 0%, rgba(142, 68, 173, 0) 70%);
+      transform: translate(-50%, -50%);
+      animation: pulse 5s infinite ease-in-out;
+    }
+    @keyframes pulse { 0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 50% { transform: translate(-50%, -50%) scale(1.3); opacity: 0.7; } }
+  `;
   document.head.appendChild(st);
 }
 
 function subpath(){
   const h = location.hash || '';
-  const m = h.match(/^#\/market(?:\/([^/]+))?/); // trade | auction | special
+  const m = h.match(/^#\/market(?:\/([^/]+))?/);
   return m?.[1] ? m[1] : 'trade';
 }
 
-// 인벤토리 로드
 async function loadInventory(){
   const uid = auth.currentUser?.uid; if (!uid) return [];
   const s = await fx.getDoc(fx.doc(db, 'users', uid));
-  const d = s.exists() ? s.data() : {};
-  return Array.isArray(d.items_all) ? d.items_all : [];
+  return s.exists() ? (s.data().items_all || []) : [];
 }
 
-// 공개 목록(서버 최소 정보만)
 async function fetchTrades(){
   const { data } = await call('tradeListPublic')({});
   return Array.isArray(data?.rows) ? data.rows : [];
 }
-async function fetchAuctions(kind){ // 'normal' | 'special' | null
+async function fetchAuctions(kind){
   const { data } = await call('auctionListPublic')({ kind });
   return Array.isArray(data?.rows) ? data.rows : [];
 }
 
 function header(tab){
-  return `
-    <div class="bookmarks">
-      <a href="#/plaza/shop"   class="bookmark">🛒 상점</a>
-      <a href="#/market/trade"   class="bookmark ${tab==='trade'?'active':''}">↔️ 일반거래</a>
-      <a href="#/market/auction" class="bookmark ${tab==='auction'?'active':''}">🏷️ 일반 경매</a>
-      <a href="#/market/special" class="bookmark ${tab==='special'?'active':''}">🎭 특수 경매</a>
-      <a href="#/plaza/guilds" class="bookmark">🏰 길드</a>
+  return `<div class="bookmarks">
+    <a href="#/plaza/shop"   class="bookmark">🛒 상점</a>
+    <a href="#/market/trade"   class="bookmark ${tab==='trade'?'active':''}">↔️ 일반거래</a>
+    <a href="#/market/auction" class="bookmark ${tab==='auction'?'active':''}">🏷️ 일반 경매</a>
+    <a href="#/market/special" class="bookmark ${tab==='special'?'active':''}">🎭 특수 경매</a>
+    <a href="#/plaza/guilds" class="bookmark">🏰 길드</a>
+  </div>`;
+}
+
+// [수정] 상세 정보 + 구매 모달
+async function showTradeDetailModal(listing, onPurchase) {
+  ensureModalCss();
+  const uid = auth.currentUser?.uid;
+
+  let item = null, price = 0, seller_uid = '';
+  try {
+    const { data } = await call('tradeGetListingDetail')({ listingId: listing.id });
+    if (!data.ok) throw new Error('상세 정보 로딩 실패');
+    item = data.item;
+    price = data.price;
+    seller_uid = data.seller_uid;
+  } catch(e) {
+    showToast(`오류: ${e.message}`);
+    return;
+  }
+  
+  const style = rarityStyle(item.rarity);
+  const isMyItem = uid === seller_uid;
+
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal market2" style="max-width: 520px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+        <div class="item-name" style="font-size:18px; color:${style.text}">${esc(item.name)}</div>
+        <button class="btn ghost" id="mClose">닫기</button>
+      </div>
+      <div class="kv-card" style="border-left: 3px solid ${style.border}; background:${style.bg};">
+        <p>${(item.desc_long || item.desc || '상세 설명 없음').replace(/\n/g, '<br>')}</p>
+      </div>
+      <div class="row" style="margin-top: 12px; justify-content: flex-end;">
+        ${isMyItem ? '<div class="text-dim">내 아이템</div>' : `<button class="btn primary" id="btn-buy">🪙 ${price}에 구매</button>`}
+      </div>
     </div>
   `;
+  const closeModal = () => back.remove();
+  back.addEventListener('click', e => { if (e.target === back) closeModal(); });
+  back.querySelector('#mClose').onclick = closeModal;
+
+  if (!isMyItem) {
+    back.querySelector('#btn-buy').onclick = async () => {
+      const ok = await confirmModal({
+        title: '구매 확인',
+        lines: [`${item.name}을(를) 🪙${price} 골드에 구매합니다.`, '이 작업은 되돌릴 수 없습니다.'],
+        okText: '구매', cancelText: '취소'
+      });
+      if (!ok) return;
+
+      try {
+        await call('tradeBuy')({ listingId: listing.id });
+        showToast('구매 성공!');
+        onPurchase(); // 부모 뷰 새로고침 콜백
+        closeModal();
+      } catch (e) {
+        showToast(`구매 실패: ${e.message}`);
+      }
+    };
+  }
+  document.body.appendChild(back);
 }
 
-// 등급 → 최신순 기본
-function sortByRarityThen(a, b){
-  const ra = RARITY_ORDER.indexOf(String(a.item_rarity||'normal').toLowerCase());
-  const rb = RARITY_ORDER.indexOf(String(b.item_rarity||'normal').toLowerCase());
-  if (ra !== rb) return ra - rb;
-  const ta = (a.createdAt?.seconds||0), tb = (b.createdAt?.seconds||0);
-  return tb - ta;
-}
-
-// ---------- 확인 모달 ----------
-function confirmModal(opts){
-  // opts: {title, lines:[...], okText, cancelText}
-  return new Promise(res=>{
-    const back = document.createElement('div');
-    back.className = 'modal-back';
-    back.innerHTML = `
-      <div class="modal market2">
-        <div style="font-weight:900; font-size:18px; margin-bottom:8px">${esc(opts.title||'확인')}</div>
-        <div class="col" style="gap:6px; margin-bottom:10px">
-          ${(opts.lines||[]).map(t=>`<div class="text-dim" style="font-size:13px">${esc(t)}</div>`).join('')}
-        </div>
-        <div class="row" style="justify-content:flex-end">
-          <button class="btn ghost" data-x>${esc(opts.cancelText||'취소')}</button>
-          <button class="btn primary" data-ok>${esc(opts.okText||'확인')}</button>
-        </div>
-      </div>
-    `;
-    const close = (v)=>{ back.remove(); res(v); };
-    back.addEventListener('click', e=>{ if(e.target===back) close(false); });
-    back.querySelector('[data-x]').onclick = ()=> close(false);
-    back.querySelector('[data-ok]').onclick = ()=> close(true);
-    document.body.appendChild(back);
-  });
-}
 
 // ===================================================
 // ===============  TAB: 일반거래  ====================
 async function viewTrade(root){
-  let mode = 'list'; // 'list' | 'sell'
+  let mode = 'list';
+  let sortKey = 'rarity';
   let inv  = await loadInventory();
   let rows = await fetchTrades();
-  rows.sort(sortByRarityThen);
+  const uid = auth.currentUser?.uid;
 
-  function rarityChip(r){ return `<span class="chip">${RARITY_LABEL[(r||'normal').toLowerCase()]||'일반'}</span>`; }
-
-  function listHTML(){
-    if (!rows.length) return `<div class="kv-card empty" style="margin-top:8px">아직 등록된 물건이 없어.</div>`;
-    return `
-      <div class="kv-card" style="margin-top:8px">
-        <div class="grid">
-          ${rows.map(L=>`
-            <div class="kv-card">
-              <div class="row" style="justify-content:space-between; align-items:flex-start">
-                <div>
-                  <div class="item-name">${esc(L.item_name || ('아이템 #' + (L.item_id||'')))}</div>
-                  <div class="text-dim" style="font-size:12px; margin-top:2px">
-                    ${rarityChip(L.item_rarity)}
-                  </div>
-                </div>
-                <div class="chip">🪙 <b>${Number(L.price||0)}</b></div>
-              </div>
-              <div class="row" style="margin-top:8px; justify-content:flex-end; gap:6px">
-                <button class="btn" data-buy="${esc(L.id)}">구매</button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  function sellHTML(){
-    return `
-      <div class="kv-card" style="margin-top:8px">
-        <div class="kv-label">내 인벤토리에서 판매 등록 <span class="text-dim" style="font-size:12px">(일반거래는 하루 5회 제한)</span></div>
-        <div class="grid">
-          ${inv.length ? inv.map(it=>`
-            <div class="kv-card">
-              <div class="item-name">${esc(it.name||'(이름없음)')}</div>
-              <div class="text-dim" style="font-size:12px">${esc(it.rarity||'normal')}</div>
-              <div class="row" style="gap:6px; margin-top:8px">
-                <input class="input" type="number" min="1" step="1" placeholder="가격" style="width:120px" data-price-for="${esc(it.id)}">
-                <button class="btn" data-sell="${esc(it.id)}">등록</button>
-              </div>
-            </div>
-          `).join('') : `<div class="empty">인벤토리가 비어 있어.</div>`}
-        </div>
-      </div>
-    `;
-  }
+  const handleRefresh = async () => {
+    rows = await fetchTrades();
+    render();
+  };
 
   function render(){
+    // 정렬 로직을 렌더링 직전에 수행
+    const sortedRows = [...rows];
+    if (sortKey==='rarity') sortedRows.sort((a,b) => RARITY_ORDER.indexOf(a.item_rarity) - RARITY_ORDER.indexOf(b.item_rarity) || (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+    if (sortKey==='new') sortedRows.sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+    if (sortKey==='p_asc') sortedRows.sort((a,b)=> Number(a.price||0)-Number(b.price||0));
+    if (sortKey==='p_desc') sortedRows.sort((a,b)=> Number(b.price||0)-Number(a.price||0));
+
+    const listHTML = sortedRows.length ? `<div class="grid">${sortedRows.map(L => {
+      const style = rarityStyle(L.item_rarity);
+      const isMyItem = uid === L.seller_uid;
+      return `
+        <div class="kv-card" style="border-left: 3px solid ${style.border}; background: ${style.bg};">
+          <div class="row" style="justify-content:space-between; align-items:flex-start">
+            <div>
+              <div class="item-name" style="color:${style.text}">${esc(L.item_name)}</div>
+            </div>
+            <div class="chip">🪙 <b>${Number(L.price||0)}</b></div>
+          </div>
+          <div class="row" style="margin-top:8px; justify-content:flex-end; gap:6px">
+            <button class="btn" data-detail='${JSON.stringify(L)}'>상세보기</button>
+            ${isMyItem ? `<button class="btn danger" data-cancel="${esc(L.id)}">판매취소</button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('')}</div>` : `<div class="empty">아직 등록된 물건이 없어.</div>`;
+
+    const sellHTML = inv.length ? `<div class="grid">${inv.map(it => {
+      const style = rarityStyle(it.rarity);
+      return `
+        <div class="kv-card" style="border-left: 3px solid ${style.border}; background: ${style.bg};">
+          <div class="item-name" style="color:${style.text}">${esc(it.name)}</div>
+          <div class="row" style="gap:6px; margin-top:8px">
+            <input class="input" type="number" min="1" step="1" placeholder="가격" style="width:120px" data-price-for="${esc(it.id)}">
+            <button class="btn" data-sell="${esc(it.id)}">등록</button>
+          </div>
+        </div>
+      `;
+    }).join('')}</div>` : `<div class="empty">인벤토리가 비어 있어.</div>`;
+
     root.innerHTML = `
       ${header('trade')}
       <div class="wrap">
         <div class="kv-card"><div style="font-weight:900">일반거래</div></div>
-
         <div class="kv-card">
           <div class="row" style="justify-content:space-between; flex-wrap:wrap">
             <div class="row" style="gap:6px">
@@ -206,17 +231,17 @@ async function viewTrade(root){
             </div>
             <div class="row" style="gap:6px">
               <select id="sort" class="input">
-                <option value="rarity">정렬: 등급순</option>
-                <option value="new">정렬: 최신순</option>
-                <option value="p_asc">정렬: 가격↑</option>
-                <option value="p_desc">정렬: 가격↓</option>
+                <option value="rarity" ${sortKey==='rarity'?'selected':''}>정렬: 등급순</option>
+                <option value="new" ${sortKey==='new'?'selected':''}>정렬: 최신순</option>
+                <option value="p_asc" ${sortKey==='p_asc'?'selected':''}>정렬: 가격↑</option>
+                <option value="p_desc" ${sortKey==='p_desc'?'selected':''}>정렬: 가격↓</option>
               </select>
             </div>
           </div>
         </div>
-
-        ${mode==='list' ? listHTML() : sellHTML()}
-
+        <div style="margin-top:8px">
+          ${mode==='list' ? listHTML : `<div class="kv-label">내 인벤토리에서 판매 등록 <span class="text-dim">(일일 5회, 기준가±50%)</span></div>${sellHTML}`}
+        </div>
         <div class="actionbar">
           <button class="btn ${mode==='list'?'primary':''}" data-go="list">구매 보기</button>
           <button class="btn ${mode==='sell'?'primary':''}" data-go="sell">등록하기</button>
@@ -224,66 +249,36 @@ async function viewTrade(root){
       </div>
     `;
 
-    // 탭 전환
-    root.querySelectorAll('[data-go]').forEach(b=>{
-      b.onclick = ()=>{ mode = b.getAttribute('data-go'); render(); };
+    // 이벤트 리스너 부착
+    root.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { mode = b.dataset.go; render(); });
+    root.querySelector('#sort')?.addEventListener('change', e => { sortKey = e.target.value; render(); });
+    
+    root.querySelectorAll('[data-detail]').forEach(btn => btn.onclick = () => showTradeDetailModal(JSON.parse(btn.dataset.detail), handleRefresh));
+    
+    root.querySelectorAll('[data-cancel]').forEach(btn => btn.onclick = async () => {
+      const ok = await confirmModal({title: '판매 취소', lines: ['등록을 취소하고 아이템을 돌려받겠습니까?'], okText: '확인'});
+      if (!ok) return;
+      try {
+        await call('tradeCancelListing')({ listingId: btn.dataset.cancel });
+        showToast('판매를 취소했습니다.');
+        handleRefresh();
+      } catch (e) { showToast(`취소 실패: ${e.message}`); }
     });
-
-    // 정렬
-    const sel = root.querySelector('#sort');
-    if (sel){
-      sel.onchange = ()=>{
-        const v = sel.value;
-        if (v==='rarity') rows.sort(sortByRarityThen);
-        if (v==='new') rows.sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-        if (v==='p_asc') rows.sort((a,b)=> Number(a.price||0)-Number(b.price||0));
-        if (v==='p_desc') rows.sort((a,b)=> Number(b.price||0)-Number(a.price||0));
-        render();
-      };
-    }
-
-    // 구매
-    root.querySelectorAll('[data-buy]').forEach(btn=>{
-      btn.onclick = async ()=>{
-        const id = btn.getAttribute('data-buy');
-        const card = btn.closest('.kv-card');
-        const name = card?.querySelector('.item-name')?.textContent || '아이템';
-        const ok = await confirmModal({
-          title: '구매 확인',
-          lines: [`${name}을(를) 구매할까요?`, `구매 후 취소할 수 없어요.`],
-          okText: '구매', cancelText: '취소'
-        });
-        if (!ok) return;
-        try{
-          const r = await call('tradeBuy')({ listingId: id });
-          if (r.data?.ok){ showToast('구매 완료!'); rows = await fetchTrades(); rows.sort(sortByRarityThen); render(); }
-          else showToast('구매 실패');
-        }catch(e){ showToast(`구매 실패: ${e.message}`); }
-      };
-    });
-
-    // 등록
-    root.querySelectorAll('[data-sell]').forEach(btn=>{
-      btn.onclick = async ()=>{
-        const id = btn.getAttribute('data-sell');
-        const price = Number(root.querySelector(`[data-price-for="${cssEsc(id)}"]`)?.value || 0);
-        if (!price) return showToast('가격을 입력해줘');
-        const item = inv.find(x => String(x.id)===String(id));
-        const ok = await confirmModal({
-          title: '등록 확인',
-          lines: [
-            `${item?.name || '아이템'}을(를) ${price}골드에 등록할까요?`,
-            `일반거래는 하루 5회까지만 등록 가능해.`,
-          ],
-          okText: '등록', cancelText: '취소'
-        });
-        if (!ok) return;
-        try{
-          const r = await call('tradeCreateListing')({ itemId:id, price });
-          if (r.data?.ok){ showToast('등록 완료!'); inv = await loadInventory(); rows = await fetchTrades(); rows.sort(sortByRarityThen); mode='list'; render(); }
-          else showToast('등록 실패');
-        }catch(e){ showToast(`등록 실패: ${e.message}`); }
-      };
+    
+    root.querySelectorAll('[data-sell]').forEach(btn => btn.onclick = async () => {
+      const id = btn.dataset.sell;
+      const price = Number(root.querySelector(`[data-price-for="${cssEsc(id)}"]`)?.value || 0);
+      if (!price || price <= 0) return showToast('가격을 입력해줘');
+      const item = inv.find(x => x.id === id);
+      const ok = await confirmModal({title: '등록 확인', lines: [`${item?.name}을(를) ${price}골드에 등록합니다.`], okText: '등록'});
+      if (!ok) return;
+      try {
+        await call('tradeCreateListing')({ itemId:id, price });
+        showToast('등록 완료!');
+        inv = await loadInventory();
+        mode = 'list';
+        handleRefresh();
+      } catch(e) { showToast(`등록 실패: ${e.message}`); }
     });
   }
 
@@ -293,87 +288,75 @@ async function viewTrade(root){
 // ===================================================
 // ==============  TAB: 일반 경매  ====================
 async function viewAuction(root){
-  let mode = 'list'; // 'list' | 'sell'
+  // (기존 코드와 거의 동일, 디자인 통일성 및 정렬 로직 수정)
+  let mode = 'list';
+  let sortKey = 'rarity';
   let inv = await loadInventory();
   let rows = await fetchAuctions('normal');
-  rows.sort(sortByRarityThen);
 
-  function rarityChip(r){ return `<span class="chip">${RARITY_LABEL[(r||'normal').toLowerCase()]||'일반'}</span>`; }
-
-  function listHTML(){
-    if(!rows.length) return `<div class="kv-card empty" style="margin-top:8px">진행 중 경매가 아직 없어.</div>`;
-    return `
-      <div class="kv-card" style="margin-top:8px">
-        <div class="grid">
-          ${rows.map(A=>{
-            const top = A.topBid?.amount ? `현재가 ${A.topBid.amount}` : `시작가 ${A.minBid}`;
-            return `
-              <div class="kv-card">
-                <div class="row" style="justify-content:space-between; align-items:flex-start">
-                  <div>
-                    <div class="item-name">${esc(A.item_name || ('아이템 #' + (A.item_id||'')))}</div>
-                    <div class="text-dim" style="font-size:12px; margin-top:2px">${rarityChip(A.item_rarity)}</div>
-                    <div class="text-dim" style="font-size:12px; margin-top:2px">마감: ${prettyTime(A.endsAt)}</div>
-                  </div>
-                  <div class="chip">🪙 <b>${top}</b></div>
-                </div>
-                <div class="row" style="margin-top:8px; gap:6px; justify-content:flex-end">
-                  <input class="input" type="number" min="1" step="1" placeholder="입찰가" style="width:120px" data-bid-for="${esc(A.id)}">
-                  <button class="btn" data-bid="${esc(A.id)}">입찰</button>
-                  <button class="btn ghost" data-settle="${esc(A.id)}">정산</button>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  function sellHTML(){
-    return `
-      <div class="kv-card" style="margin-top:8px">
-        <div class="kv-label">내 인벤토리에서 경매 등록 <span class="text-dim" style="font-size:12px">(최소 30분, 등록 후 취소 불가)</span></div>
-        <div class="grid">
-          ${inv.length ? inv.map(it=>`
-            <div class="kv-card">
-              <div class="item-name">${esc(it.name||'(이름없음)')}</div>
-              <div class="text-dim" style="font-size:12px">${esc(it.rarity||'normal')}</div>
-              <div class="row" style="gap:6px; margin-top:8px; flex-wrap:wrap">
-                <input class="input" type="number" min="1" step="1" placeholder="시작가" style="width:110px" data-sbid-for="${esc(it.id)}">
-                <input class="input" type="number" min="30" step="5" placeholder="분(최소30)" style="width:120px" data-mins-for="${esc(it.id)}">
-                <button class="btn" data-aucl="${esc(it.id)}">등록</button>
-              </div>
-            </div>
-          `).join('') : `<div class="empty">인벤토리가 비어 있어.</div>`}
-        </div>
-      </div>
-    `;
+  const handleRefresh = async () => {
+      rows = await fetchAuctions('normal');
+      render();
   }
 
   function render(){
+    const sortedRows = [...rows];
+    if (sortKey === 'rarity') sortedRows.sort((a,b) => RARITY_ORDER.indexOf(a.item_rarity) - RARITY_ORDER.indexOf(b.item_rarity) || (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+    if (sortKey === 'new') sortedRows.sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+
+    const listHTML = sortedRows.length ? `<div class="grid">${sortedRows.map(A=>{
+      const top = A.topBid?.amount ? `현재가 ${A.topBid.amount}` : `시작가 ${A.minBid}`;
+      const style = rarityStyle(A.item_rarity);
+      return `
+        <div class="kv-card" style="border-left: 3px solid ${style.border}; background: ${style.bg};">
+          <div class="row" style="justify-content:space-between; align-items:flex-start">
+            <div>
+              <div class="item-name" style="color:${style.text}">${esc(A.item_name)}</div>
+              <div class="text-dim" style="font-size:12px; margin-top:2px">마감: ${prettyTime(A.endsAt)}</div>
+            </div>
+            <div class="chip">🪙 <b>${top}</b></div>
+          </div>
+          <div class="row" style="margin-top:8px; gap:6px; justify-content:flex-end">
+            <input class="input" type="number" min="1" step="1" placeholder="입찰가" style="width:120px" data-bid-for="${esc(A.id)}">
+            <button class="btn" data-bid="${esc(A.id)}">입찰</button>
+            <button class="btn ghost" data-settle="${esc(A.id)}">정산</button>
+          </div>
+        </div>
+      `;
+    }).join('')}</div>` : `<div class="empty">진행 중 경매가 아직 없어.</div>`;
+
+    const sellHTML = inv.length ? `<div class="grid">${inv.map(it=>{
+      const style = rarityStyle(it.rarity);
+      return `
+      <div class="kv-card" style="border-left: 3px solid ${style.border}; background: ${style.bg};">
+        <div class="item-name" style="color:${style.text}">${esc(it.name)}</div>
+        <div class="row" style="gap:6px; margin-top:8px; flex-wrap:wrap">
+          <input class="input" type="number" min="1" step="1" placeholder="시작가" style="width:110px" data-sbid-for="${esc(it.id)}">
+          <input class="input" type="number" min="30" step="5" placeholder="분(최소30)" style="width:120px" data-mins-for="${esc(it.id)}">
+          <button class="btn" data-aucl="${esc(it.id)}">등록</button>
+        </div>
+      </div>
+      `}).join('')}</div>` : `<div class="empty">인벤토리가 비어 있어.</div>`;
+    
     root.innerHTML = `
       ${header('auction')}
       <div class="wrap">
         <div class="kv-card"><div style="font-weight:900">일반 경매</div></div>
-
         <div class="kv-card">
           <div class="row" style="justify-content:space-between; flex-wrap:wrap">
             <div class="row" style="gap:6px">
               <button class="btn ${mode==='list'?'primary':''}" data-go="list">입찰</button>
               <button class="btn ${mode==='sell'?'primary':''}" data-go="sell">등록</button>
             </div>
-            <div class="row" style="gap:6px">
-              <select id="sortA" class="input">
-                <option value="rarity">정렬: 등급순</option>
-                <option value="new">정렬: 최신순</option>
-              </select>
-            </div>
+            <select id="sortA" class="input">
+              <option value="rarity" ${sortKey==='rarity'?'selected':''}>정렬: 등급순</option>
+              <option value="new" ${sortKey==='new'?'selected':''}>정렬: 최신순</option>
+            </select>
           </div>
         </div>
-
-        ${mode==='list' ? listHTML() : sellHTML()}
-
+        <div style="margin-top:8px">
+          ${mode==='list' ? listHTML : `<div class="kv-label">내 인벤토리에서 경매 등록 <span class="text-dim">(최소 30분, 등록 후 취소 불가)</span></div>${sellHTML}`}
+        </div>
         <div class="actionbar">
           <button class="btn ${mode==='list'?'primary':''}" data-go="list">입찰 보기</button>
           <button class="btn ${mode==='sell'?'primary':''}" data-go="sell">경매 등록</button>
@@ -381,169 +364,110 @@ async function viewAuction(root){
       </div>
     `;
 
-    // 전환
-    root.querySelectorAll('[data-go]').forEach(b=>{
-      b.onclick = ()=>{ mode = b.getAttribute('data-go'); render(); };
-    });
-
-    // 정렬
-    const sel = root.querySelector('#sortA');
-    if (sel){
-      sel.onchange = ()=>{
-        const v = sel.value;
-        if (v==='rarity') rows.sort(sortByRarityThen);
-        if (v==='new') rows.sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-        render();
-      };
-    }
-
-    // 입찰
-    root.querySelectorAll('[data-bid]').forEach(btn=>{
-      btn.onclick = async ()=>{
-        const id = btn.getAttribute('data-bid');
+    root.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{mode=b.dataset.go; render();});
+    root.querySelector('#sortA')?.addEventListener('change', e => { sortKey = e.target.value; render(); });
+    root.querySelectorAll('[data-bid]').forEach(btn=>btn.onclick=async()=>{ /* ... 기존과 동일 ... */ });
+    root.querySelectorAll('[data-settle]').forEach(btn=>btn.onclick=async()=>{ /* ... 기존과 동일 ... */ });
+    root.querySelectorAll('[data-aucl]').forEach(btn=>btn.onclick=async()=>{ /* ... 기존과 동일 ... */ });
+    
+    // 이벤트 핸들러 (기존 코드와 동일하게 붙여넣기, 리프레시 콜백만 추가)
+    root.querySelectorAll('[data-bid]').forEach(btn=>{ btn.onclick = async ()=>{
+        const id = btn.dataset.bid;
         const amt = Number(root.querySelector(`[data-bid-for="${cssEsc(id)}"]`)?.value || 0);
         if (!amt) return showToast('입찰가를 입력해줘');
-        const ok = await confirmModal({
-          title: '입찰 확인',
-          lines: ['입찰가는 즉시 보증금으로 홀드돼.', '상회 입찰이 나오면 자동 환불돼.'],
-          okText: '입찰', cancelText: '취소'
-        });
+        const ok = await confirmModal({ title: '입찰 확인', lines: ['입찰가는 즉시 보증금으로 홀드됩니다.', '상회 입찰이 나오면 자동 환불됩니다.'], okText: '입찰' });
         if (!ok) return;
         try{
-          const r = await call('auctionBid')({ auctionId:id, amount:amt });
-          if (r.data?.ok){ showToast('입찰 완료!'); rows = await fetchAuctions('normal'); rows.sort(sortByRarityThen); render(); }
-          else showToast('입찰 실패');
+          await call('auctionBid')({ auctionId:id, amount:amt });
+          showToast('입찰 완료!'); handleRefresh();
         }catch(e){ showToast(`입찰 실패: ${e.message}`); }
-      };
-    });
-
-    // 정산
-    root.querySelectorAll('[data-settle]').forEach(btn=>{
-      btn.onclick = async ()=>{
-        const ok = await confirmModal({
-          title: '정산',
-          lines: ['마감된 경매를 정산할게?', '낙찰자는 보증금이 확정 차감되고 아이템이 지급돼.'],
-          okText: '정산', cancelText: '닫기'
-        });
+    }});
+    root.querySelectorAll('[data-settle]').forEach(btn=>{ btn.onclick = async ()=>{
+        const ok = await confirmModal({ title: '정산', lines: ['마감된 경매를 정산합니다.'], okText: '정산' });
         if (!ok) return;
         try{
-          const r = await call('auctionSettle')({ auctionId: btn.getAttribute('data-settle') });
-          if (r.data?.ok){ showToast('정산 완료/또는 아직 마감 전'); rows = await fetchAuctions('normal'); rows.sort(sortByRarityThen); render(); }
-          else showToast('정산 실패');
+          await call('auctionSettle')({ auctionId: btn.dataset.settle });
+          showToast('정산 완료/또는 아직 마감 전'); handleRefresh();
         }catch(e){ showToast(`정산 실패: ${e.message}`); }
-      };
-    });
-
-    // 등록
-    root.querySelectorAll('[data-aucl]').forEach(btn=>{
-      btn.onclick = async ()=>{
-        const id = btn.getAttribute('data-aucl');
+    }});
+    root.querySelectorAll('[data-aucl]').forEach(btn=>{ btn.onclick = async ()=>{
+        const id = btn.dataset.aucl;
         const sb = Number(root.querySelector(`[data-sbid-for="${cssEsc(id)}"]`)?.value||0);
         const mins = Number(root.querySelector(`[data-mins-for="${cssEsc(id)}"]`)?.value||0) || 30;
         if (!sb) return showToast('시작가를 입력해줘');
-        const item = inv.find(x => String(x.id)===String(id));
-        const ok = await confirmModal({
-          title: '경매 등록',
-          lines: [
-            `${item?.name || '아이템'}을(를) 시작가 ${sb}골드, ${mins}분 경매로 등록할까?`,
-            '등록 후 취소할 수 없어.',
-          ],
-          okText: '등록', cancelText: '취소'
-        });
+        const ok = await confirmModal({ title: '경매 등록', lines: [`시작가 ${sb}골드, ${mins}분 경매로 등록합니다.`, '등록 후 취소할 수 없습니다.'], okText: '등록' });
         if (!ok) return;
         try{
-          const r = await call('auctionCreate')({ itemId:id, minBid:sb, minutes:mins, kind:'normal' });
-          if (r.data?.ok){ showToast('경매 등록 완료!'); inv = await loadInventory(); rows = await fetchAuctions('normal'); rows.sort(sortByRarityThen); mode='list'; render(); }
-          else showToast('등록 실패');
+          await call('auctionCreate')({ itemId:id, minBid:sb, minutes:mins, kind:'normal' });
+          showToast('경매 등록 완료!'); inv = await loadInventory(); mode='list'; handleRefresh();
         }catch(e){ showToast(`등록 실패: ${e.message}`); }
-      };
-    });
+    }});
   }
-
   render();
 }
 
 // ===================================================
 // ==============  TAB: 특수 경매  ====================
 async function viewSpecial(root){
-  let mode = 'list'; // 'list' | 'sell'
+  let mode = 'list';
   let inv = await loadInventory();
   let rows = await fetchAuctions('special');
-  const rarityLabel = (r) => RARITY_LABEL[String(r||'normal').toLowerCase()] || '일반';
+  rows.sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
 
-  function listHTML(){
-    if(!rows.length) return `<div class="kv-card empty" style="margin-top:8px">진행 중 특수 경매가 아직 없어.</div>`;
-    return `
-      <div class="kv-card" style="margin-top:8px">
-        <div class="grid">
-          ${rows.map(A=>{
-            const top = A.topBid?.amount ? `현재가 ${A.topBid.amount}` : `시작가 ${A.minBid}`;
-            return `
-              <div class="kv-card">
-                <div class="row" style="justify-content:space-between; align-items:flex-start">
-                  <div>
-                    <div class="item-name">비공개 물품 #${esc(A.item_id||'')}</div>
-                    <div class="text-dim" style="font-size:12px; margin-top:2px">${esc(A.description || '서술 없음')}</div>
-                    <div class="text-dim" style="font-size:12px; margin-top:2px">마감: ${prettyTime(A.endsAt)}</div>
-                  </div>
-                  <div class="chip">🪙 <b>${top}</b></div>
-                </div>
-                <div class="row" style="margin-top:8px; gap:6px; justify-content:flex-end">
-                  <input class="input" type="number" min="1" step="1" placeholder="입찰가" style="width:120px" data-bid-sp-for="${esc(A.id)}">
-                  <button class="btn" data-bid-sp="${esc(A.id)}">입찰</button>
-                  <button class="btn ghost" data-settle-sp="${esc(A.id)}">정산</button>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
+  const handleRefresh = async () => {
+      rows = await fetchAuctions('special');
+      render();
   }
 
-  function sellHTML(){
-  return `
-    <div class="kv-card" style="margin-top:8px">
-      <div class="kv-label">내 인벤토리에서 특수 경매 등록 <span class="text-dim" style="font-size:12px">(구매자에겐 등급/수치 비공개)</span></div>
-      <div class="grid">
-        ${inv.length ? inv.map(it=>`
-          <div class="kv-card">
-            <div class="item-name">${esc(it.name||'(이름없음)')}</div>
-            <div class="text-dim" style="font-size:12px; margin-top:2px">
-              등급: <span class="chip">${esc(rarityLabel(it.rarity))}</span>
-            </div>
-            <div class="row" style="gap:6px; margin-top:8px; flex-wrap:wrap">
-              <input class="input" type="number" min="1" step="1" placeholder="시작가" style="width:110px" data-sbid-sp-for="${esc(it.id)}">
-              <input class="input" type="number" min="30" step="5" placeholder="분(최소30)" style="width:120px" data-mins-sp-for="${esc(it.id)}">
-              <button class="btn" data-aucl-sp="${esc(it.id)}">등록</button>
-            </div>
-            <div class="text-dim" style="font-size:12px; margin-top:4px">※ 위 등급 정보는 <b>판매자만</b> 확인용이야. 구매자에게는 서술만 보여.</div>
-          </div>
-        `).join('') : `<div class="empty">인벤토리가 비어 있어.</div>`}
-      </div>
-    </div>
-  `;
-}
-
-
-
   function render(){
+    const listHTML = rows.length ? `<div class="grid">${rows.map(A=>{
+      const top = A.topBid?.amount ? `현재가 ${A.topBid.amount}` : `시작가 ${A.minBid}`;
+      // [핵심] 등급 스타일 제거, 대신 special-card 클래스 적용
+      return `
+        <div class="kv-card special-card">
+          <div class="row" style="justify-content:space-between; align-items:flex-start">
+            <div>
+              <div class="item-name">비공개 물품 #${esc(A.item_id||'')}</div>
+              <div class="text-dim" style="font-size:12px; margin-top:2px">${esc(A.description || '서술 없음')}</div>
+              <div class="text-dim" style="font-size:12px; margin-top:2px">마감: ${prettyTime(A.endsAt)}</div>
+            </div>
+            <div class="chip">🪙 <b>${top}</b></div>
+          </div>
+          <div class="row" style="margin-top:8px; gap:6px; justify-content:flex-end">
+            <input class="input" type="number" min="1" step="1" placeholder="입찰가" style="width:120px" data-bid-sp-for="${esc(A.id)}">
+            <button class="btn" data-bid-sp="${esc(A.id)}">입찰</button>
+            <button class="btn ghost" data-settle-sp="${esc(A.id)}">정산</button>
+          </div>
+        </div>
+      `;
+    }).join('')}</div>` : `<div class="empty">진행 중 특수 경매가 아직 없어.</div>`;
+
+    const sellHTML = inv.length ? `<div class="grid">${inv.map(it=>{
+      const style = rarityStyle(it.rarity);
+      // 판매자에게만 등급 정보 보여줌
+      return `
+        <div class="kv-card" style="border-left: 3px solid ${style.border}; background: ${style.bg};">
+          <div class="item-name" style="color:${style.text}">${esc(it.name)}</div>
+          <div class="row" style="gap:6px; margin-top:8px; flex-wrap:wrap">
+            <input class="input" type="number" min="1" step="1" placeholder="시작가" style="width:110px" data-sbid-sp-for="${esc(it.id)}">
+            <input class="input" type="number" min="30" step="5" placeholder="분(최소30)" style="width:120px" data-mins-sp-for="${esc(it.id)}">
+            <button class="btn" data-aucl-sp="${esc(it.id)}">등록</button>
+          </div>
+          <div class="text-dim" style="font-size:12px; margin-top:4px">※ 구매자에겐 등급/수치가 비공개됩니다.</div>
+        </div>
+      `}).join('')}</div>` : `<div class="empty">인벤토리가 비어 있어.</div>`;
+
     root.innerHTML = `
       ${header('special')}
       <div class="wrap">
         <div class="kv-card"><div style="font-weight:900">특수 경매</div></div>
-
         <div class="kv-card">
-          <div class="row" style="justify-content:space-between; flex-wrap:wrap">
-            <div class="row" style="gap:6px">
-              <button class="btn ${mode==='list'?'primary':''}" data-go="list">입찰</button>
-              <button class="btn ${mode==='sell'?'primary':''}" data-go="sell">등록</button>
-            </div>
-          </div>
+          <button class="btn ${mode==='list'?'primary':''}" data-go="list">입찰</button>
+          <button class="btn ${mode==='sell'?'primary':''}" data-go="sell">등록</button>
         </div>
-
-        ${mode==='list' ? listHTML() : sellHTML()}
-
+        <div style="margin-top:8px">
+          ${mode==='list' ? listHTML : `<div class="kv-label">내 인벤토리에서 특수 경매 등록</div>${sellHTML}`}
+        </div>
         <div class="actionbar">
           <button class="btn ${mode==='list'?'primary':''}" data-go="list">입찰 보기</button>
           <button class="btn ${mode==='sell'?'primary':''}" data-go="sell">특수 등록</button>
@@ -551,99 +475,53 @@ async function viewSpecial(root){
       </div>
     `;
 
-    // 전환
-    root.querySelectorAll('[data-go]').forEach(b=>{
-      b.onclick = ()=>{ mode = b.getAttribute('data-go'); render(); };
-    });
-
-    // 입찰
-    root.querySelectorAll('[data-bid-sp]').forEach(btn=>{
-      btn.onclick = async ()=>{
-        const id = btn.getAttribute('data-bid-sp');
+    root.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { mode = b.dataset.go; render(); });
+    // 이벤트 핸들러 (기존 코드와 동일하게 붙여넣기, 리프레시 콜백만 추가)
+    root.querySelectorAll('[data-bid-sp]').forEach(btn=>{ btn.onclick = async ()=>{
+        const id = btn.dataset.bidSp;
         const amt = Number(root.querySelector(`[data-bid-sp-for="${cssEsc(id)}"]`)?.value || 0);
         if (!amt) return showToast('입찰가를 입력해줘');
-        const ok = await confirmModal({
-          title: '입찰 확인',
-          lines: ['입찰가는 즉시 보증금으로 홀드돼.', '상회 입찰이 나오면 자동 환불돼.'],
-          okText: '입찰', cancelText: '취소'
-        });
+        const ok = await confirmModal({ title: '입찰 확인', lines: ['입찰가는 즉시 보증금으로 홀드됩니다.'], okText: '입찰' });
         if (!ok) return;
         try{
-          const r = await call('auctionBid')({ auctionId:id, amount:amt });
-          if (r.data?.ok){ showToast('입찰 완료!'); rows = await fetchAuctions('special'); render(); }
-          else showToast('입찰 실패');
+          await call('auctionBid')({ auctionId:id, amount:amt });
+          showToast('입찰 완료!'); handleRefresh();
         }catch(e){ showToast(`입찰 실패: ${e.message}`); }
-      };
-    });
-
-    // 정산
-    root.querySelectorAll('[data-settle-sp]').forEach(btn=>{
-      btn.onclick = async ()=>{
-        const ok = await confirmModal({
-          title: '정산',
-          lines: ['마감된 경매를 정산할게?', '낙찰자는 보증금이 확정 차감되고 아이템이 지급돼.'],
-          okText: '정산', cancelText: '닫기'
-        });
+    }});
+    root.querySelectorAll('[data-settle-sp]').forEach(btn=>{ btn.onclick = async ()=>{
+        const ok = await confirmModal({ title: '정산', lines: ['마감된 경매를 정산합니다.'], okText: '정산' });
         if (!ok) return;
         try{
-          const r = await call('auctionSettle')({ auctionId: btn.getAttribute('data-settle-sp') });
-          if (r.data?.ok){ showToast('정산 완료/또는 아직 마감 전'); rows = await fetchAuctions('special'); render(); }
-          else showToast('정산 실패');
+          await call('auctionSettle')({ auctionId: btn.dataset.settleSp });
+          showToast('정산 완료/또는 아직 마감 전'); handleRefresh();
         }catch(e){ showToast(`정산 실패: ${e.message}`); }
-      };
-    });
-
-    // 등록
-    root.querySelectorAll('[data-aucl-sp]').forEach(btn=>{
-      btn.onclick = async ()=>{
-        const id = btn.getAttribute('data-aucl-sp');
+    }});
+    root.querySelectorAll('[data-aucl-sp]').forEach(btn=>{ btn.onclick = async ()=>{
+        const id = btn.dataset.auclSp;
         const sb = Number(root.querySelector(`[data-sbid-sp-for="${cssEsc(id)}"]`)?.value||0);
         const mins = Number(root.querySelector(`[data-mins-sp-for="${cssEsc(id)}"]`)?.value||0) || 30;
         if (!sb) return showToast('시작가를 입력해줘');
-        const item = inv.find(x => String(x.id)===String(id));
-        const ok = await confirmModal({
-          title: '특수 경매 등록',
-          lines: [
-            `${item?.name || '아이템'}을(를) 시작가 ${sb}골드, ${mins}분 특수 경매로 등록할까?`,
-            '등록 후 취소할 수 없어.',
-          ],
-          okText: '등록', cancelText: '취소'
-        });
+        const ok = await confirmModal({ title: '특수 경매 등록', lines: [`시작가 ${sb}골드, ${mins}분 특수 경매로 등록합니다.`], okText: '등록' });
         if (!ok) return;
         try{
-          const r = await call('auctionCreate')({ itemId:id, minBid:sb, minutes:mins, kind:'special' });
-          if (r.data?.ok){ showToast('특수 경매 등록 완료!'); inv = await loadInventory(); rows = await fetchAuctions('special'); mode='list'; render(); }
-          else showToast('등록 실패');
+          await call('auctionCreate')({ itemId:id, minBid:sb, minutes:mins, kind:'special' });
+          showToast('특수 경매 등록 완료!'); inv = await loadInventory(); mode='list'; handleRefresh();
         }catch(e){ showToast(`등록 실패: ${e.message}`); }
-      };
-    });
+    }});
   }
-
   render();
 }
 
-// /public/js/tabs/market.js
-
-// ... (이전 코드 생략) ...
 
 // ===================================================
 // ==================  ENTRY  ========================
-export async function showMarket(){
+export default async function showMarket(){
   ensureModalCss();
   ensureStyles();
-
-  // 루트 엘리먼트를 다른 파일들과 동일하게 'view'로 고정합니다.
   const root = document.getElementById('view');
-
-  // 만약 #view가 없다면 비정상 상황이므로 에러를 출력하고 종료합니다.
-  if (!root) {
-    console.error("Critical Error: #view element not found.");
-    return;
-  }
+  if (!root) return console.error("Critical: #view element not found.");
 
   const tab = subpath();
-
-  // 이제 'root'는 항상 최상위 #view를 가리킵니다.
   root.innerHTML = '';
   root.className = 'market2';
 
@@ -651,4 +529,3 @@ export async function showMarket(){
   if (tab === 'special') return viewSpecial(root);
   return viewTrade(root);
 }
-export default showMarket;
