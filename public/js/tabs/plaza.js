@@ -121,17 +121,18 @@ async function loadMyCoins(){
 
 // 메인 탭 네비게이션 (shop, market, guilds)
 function navHTML(paths){
-  function btn(id, label, emoji){
-    const on = (paths.main === id); // 현재 메인 탭인지 확인
-    return `<a href="#/plaza/${id}" class="bookmark ${on?'active':''}" data-s="${id}">${emoji} ${label}</a>`;
-  }
+  // plaza 내부 탭: shop / guilds
+  // 거래소는 별도 탭(#/market)으로 분리되었으므로 북마크에서 독립 링크로 보낸다.
+  const isMarket = (location.hash || '').startsWith('#/market');
+  const mk = `<a href="#/market" class="bookmark ${isMarket?'active':''}" data-s="market">↔️ 거래소</a>`;
   return `
     <div class="bookmarks">
-      ${btn('shop','상점','🛒')}
-      ${btn('market','거래소','↔️')}
-      ${btn('guilds','길드','🏰')}
+      <a href="#/plaza/shop"   class="bookmark ${paths.main==='shop'?'active':''}"   data-s="shop">🛒 상점</a>
+      ${mk}
+      <a href="#/plaza/guilds" class="bookmark ${paths.main==='guilds'?'active':''}" data-s="guilds">🏰 길드</a>
     </div>`;
 }
+
 
 // --- 상점(Shop) 관련 기능들 ---
 
