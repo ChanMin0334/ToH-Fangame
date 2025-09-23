@@ -3,6 +3,81 @@ import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
 
+// === BEGIN PATCH: market scoped styles ===
+function ensureMarketStyles(){
+  if (document.getElementById('market-style')) return;
+  const css = `
+  /* 전체 레이아웃 */
+  .market-view{ --card-bg: rgba(255,255,255,.03); --card-bd: rgba(255,255,255,.08); --muted: rgba(255,255,255,.55); }
+  .market-view .bookview{ max-width: 1080px; margin: 12px auto; padding: 0 12px; }
+
+  /* 상단 탭(고정) */
+  .market-view .bookmarks{
+    position: sticky; top: 56px; z-index: 20;
+    display: flex; gap: 8px; padding: 8px 12px;
+    border-bottom: 1px solid var(--card-bd);
+    background: rgba(16,16,20,.6); backdrop-filter: blur(6px);
+  }
+  .market-view .bookmark{
+    display:inline-block; padding:8px 12px; border-radius: 10px;
+    border:1px solid transparent; color: #d8ddff; text-decoration: none;
+    background: transparent; transition: .15s ease;
+  }
+  .market-view .bookmark:hover{ background: rgba(255,255,255,.06); }
+  .market-view .bookmark.active{
+    border-color: var(--card-bd);
+    background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+  }
+
+  /* 카드/그리드 */
+  .market-view .kv-card{
+    background: var(--card-bg); border:1px solid var(--card-bd);
+    border-radius: 12px; padding: 12px;
+  }
+  .market-view .kv-label{ font-weight: 800; margin-bottom: 8px; }
+  .market-view .text-dim{ color: var(--muted); }
+  .market-view .grid3{ display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .market-view .row{ display:flex; align-items:center; }
+  .market-view .col{ display:flex; flex-direction:column; }
+
+  /* 입력/버튼/칩 */
+  .market-view .input{
+    background: rgba(255,255,255,.06); border:1px solid var(--card-bd);
+    border-radius: 8px; height: 34px; padding: 0 10px; color: #fff;
+  }
+  .market-view .btn{
+    height: 34px; padding: 0 12px; border-radius: 8px; border:1px solid var(--card-bd);
+    background: rgba(115,130,255,.18); color:#fff; cursor:pointer; transition:.15s;
+  }
+  .market-view .btn:hover{ filter: brightness(1.08); }
+  .market-view .btn.small{ height: 30px; padding: 0 10px; }
+  .market-view .btn.ghost{ background: transparent; }
+
+  .market-view .chip{
+    display:inline-flex; align-items:center; gap:6px;
+    padding:4px 8px; border-radius: 999px; border:1px solid var(--card-bd);
+    background: rgba(255,255,255,.06); font-weight:700;
+  }
+
+  /* 빈 상태 문구 */
+  .market-view .empty{
+    padding: 24px; text-align:center; color: var(--muted);
+    border:1px dashed var(--card-bd); border-radius: 12px;
+  }
+
+  /* 행 높이 통일(리스트) */
+  .market-view .list-row{ align-items:center; gap:8px; }
+  .market-view .list-row > .left{ flex:1; min-width:0; }
+  .market-view .item-name{ font-weight:900; }
+  `;
+  const st = document.createElement('style');
+  st.id = 'market-style'; st.textContent = css;
+  document.head.appendChild(st);
+}
+// === END PATCH ===
+
+
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function subpath(){
@@ -39,6 +114,7 @@ function header(tab){
     </div>
   `;
 }
+
 
 /* ---------- 일반거래 ---------- */
 async function renderTrade(root){
@@ -302,7 +378,8 @@ async function renderSpecial(root){
 }
 
 export async function showMarket(){
-  // 뷰 루트가 없으면 만들어서라도 보장 (라우터/앱셸 타이밍 문제 방지)
+  ensureMarketStyles();
+
   let root =
     document.querySelector('[data-view="root"]') ||
     document.getElementById('view-root') ||
@@ -316,10 +393,13 @@ export async function showMarket(){
 
   const tab = subpath();
 
-
   root.innerHTML = `
-    <div class="kv-card"><div style="font-weight:900">거래소</div></div>
-    <div id="market-root"></div>
+    <div class="market-view">
+      <div class="kv-card" style="margin: 4px auto 8px; max-width:1080px;">
+        <div style="font-weight:900">거래소</div>
+      </div>
+      <div id="market-root"></div>
+    </div>
   `;
 
   const slot = root.querySelector('#market-root');
@@ -327,5 +407,6 @@ export async function showMarket(){
   if (tab === 'special') return renderSpecial(slot);
   return renderTrade(slot);
 }
+
 
 export default showMarket;
