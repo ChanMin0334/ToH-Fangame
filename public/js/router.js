@@ -21,6 +21,7 @@ export const routes = {
   '#/encounter-log': () => import('./tabs/encounterlog.js').then(m => (m.showEncounterLog || m.default)()),
   '#/explorelog': () => import('./tabs/explorelog.js').then(m => (m.showExploreLog || m.default)()),
   '#/plaza': () => import('./tabs/plaza.js').then(m => (m.showPlaza || m.default)()),
+  '#/market': () => import('./tabs/market.js').then(m => (m.showMarket || m.default)()),
   '#/guild': () => import('./tabs/guild.js').then(m => (m.showGuild || m.default)()),
   '#/logs': () => import('./tabs/logs.js').then(m => (m.showLogs || m.default)()),
   '#/mail': () => import('./tabs/mail.js').then(m => (m.showMailbox || m.default)()),
@@ -47,8 +48,8 @@ export function router() {
   // 동적으로 변화하는 상세 페이지 경로들을 먼저 확인합니다.
   // startsWith를 사용하여 /:id 와 같은 파라미터를 포함하는 경로를 처리합니다.
   const dynamicRoutes = [
-    '#/char/', '#/relations/', '#/explore-run/', '#/explore-battle/', 
-    '#/battlelog/', '#/encounter-log/', '#/explorelog/', '#/plaza', '#/guild/'
+    '#/char/', '#/relations/', '#/explore-run/', '#/explore-battle/',
+    '#/battlelog/', '#/encounter-log/', '#/explorelog/', '#/plaza', '#/guild/', '#/market'
   ];
   
   // URL 해시가 동적 경로 패턴 중 하나로 시작하는지 찾습니다.
