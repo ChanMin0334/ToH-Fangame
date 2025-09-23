@@ -468,6 +468,7 @@ async function viewSpecial(root){
   let mode = 'list'; // 'list' | 'sell'
   let inv = await loadInventory();
   let rows = await fetchAuctions('special');
+  const rarityLabel = (r) => RARITY_LABEL[String(r||'normal').toLowerCase()] || '일반';
 
   function listHTML(){
     if(!rows.length) return `<div class="kv-card empty" style="margin-top:8px">진행 중 특수 경매가 아직 없어.</div>`;
@@ -500,25 +501,30 @@ async function viewSpecial(root){
   }
 
   function sellHTML(){
-    return `
-      <div class="kv-card" style="margin-top:8px">
-        <div class="kv-label">내 인벤토리에서 특수 경매 등록 <span class="text-dim" style="font-size:12px">(등급/수치 비공개, 서술만 노출)</span></div>
-        <div class="grid">
-          ${inv.length ? inv.map(it=>`
-            <div class="kv-card">
-              <div class="item-name">${esc(it.name||'(이름없음)')}</div>
-              <div class="row" style="gap:6px; margin-top:8px; flex-wrap:wrap">
-                <input class="input" type="number" min="1" step="1" placeholder="시작가" style="width:110px" data-sbid-sp-for="${esc(it.id)}">
-                <input class="input" type="number" min="30" step="5" placeholder="분(최소30)" style="width:120px" data-mins-sp-for="${esc(it.id)}">
-                <button class="btn" data-aucl-sp="${esc(it.id)}">등록</button>
-              </div>
-              <div class="text-dim" style="font-size:12px; margin-top:4px">구매자에게는 서술만 보여.</div>
+  return `
+    <div class="kv-card" style="margin-top:8px">
+      <div class="kv-label">내 인벤토리에서 특수 경매 등록 <span class="text-dim" style="font-size:12px">(구매자에겐 등급/수치 비공개)</span></div>
+      <div class="grid">
+        ${inv.length ? inv.map(it=>`
+          <div class="kv-card">
+            <div class="item-name">${esc(it.name||'(이름없음)')}</div>
+            <div class="text-dim" style="font-size:12px; margin-top:2px">
+              등급: <span class="chip">${esc(rarityLabel(it.rarity))}</span>
             </div>
-          `).join('') : `<div class="empty">인벤토리가 비어 있어.</div>`}
-        </div>
+            <div class="row" style="gap:6px; margin-top:8px; flex-wrap:wrap">
+              <input class="input" type="number" min="1" step="1" placeholder="시작가" style="width:110px" data-sbid-sp-for="${esc(it.id)}">
+              <input class="input" type="number" min="30" step="5" placeholder="분(최소30)" style="width:120px" data-mins-sp-for="${esc(it.id)}">
+              <button class="btn" data-aucl-sp="${esc(it.id)}">등록</button>
+            </div>
+            <div class="text-dim" style="font-size:12px; margin-top:4px">※ 위 등급 정보는 <b>판매자만</b> 확인용이야. 구매자에게는 서술만 보여.</div>
+          </div>
+        `).join('') : `<div class="empty">인벤토리가 비어 있어.</div>`}
       </div>
-    `;
-  }
+    </div>
+  `;
+}
+
+
 
   function render(){
     root.innerHTML = `
