@@ -293,6 +293,30 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       return { ok: true, rows };
   });
 
+
+    const auctionGetDetail = onCall({ region:'us-central1' }, async (req)=>{
+    const { auctionId } = req.data || {};
+    _assert(auctionId, 'invalid-argument', 'auctionId 필요');
+    const snap = await aucCol.doc(String(auctionId)).get();
+    _assert(snap.exists, 'not-found', '경매 없음');
+    const A = snap.data();
+
+    // 특수경매는 정보 비공개
+    if ((A.kind || 'normal') === 'special') {
+      return { ok: true, kind: 'special' };
+    }
+    // 일반경매는 상세 정보를 제공
+    return {
+      ok: true,
+      kind: A.kind || 'normal',
+      item: A.item,
+      minBid: Number(A.minBid || 1),
+      topBid: A.topBid || null,
+      seller_uid: A.seller_uid
+    };
+  });
+
+
   const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
     const uid = req.auth?.uid;
     _assert(uid, 'unauthenticated', '로그인이 필요해');
