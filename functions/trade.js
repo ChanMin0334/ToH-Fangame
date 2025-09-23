@@ -135,11 +135,25 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   });
 
   const tradeListPublic = onCall({ region:'us-central1' }, async (_req)=>{
-    // 공개 리스트(최근 50)
-    const q = await tradeCol.where('status','==','active').orderBy('createdAt','desc').limit(50).get();
-    const rows = q.docs.map(d => ({ id:d.id, ...d.data() }));
-    return { ok:true, rows };
+  // 인덱스가 준비되어 있다면 where+orderBy 사용, 아니면 orderBy만 써도 무방
+  const snap = await tradeCol.where('status','==','active').orderBy('createdAt','desc').limit(80).get();
+
+  // 공개 응답: 아이템 스펙은 감추고 최소 정보만
+  const rows = snap.docs.map(d=>{
+    const x = d.data(); const it = x.item || {};
+    return {
+      id: d.id,
+      price: Number(x.price||0),
+      seller_uid: x.seller_uid,        // 구매/신고 등에 필요하면 유지
+      item_id: String(it.id||''),
+      item_name: String(it.name||''),  // 이름/등급은 “보여짐” 요구사항 충족
+      item_rarity: String(it.rarity||'normal'),
+      createdAt: x.createdAt
+    };
   });
+  return { ok:true, rows };
+});
+
 
   const tradeBuy = onCall({ region:'us-central1' }, async (req)=>{
     const uid = req.auth?.uid;
@@ -218,21 +232,39 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   });
 
   const auctionListPublic = onCall({ region:'us-central1' }, async (req)=>{
-    const kind = (req.data?.kind==='special') ? 'special' : null; // null이면 전체
-    let q = aucCol.where('status','==','active').orderBy('createdAt','desc').limit(50);
-    if (kind) q = aucCol.where('status','==','active').where('kind','==',kind).orderBy('createdAt','desc').limit(50);
-    const snap = await q.get();
-    const rows = snap.docs.map(d=>{
-      const x = d.data();
-      if (x.kind==='special') {
-        // 클라이언트에 희귀도/수치 노출 방지(서술만)
-        const safeItem = { id:x.item?.id, name:x.item?.name, description:x.item?.desc || x.item?.desc_short || '' };
-        return { id:d.id, ...x, item: safeItem };
-      }
-      return { id:d.id, ...x };
-    });
-    return { ok:true, rows };
+  const kindReq = (req.data?.kind === 'special') ? 'special' : null;
+  let q = aucCol.where('status','==','active');
+  if (kindReq) q = q.where('kind','==',kindReq);
+  const snap = await q.orderBy('createdAt','desc').limit(120).get();
+
+  const rows = snap.docs.map(d=>{
+    const x = d.data(); const it = x.item || {};
+    if (x.kind === 'special') {
+      // 특수 경매: 등급/스펙 감춤, 서술만
+      return {
+        id: d.id, kind: x.kind,
+        minBid: Number(x.minBid||1),
+        topBid: x.topBid || null,
+        endsAt: x.endsAt, createdAt: x.createdAt,
+        item_id: String(it.id||''),
+        description: String(it.desc || it.desc_short || '')
+      };
+    }
+    // 일반 경매: 등급 “보여짐”
+    return {
+      id: d.id, kind: x.kind,
+      minBid: Number(x.minBid||1),
+      topBid: x.topBid || null,
+      endsAt: x.endsAt, createdAt: x.createdAt,
+      item_id: String(it.id||''),
+      item_name: String(it.name||''),
+      item_rarity: String(it.rarity||'normal')
+    };
   });
+
+  return { ok:true, rows };
+});
+
 
   const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
     const uid = req.auth?.uid;
