@@ -5,6 +5,7 @@
 import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
+import { ensureModalCss, confirmModal } from '../ui/modal.js';
 
 // ---------- util ----------
 const call = (name) => httpsCallable(func, name);
@@ -628,6 +629,7 @@ async function viewSpecial(root){
 // ===================================================
 // ==================  ENTRY  ========================
 export async function showMarket(){
+  ensureModalCss();
   ensureStyles();
 
   // 루트 엘리먼트를 다른 파일들과 동일하게 'view'로 고정합니다.
