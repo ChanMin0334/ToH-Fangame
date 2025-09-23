@@ -16,11 +16,12 @@ const RARITY_LABEL = { aether:'에테르', myth:'신화', legend:'레전드', ep
 
 function prettyTime(ts){
   const ms = ts?.toMillis ? ts.toMillis() : (ts?.seconds ? ts.seconds * 1000 : Date.now());
-  const d = new Date(ms + 9*3600000);
-  const y = d.getUTCFullYear(), m = String(d.getUTCMonth()+1).padStart(2,'0'), dd = String(d.getUTCDate()).padStart(2,'0');
-  const hh = String(d.getUTCHours()).padStart(2,'0'), mm = String(d.getUTCMinutes()).padStart(2,'0');
-  return `${y}-${m}-${dd} ${hh}:${mm} (KST)`;
+  const d = new Date(ms); // KST 변환은 브라우저에 맡김
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
+  const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
+  return `${y}-${m}-${dd} ${hh}:${mm}`;
 }
+
 
 // [수정] 특수 경매 카드 디자인 추가
 function ensureStyles(){
@@ -98,6 +99,7 @@ function header(tab){
     <a href="#/market/trade"   class="bookmark ${tab==='trade'?'active':''}">↔️ 일반거래</a>
     <a href="#/market/auction" class="bookmark ${tab==='auction'?'active':''}">🏷️ 일반 경매</a>
     <a href="#/market/special" class="bookmark ${tab==='special'?'active':''}">🎭 특수 경매</a>
+    <a href="#/market/my" class="bookmark ${tab==='my'?'active':''}">📦 내 등록품</a>
     <a href="#/plaza/guilds" class="bookmark">🏰 길드</a>
   </div>`;
 }
@@ -125,13 +127,13 @@ async function showTradeDetailModal(listing, onPurchase) {
   const back = document.createElement('div');
   back.className = 'modal-back';
   back.innerHTML = `
-    <div class="modal market2" style="max-width: 520px;">
+    <div class="modal-card market2" style="max-width: 520px;">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
         <div class="item-name" style="font-size:18px; color:${style.text}">${esc(item.name)}</div>
         <button class="btn ghost" id="mClose">닫기</button>
       </div>
       <div class="kv-card" style="border-left: 3px solid ${style.border}; background:${style.bg};">
-        <p>${(item.desc_long || item.desc || '상세 설명 없음').replace(/\n/g, '<br>')}</p>
+        <p>${(item.description || item.desc_long || item.desc_soft || item.desc || '상세 설명 없음').replace(/\n/g, '<br>')}</p>
       </div>
       <div class="row" style="margin-top: 12px; justify-content: flex-end;">
         ${isMyItem ? '<div class="text-dim">내 아이템</div>' : `<button class="btn primary" id="btn-buy">🪙 ${price}에 구매</button>`}
@@ -422,12 +424,11 @@ async function viewSpecial(root){
   function render(){
     const listHTML = rows.length ? `<div class="grid">${rows.map(A=>{
       const top = A.topBid?.amount ? `현재가 ${A.topBid.amount}` : `시작가 ${A.minBid}`;
-      // [핵심] 등급 스타일 제거, 대신 special-card 클래스 적용
       return `
         <div class="kv-card special-card">
           <div class="row" style="justify-content:space-between; align-items:flex-start">
             <div>
-              <div class="item-name">비공개 물품 #${esc(A.item_id||'')}</div>
+              <div class="item-name">비공개 물품 #${esc(A.id.slice(-6))}</div>
               <div class="text-dim" style="font-size:12px; margin-top:2px">${esc(A.description || '서술 없음')}</div>
               <div class="text-dim" style="font-size:12px; margin-top:2px">마감: ${prettyTime(A.endsAt)}</div>
             </div>
@@ -444,17 +445,16 @@ async function viewSpecial(root){
 
     const sellHTML = inv.length ? `<div class="grid">${inv.map(it=>{
       const style = rarityStyle(it.rarity);
-      // 판매자에게만 등급 정보 보여줌
       return `
-        <div class="kv-card" style="border-left: 3px solid ${style.border}; background: ${style.bg};">
-          <div class="item-name" style="color:${style.text}">${esc(it.name)}</div>
-          <div class="row" style="gap:6px; margin-top:8px; flex-wrap:wrap">
-            <input class="input" type="number" min="1" step="1" placeholder="시작가" style="width:110px" data-sbid-sp-for="${esc(it.id)}">
-            <input class="input" type="number" min="30" step="5" placeholder="분(최소30)" style="width:120px" data-mins-sp-for="${esc(it.id)}">
-            <button class="btn" data-aucl-sp="${esc(it.id)}">등록</button>
-          </div>
-          <div class="text-dim" style="font-size:12px; margin-top:4px">※ 구매자에겐 등급/수치가 비공개됩니다.</div>
+      <div class="kv-card" style="border-left: 3px solid ${style.border}; background: ${style.bg};">
+        <div class="item-name" style="color:${style.text}">${esc(it.name)}</div>
+        <div class="row" style="gap:6px; margin-top:8px; flex-wrap:wrap">
+          <input class="input" type="number" min="1" step="1" placeholder="시작가" style="width:110px" data-sbid-sp-for="${esc(it.id)}">
+          <input class="input" type="number" min="30" step="5" placeholder="분(최소30)" style="width:120px" data-mins-sp-for="${esc(it.id)}">
+          <button class="btn" data-aucl-sp="${esc(it.id)}">등록</button>
         </div>
+        <div class="text-dim" style="font-size:12px; margin-top:4px">※ 구매자에겐 등급/수치가 비공개됩니다.</div>
+      </div>
       `}).join('')}</div>` : `<div class="empty">인벤토리가 비어 있어.</div>`;
 
     root.innerHTML = `
@@ -476,7 +476,6 @@ async function viewSpecial(root){
     `;
 
     root.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { mode = b.dataset.go; render(); });
-    // 이벤트 핸들러 (기존 코드와 동일하게 붙여넣기, 리프레시 콜백만 추가)
     root.querySelectorAll('[data-bid-sp]').forEach(btn=>{ btn.onclick = async ()=>{
         const id = btn.dataset.bidSp;
         const amt = Number(root.querySelector(`[data-bid-sp-for="${cssEsc(id)}"]`)?.value || 0);
@@ -512,6 +511,83 @@ async function viewSpecial(root){
   render();
 }
 
+// ===================================================
+// =============  TAB: 내 등록품 (신규)  ==============
+async function viewMyListings(root){
+    let trades = [], auctions = [];
+    const uid = auth.currentUser?.uid;
+
+    async function handleRefresh() {
+        [trades, auctions] = await Promise.all([
+            call('tradeListMyListings')({}).then(r => r.data.rows),
+            call('auctionListMyListings')({}).then(r => r.data.rows),
+        ]);
+        render();
+    }
+
+    function render() {
+        const allItems = [
+            ...trades.map(t => ({ ...t, type: 'trade' })),
+            ...auctions.map(a => ({ ...a, type: 'auction' }))
+        ].sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+        const listHTML = allItems.length ? `<div class="grid">${allItems.map(item => {
+            if (item.type === 'trade') {
+                const style = rarityStyle(item.item_rarity);
+                const statusText = { active: '판매중', sold: '판매완료', cancelled: '취소됨' }[item.status] || item.status;
+                return `
+                    <div class="kv-card" style="border-left: 3px solid ${style.border};">
+                        <div class="item-name" style="color:${style.text}">${esc(item.item_name)}</div>
+                        <div class="text-dim" style="font-size:12px;">일반거래 · ${statusText}</div>
+                        <div class="row" style="margin-top:8px; justify-content:space-between">
+                            <div class="chip">🪙 ${item.price}</div>
+                            ${item.status === 'active' ? `<button class="btn danger" data-cancel-my="${esc(item.id)}">판매취소</button>` : ''}
+                        </div>
+                    </div>`;
+            } else { // auction
+                const top = item.topBid?.amount ? `현재가 ${item.topBid.amount}` : `시작가 ${item.minBid}`;
+                const isEnded = item.endsAt?.toMillis() <= Date.now();
+                return `
+                    <div class="kv-card ${item.kind === 'special' ? 'special-card' : ''}">
+                        <div class="item-name">${esc(item.item_name || `비공개 물품 #${item.id.slice(-6)}`)}</div>
+                        <div class="text-dim" style="font-size:12px;">${item.kind === 'special' ? '특수경매' : '일반경매'} · ${item.status}</div>
+                        <div class="text-dim" style="font-size:12px;">마감: ${prettyTime(item.endsAt)}</div>
+                        <div class="row" style="margin-top:8px; justify-content:space-between">
+                            <div class="chip">🪙 ${top}</div>
+                            ${item.status === 'active' && isEnded ? `<button class="btn primary" data-settle-my="${esc(item.id)}">정산</button>` : ''}
+                        </div>
+                    </div>`;
+            }
+        }).join('')}</div>` : `<div class="empty">등록한 물품이 없습니다.</div>`;
+
+        root.innerHTML = `
+            ${header('my')}
+            <div class="wrap">
+                <div class="kv-card"><div style="font-weight:900">내 등록품</div></div>
+                <div style="margin-top:8px">${listHTML}</div>
+            </div>`;
+
+        root.querySelectorAll('[data-cancel-my]').forEach(btn => btn.onclick = async () => {
+            if (!await confirmModal({title: '판매 취소', lines: ['등록을 취소하고 아이템을 돌려받겠습니까?']})) return;
+            try {
+                await call('tradeCancelListing')({ listingId: btn.dataset.cancelMy });
+                showToast('판매를 취소했습니다.');
+                handleRefresh();
+            } catch (e) { showToast(`취소 실패: ${e.message}`); }
+        });
+        root.querySelectorAll('[data-settle-my]').forEach(btn => btn.onclick = async () => {
+             if (!await confirmModal({ title: '정산', lines: ['마감된 경매를 정산합니다.']})) return;
+            try {
+                await call('auctionSettle')({ auctionId: btn.dataset.settleMy });
+                showToast('정산 완료!');
+                handleRefresh();
+            } catch (e) { showToast(`정산 실패: ${e.message}`); }
+        });
+    }
+
+    handleRefresh();
+}
+
 
 // ===================================================
 // ==================  ENTRY  ========================
@@ -527,5 +603,6 @@ export default async function showMarket(){
 
   if (tab === 'auction') return viewAuction(root);
   if (tab === 'special') return viewSpecial(root);
+  if (tab === 'my') return viewMyListings(root);
   return viewTrade(root);
 }
