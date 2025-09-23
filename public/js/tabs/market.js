@@ -1,3 +1,4 @@
+// /public/js/tabs/market.js (모바일 UI 및 버그 수정 최종본)
 
 import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
@@ -13,8 +14,8 @@ const cssEsc = (s) => (window.CSS?.escape ? CSS.escape(String(s ?? '')) : String
 const RARITY_ORDER = ['aether','myth','legend','epic','rare','normal'];
 
 function prettyTime(ts){
-  const ms = ts?.toMillis ? ts.toMillis() : (ts?.seconds ? ts.seconds * 1000 : 0);
-  if (!ms) return '-'; // 시간이 없으면 빈 값 대신 하이픈(-) 표시
+  const ms = ts?.toMillis ? ts.toMillis() : (ts?._seconds ? ts._seconds * 1000 : 0);
+  if (!ms) return '-';
   const d = new Date(ms);
   const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
   const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
@@ -48,7 +49,7 @@ async function fetchAuctions(kind){
 }
 
 function header(tab, coins = 0){
-  // 모바일 화면을 위해 상점, 길드 탭 제거
+  // 모바일 화면 최적화를 위해 상점, 길드 탭 제거
   return `<div class="bookmarks">
     <a href="#/market/trade"   class="bookmark ${tab==='trade'?'active':''}">↔️ 일반거래</a>
     <a href="#/market/auction" class="bookmark ${tab==='auction'?'active':''}">🏷️ 일반 경매</a>
@@ -67,7 +68,7 @@ async function showTradeDetailModal(listing, onPurchase) {
     if (!data.ok) throw new Error('상세 정보 로딩 실패');
     item = data.item; price = data.price; seller_uid = data.seller_uid;
   } catch(e) { showToast(`오류: ${e.message}`); return; }
-
+  
   const style = rarityStyle(item.rarity);
   const isMyItem = uid === seller_uid;
 
@@ -110,12 +111,18 @@ async function viewTrade(root, inv, coins){
   let mode = 'list';
   let sortKey = 'rarity';
   let rows = await fetchTrades();
-  const handleRefresh = async () => { rows = await fetchTrades(); render(); };
+  const handleRefresh = async () => { 
+    const data = await loadUserData();
+    inv = data.inv;
+    coins = data.coins;
+    rows = await fetchTrades(); 
+    render(); 
+  };
 
   function render(){
     const sortedRows = [...rows];
-    if (sortKey==='rarity') sortedRows.sort((a,b) => RARITY_ORDER.indexOf(a.item_rarity) - RARITY_ORDER.indexOf(b.item_rarity) || (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-    if (sortKey==='new') sortedRows.sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+    if (sortKey==='rarity') sortedRows.sort((a,b) => RARITY_ORDER.indexOf(a.item_rarity) - RARITY_ORDER.indexOf(b.item_rarity) || (b.createdAt?._seconds||0)-(a.createdAt?._seconds||0));
+    if (sortKey==='new') sortedRows.sort((a,b)=> (b.createdAt?._seconds||0)-(a.createdAt?._seconds||0));
     if (sortKey==='p_asc') sortedRows.sort((a,b)=> Number(a.price||0)-Number(b.price||0));
     if (sortKey==='p_desc') sortedRows.sort((a,b)=> Number(b.price||0)-Number(a.price||0));
 
@@ -184,26 +191,33 @@ async function viewTrade(root, inv, coins){
       if (!await confirmModal({title: '등록 확인', lines: [`${item?.name}을(를) ${price}골드에 등록합니다.`]})) return;
       try {
         await call('tradeCreateListing')({ itemId:id, price });
-        showToast('등록 완료!'); inv = await loadInventory(); mode = 'list'; handleRefresh();
+        showToast('등록 완료!');
+        await handleRefresh();
+        mode = 'list';
+        render();
       } catch(e) { showToast(`등록 실패: ${e.message}`); }
     });
   }
   render();
 }
+// /public/js/tabs/market.js (이어서)
 
-// ===================================================
-// TAB: 일반 경매
-// ===================================================
 async function viewAuction(root, inv, coins){
   let mode = 'list';
   let sortKey = 'rarity';
   let rows = await fetchAuctions('normal');
-  const handleRefresh = async () => { rows = await fetchAuctions('normal'); render(); }
+  const handleRefresh = async () => { 
+    const data = await loadUserData();
+    inv = data.inv;
+    coins = data.coins;
+    rows = await fetchAuctions('normal'); 
+    render(); 
+  }
 
   function render(){
     const sortedRows = [...rows];
-    if (sortKey === 'rarity') sortedRows.sort((a,b) => RARITY_ORDER.indexOf(a.item_rarity) - RARITY_ORDER.indexOf(b.item_rarity) || (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-    if (sortKey === 'new') sortedRows.sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+    if (sortKey === 'rarity') sortedRows.sort((a,b) => RARITY_ORDER.indexOf(a.item_rarity) - RARITY_ORDER.indexOf(b.item_rarity) || (b.createdAt?._seconds||0)-(a.createdAt?._seconds||0));
+    if (sortKey === 'new') sortedRows.sort((a,b)=> (b.createdAt?._seconds||0)-(a.createdAt?._seconds||0));
 
     const listHTML = rows.length ? `<div class="grid">${rows.map(A=>{
       const top = A.topBid?.amount ? `현재가 ${A.topBid.amount}` : `시작가 ${A.minBid}`;
@@ -269,7 +283,7 @@ async function viewAuction(root, inv, coins){
         const mins = Number(root.querySelector(`[data-mins-for="${cssEsc(id)}"]`)?.value||0) || 30;
         if (!sb) return showToast('시작가를 입력해줘');
         if (!await confirmModal({ title: '경매 등록', lines: [`시작가 ${sb}골드, ${mins}분 경매로 등록합니다.`, '등록 후 취소할 수 없습니다.']})) return;
-        try{ await call('auctionCreate')({ itemId:id, minBid:sb, minutes:mins, kind:'normal' }); showToast('경매 등록 완료!'); inv = await loadInventory(); mode='list'; handleRefresh(); }
+        try{ await call('auctionCreate')({ itemId:id, minBid:sb, minutes:mins, kind:'normal' }); showToast('경매 등록 완료!'); await handleRefresh(); mode='list'; render(); }
         catch(e){ showToast(`등록 실패: ${e.message}`); }
     }});
   }
@@ -279,8 +293,14 @@ async function viewAuction(root, inv, coins){
 async function viewSpecial(root, inv, coins){
   let mode = 'list';
   let rows = await fetchAuctions('special');
-  rows.sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-  const handleRefresh = async () => { rows = await fetchAuctions('special'); render(); }
+  rows.sort((a,b)=> (b.createdAt?._seconds||0)-(a.createdAt?._seconds||0));
+  const handleRefresh = async () => {
+    const data = await loadUserData();
+    inv = data.inv;
+    coins = data.coins;
+    rows = await fetchAuctions('special'); 
+    render(); 
+  }
   function render(){
     const listHTML = rows.length ? `<div class="grid">${rows.map(A=>{
       const top = A.topBid?.amount ? `현재가 ${A.topBid.amount}` : `시작가 ${A.minBid}`;
@@ -335,7 +355,7 @@ async function viewSpecial(root, inv, coins){
         const mins = Number(root.querySelector(`[data-mins-sp-for="${cssEsc(id)}"]`)?.value||0) || 30;
         if (!sb) return showToast('시작가를 입력해줘');
         if (!await confirmModal({ title: '특수 경매 등록', lines: [`시작가 ${sb}골드, ${mins}분 특수 경매로 등록합니다.`]})) return;
-        try{ await call('auctionCreate')({ itemId:id, minBid:sb, minutes:mins, kind:'special' }); showToast('특수 경매 등록 완료!'); inv = await loadInventory(); mode='list'; handleRefresh(); }
+        try{ await call('auctionCreate')({ itemId:id, minBid:sb, minutes:mins, kind:'special' }); showToast('특수 경매 등록 완료!'); await handleRefresh(); mode='list'; render(); }
         catch(e){ showToast(`등록 실패: ${e.message}`); }
     }});
   }
@@ -352,13 +372,13 @@ async function viewMyListings(root, coins){
             ]);
         } catch (e) {
             console.error("내 등록품 로딩 실패:", e);
-            root.innerHTML = `<div class="bookview"><div class="empty card error">데이터를 불러오는 데 실패했습니다. Firestore 색인이 배포되었는지 확인해주세요.</div></div>`;
+            root.innerHTML = `${header('my', coins)}<div class="bookview"><div class="empty card error" style="margin-top:12px;">데이터를 불러오는 데 실패했습니다. Firestore 색인이 배포되었는지 확인해주세요.</div></div>`;
             return;
         }
         render();
     }
     function render() {
-        const allItems = [...trades.map(t => ({ ...t, type: 'trade' })), ...auctions.map(a => ({ ...a, type: 'auction' }))].sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        const allItems = [...trades.map(t => ({ ...t, type: 'trade' })), ...auctions.map(a => ({ ...a, type: 'auction' }))].sort((a,b) => (b.createdAt?._seconds || 0) - (a.createdAt?._seconds || 0));
         const listHTML = allItems.length ? `<div class="grid">${allItems.map(item => {
             if (item.type === 'trade') {
                 const style = rarityStyle(item.item_rarity);
@@ -374,7 +394,7 @@ async function viewMyListings(root, coins){
                     </div>`;
             } else {
                 const top = item.topBid?.amount ? `현재가 ${item.topBid.amount}` : `시작가 ${item.minBid}`;
-                const isEnded = item.endsAt?.toMillis() <= Date.now();
+                const isEnded = (item.endsAt?._seconds * 1000) <= Date.now();
                 return `
                     <div class="card ${item.kind === 'special' ? 'special-card' : ''}">
                         <div class="item-name title">${esc(item.item_name || `비공개 물품 #${item.id.slice(-6)}`)}</div>
@@ -403,6 +423,9 @@ async function viewMyListings(root, coins){
     handleRefresh();
 }
 
+// ===================================================
+// ENTRY
+// ===================================================
 export default async function showMarket(){
   ensureModalCss();
   const root = document.getElementById('view');
