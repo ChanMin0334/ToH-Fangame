@@ -1,4 +1,4 @@
- // functions/index.js
+// functions/index.js
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
