@@ -646,6 +646,13 @@ const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
 Object.assign(exports, guildFns);
 exports.kickGuildMember = guildFns.kickFromGuild;
 
+
+// === BEGIN PATCH: trade module export ===
+const tradeFns = require('./trade')(admin, { onCall, HttpsError, logger });
+Object.assign(exports, tradeFns);
+// === END PATCH ===
+
+
 // === BEGIN PATCH: battle module export ===
 const battleFns = require('./battle'); // functions/battle/index.js
 Object.assign(exports, battleFns);
