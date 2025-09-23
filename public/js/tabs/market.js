@@ -630,29 +630,23 @@ async function viewSpecial(root){
 export async function showMarket(){
   ensureStyles();
 
-  // 루트 보장
-  let root =
-    document.querySelector('[data-view="root"]') ||
-    document.getElementById('view-root') ||
-    document.getElementById('root');
+  // 루트 엘리먼트를 다른 파일들과 동일하게 'view'로 고정합니다.
+  const root = document.getElementById('view');
 
+  // 만약 #view가 없다면 비정상 상황이므로 에러를 출력하고 종료합니다.
   if (!root) {
-    root = document.createElement('div');
-    root.setAttribute('data-view', 'root');
-    document.body.appendChild(root);
+    console.error("Critical Error: #view element not found.");
+    return;
   }
 
   const tab = subpath();
 
-  // showMarket 함수는 더 이상 HTML을 직접 만들지 않습니다.
-  // 대신, root 엘리먼트에 market2 클래스를 적용하고 비워줍니다.
+  // 이제 'root'는 항상 최상위 #view를 가리킵니다.
   root.innerHTML = '';
   root.className = 'market2';
 
-  // 각 view 함수가 'root' 엘리먼트 자체를 받아 전체 화면을 그리도록 합니다.
   if (tab === 'auction') return viewAuction(root);
   if (tab === 'special') return viewSpecial(root);
   return viewTrade(root);
 }
-
 export default showMarket;
