@@ -621,6 +621,10 @@ async function viewSpecial(root){
   render();
 }
 
+// /public/js/tabs/market.js
+
+// ... (이전 코드 생략) ...
+
 // ===================================================
 // ==================  ENTRY  ========================
 export async function showMarket(){
@@ -640,13 +644,15 @@ export async function showMarket(){
 
   const tab = subpath();
 
-  // 불필요한 래퍼와 제목을 제거하고, 전체를 채울 컨테이너만 남깁니다.
-  root.innerHTML = `<div class="market2" id="market-root"></div>`;
+  // showMarket 함수는 더 이상 HTML을 직접 만들지 않습니다.
+  // 대신, root 엘리먼트에 market2 클래스를 적용하고 비워줍니다.
+  root.innerHTML = '';
+  root.className = 'market2';
 
-  const slot = root.querySelector('#market-root');
-  if (tab === 'auction') return viewAuction(slot);
-  if (tab === 'special') return viewSpecial(slot);
-  return viewTrade(slot); // 각 view 함수가 slot의 내부를 모두 채웁니다.
+  // 각 view 함수가 'root' 엘리먼트 자체를 받아 전체 화면을 그리도록 합니다.
+  if (tab === 'auction') return viewAuction(root);
+  if (tab === 'special') return viewSpecial(root);
+  return viewTrade(root);
 }
 
 export default showMarket;
