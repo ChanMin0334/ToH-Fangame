@@ -27,17 +27,21 @@ function ensureStyles(){
   if (document.getElementById('market2-style')) return;
   const st = document.createElement('style');
   st.id = 'market2-style';
-  st.textContent = `
-  .market2{ --bd:rgba(255,255,255,.08); --muted:rgba(255,255,255,.6); }
-  .market2 .wrap{ max-width:1080px; margin:10px auto; padding:0 10px; }
-  .market2 .bookmarks{ position:sticky; top:56px; z-index:20; display:flex; gap:8px;
-    background:rgba(16,16,20,.6); backdrop-filter:blur(6px); padding:8px 10px; border-bottom:1px solid var(--bd);}
+st.textContent = `
+  .market2{ --bd:rgba(255,255,255,.08); --muted:rgba(255,255,255,.6); --appHeader:48px; }
+  .market2 .wrap{ max-width:1080px; margin:10px auto; padding:0 10px; /* 하단 액션바 + 기기 바닥 네비 여백 확보 */ padding-bottom: 120px; }
+  /* 상단 탭: 앱 헤더 높이만큼만 띄워서 겹침 방지 */
+  .market2 .bookmarks{
+    position: sticky; top: var(--appHeader); z-index: 20; display:flex; gap:8px;
+    background: rgba(16,16,20,.6); backdrop-filter: blur(6px);
+    padding: 8px 10px; border-bottom:1px solid var(--bd);
+  }
   .market2 .bookmark{ padding:8px 12px; border-radius:10px; border:1px solid transparent; color:#d8ddff; text-decoration:none;}
   .market2 .bookmark.active{ border-color:var(--bd); background:rgba(255,255,255,.06); }
   .market2 .kv-card{ background:rgba(255,255,255,.03); border:1px solid var(--bd); border-radius:12px; padding:12px; }
   .market2 .kv-label{ font-weight:800; margin-bottom:6px; }
   .market2 .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px; }
-  .market2 .row{ display:flex; align-items:center; gap:8px; }
+  .market2 .row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .market2 .col{ display:flex; flex-direction:column; gap:6px; }
   .market2 .chip{ padding:4px 8px; border:1px solid var(--bd); border-radius:999px; background:rgba(255,255,255,.06); }
   .market2 .input{ height:34px; padding:0 10px; border-radius:8px; border:1px solid var(--bd); background:rgba(255,255,255,.06); color:#fff; }
@@ -45,14 +49,18 @@ function ensureStyles(){
   .market2 .btn.ghost{ background:transparent; }
   .market2 .btn.primary{ background:rgba(100,160,255,.35); }
   .market2 .empty{ padding:24px; text-align:center; color:var(--muted); border:1px dashed var(--bd); border-radius:12px; }
-  /* 하단 액션바(모바일 우선) */
-  .market2 .actionbar{ position:sticky; bottom:0; z-index:15; padding:10px; background:rgba(12,15,20,.9); backdrop-filter:blur(8px); border-top:1px solid var(--bd); display:flex; gap:8px; }
+
+  /* 하단 액션바: 기기 안전영역 고려 + 바닥 네비와 겹치지 않도록 */
+  .market2 .actionbar{
+    position: sticky; bottom: calc(env(safe-area-inset-bottom, 0px) + 0px);
+    z-index: 15; padding: 10px; background: rgba(12,15,20,.9); backdrop-filter: blur(8px);
+    border-top:1px solid var(--bd); display:flex; gap:8px;
+  }
   .market2 .actionbar .btn{ flex:1; }
-  /* 모달 */
-  .market2 .modal-back{ position:fixed; inset:0; z-index:9990; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.6); backdrop-filter:blur(4px); }
-  .market2 .modal{ background:#0e1116; border:1px solid #273247; border-radius:14px; padding:14px; width:92vw; max-width:480px; }
+
   .market2 .item-name{ font-weight:900; }
-  `;
+`;
+
   document.head.appendChild(st);
 }
 
