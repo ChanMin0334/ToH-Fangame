@@ -640,19 +640,13 @@ export async function showMarket(){
 
   const tab = subpath();
 
-  root.innerHTML = `
-    <div class="market2">
-      <div class="wrap">
-        <div class="kv-card"><div style="font-weight:900">거래소</div></div>
-      </div>
-      <div class="wrap"><div id="market-root"></div></div>
-    </div>
-  `;
+  // 불필요한 래퍼와 제목을 제거하고, 전체를 채울 컨테이너만 남깁니다.
+  root.innerHTML = `<div class="market2" id="market-root"></div>`;
 
   const slot = root.querySelector('#market-root');
   if (tab === 'auction') return viewAuction(slot);
   if (tab === 'special') return viewSpecial(slot);
-  return viewTrade(slot);
+  return viewTrade(slot); // 각 view 함수가 slot의 내부를 모두 채웁니다.
 }
 
 export default showMarket;
