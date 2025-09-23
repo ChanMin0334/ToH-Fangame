@@ -302,8 +302,20 @@ async function renderSpecial(root){
 }
 
 export async function showMarket(){
-  const root = document.querySelector('[data-view="root"]');
+  // 뷰 루트가 없으면 만들어서라도 보장 (라우터/앱셸 타이밍 문제 방지)
+  let root =
+    document.querySelector('[data-view="root"]') ||
+    document.getElementById('view-root') ||
+    document.getElementById('root');
+
+  if (!root) {
+    root = document.createElement('div');
+    root.setAttribute('data-view', 'root');
+    document.body.appendChild(root);
+  }
+
   const tab = subpath();
+
 
   root.innerHTML = `
     <div class="kv-card"><div style="font-weight:900">거래소</div></div>
