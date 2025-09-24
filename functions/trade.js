@@ -67,13 +67,6 @@ targets.forEach(doc => {
   tx.update(doc.ref, { items_equipped: newEquipped });
 });
 
-    } else {
-      charSnaps.forEach(doc => {
-        const ch = doc.data();
-        const newEquipped = (ch.items_equipped || []).filter(v => String(v) !== String(itemId));
-        tx.update(doc.ref, { items_equipped: newEquipped });
-      });
-    }
 
     return item;
   }
