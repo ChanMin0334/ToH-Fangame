@@ -143,9 +143,14 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     const listingRef = tradeCol.doc();
     await db.runTransaction(async (tx)=>{
       const userSnap = await tx.get(userRef);
-      _assert(userSnap.exists, 'not-found', '유저 없음');
-      _bumpDailyTradeCount(tx, userRef, userSnap);
-      const item = await _removeItemFromUser(tx, userRef, userSnap, String(itemId), uid);
+_assert(userSnap.exists, 'not-found', '유저 없음');
+
+// ✅ 먼저 읽기/조회+제거(안에서 chars 쿼리 read 포함)
+const item = await _removeItemFromUser(tx, userRef, userSnap, String(itemId), uid);
+
+// ✅ 그 다음 쓰기(일일 카운트 증가)
+_bumpDailyTradeCount(tx, userRef, userSnap);
+
       const basePrice = _calculatePrice(item);
       _assert(basePrice > 0, 'invalid-argument', '가격을 산정할 수 없는 아이템이야');
       const minPrice = Math.floor(basePrice * 0.5);
