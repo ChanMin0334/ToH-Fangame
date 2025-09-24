@@ -24,7 +24,7 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     return priceTier[item.rarity] || 0;
   };
 
-  // ANCHOR: _removeItemFromUser 함수 수정
+  // ANCHOR: _removeItemFromUser 함수 수정 (장착 해제 로직 추가)
   async function _removeItemFromUser(tx, userRef, userSnap, itemId, uid) {
     const items = Array.isArray(userSnap.get('items_all')) ? [...userSnap.get('items_all')] : [];
     const idx = items.findIndex(it => String(it?.id) === String(itemId));
@@ -32,17 +32,16 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     const [item] = items.splice(idx, 1);
     tx.update(userRef, { items_all: items });
 
-    // 장착된 아이템 제거 로직 추가
-    if (uid) {
-        const charsRef = db.collection('chars');
-        const charQuery = charsRef.where('owner_uid', '==', uid).where('items_equipped', 'array-contains', itemId);
-        const charSnaps = await tx.get(charQuery);
-        charSnaps.forEach(doc => {
-            const charData = doc.data();
-            const newEquipped = (charData.items_equipped || []).filter(id => id !== itemId);
-            tx.update(doc.ref, { items_equipped: newEquipped });
-        });
-    }
+    // **[수정] 이 아이템을 장착한 모든 내 캐릭터를 찾아 장착 해제합니다.**
+    const charsRef = db.collection('chars');
+    const charQuery = charsRef.where('owner_uid', '==', uid).where('items_equipped', 'array-contains', itemId);
+    const charSnaps = await tx.get(charQuery);
+    
+    charSnaps.forEach(doc => {
+      const charData = doc.data();
+      const newEquipped = (charData.items_equipped || []).filter(id => id !== itemId);
+      tx.update(doc.ref, { items_equipped: newEquipped });
+    });
 
     return item;
   }
@@ -70,11 +69,13 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     tx.update(userRef, { coins: coins - amount, coins_hold: hold + amount });
   }
   
+  // ANCHOR: _release 함수 수정 (안전한 증감 연산으로 변경)
   function _release(tx, userRef, userSnap, amount) {
     const want = Math.max(0, Math.floor(Number(amount||0)));
-    if (want === 0) return;
+    if (want === 0) return; // 0원이면 아무것도 안 함
   
     const curHold = Number(userSnap.get('coins_hold') || 0);
+    // 현재 보증금이 해제할 금액보다 적으면 데이터 불일치이므로 에러 발생
     _assert(curHold >= want, 'internal', '보증금 환불 불가 (데이터 불일치)');
   
     const FieldValue = admin.firestore.FieldValue;
@@ -83,6 +84,7 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       coins_hold: FieldValue.increment(-want)
     });
   }
+  // ANCHOR_END
   
   function _capture(tx, userRef, userSnap, amount) {
     const hold = Number(userSnap.get('coins_hold')||0);
@@ -118,9 +120,7 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       const userSnap = await tx.get(userRef);
       _assert(userSnap.exists, 'not-found', '유저 없음');
       _bumpDailyTradeCount(tx, userRef, userSnap);
-      // ANCHOR: _removeItemFromUser 호출 시 uid 전달
       const item = await _removeItemFromUser(tx, userRef, userSnap, String(itemId), uid);
-      // ANCHOR_END
       const basePrice = _calculatePrice(item);
       _assert(basePrice > 0, 'invalid-argument', '가격을 산정할 수 없는 아이템이야');
       const minPrice = Math.floor(basePrice * 0.5);
@@ -244,9 +244,7 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     await db.runTransaction(async (tx)=>{
       const userSnap = await tx.get(userRef);
       _assert(userSnap.exists, 'not-found', '유저 없음');
-      // ANCHOR: _removeItemFromUser 호출 시 uid 전달
       const item = await _removeItemFromUser(tx, userRef, userSnap, String(itemId), uid);
-      // ANCHOR_END
       const endMs = Date.now() + dur*60*1000;
       tx.set(aucRef, {
         status:'active', seller_uid: uid, kind: k,
