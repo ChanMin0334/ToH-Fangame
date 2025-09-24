@@ -50,7 +50,7 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   _assert(idx >= 0, 'failed-precondition', '인벤토리에 해당 아이템이 없어');
   const [item] = items.splice(idx, 1);
 
-  // 1) 모든 읽기 먼저 (내 캐릭터들 중 이 아이템 착용한 애들 찾기)
+  // 1) 모든 읽기 먼저: 이 아이템을 착용 중인 내 캐릭터들 조회
   const charsRef = db.collection('chars');
   const mineSnap = await tx.get(charsRef.where('owner_uid','==', uid));
   const targets = mineSnap.docs.filter(d => {
@@ -58,7 +58,7 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     return eq.some(v => String(v) === String(itemId));
   });
 
-  // 2) 그 다음 모든 쓰기 (인벤토리 반영 → 착용 해제)
+  // 2) 그 다음 모든 쓰기: 인벤토리에서 제거 + 착용 해제
   tx.update(userRef, { items_all: items });
 
   targets.forEach(doc => {
@@ -382,6 +382,10 @@ const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
 
     const bid = Math.floor(Number(amount));
     const prev = A.topBid || null;
+    // 이전 최고 입찰자 문서는 쓰기 전에 미리 읽어둔다 (읽기-먼저 원칙)
+    const prevRef = (prev?.uid) ? db.doc(`users/${prev.uid}`) : null;
+    const prevSnap = prevRef ? await tx.get(prevRef) : null;
+
     const minOk = Math.max(Number(A.minBid||1), (prev?.amount||0) + MIN_STEP);
     _assert(bid >= minOk, 'failed-precondition', `입찰가는 최소 ${minOk} 이상이어야 해`);
 
@@ -394,13 +398,15 @@ const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
       _assert(delta >= MIN_STEP, 'failed-precondition', '이전 입찰보다 높아야 해');
       _hold(tx, meRef, me, delta);
     } else {
+      // 새로 들어오는 입찰자: 전체 입찰가만큼 홀드
       _hold(tx, meRef, me, bid);
-      if (prev?.uid) {
-        const prevRef = db.doc(`users/${prev.uid}`);
-        const prevSnap = await tx.get(prevRef);
-        if (prevSnap.exists) _release(tx, prevRef, prevSnap, Number(prev.amount||0));
+
+      // 이전 최고 입찰자가 있으면, 미리 읽어둔 스냅샷으로 환불(읽기는 위에서 이미 끝남)
+      if (prev?.uid && prevSnap?.exists) {
+        _release(tx, prevRef, prevSnap, Number(prev.amount||0));
       }
     }
+
 
     tx.update(ref, { topBid: { uid, amount: bid }, updatedAt: nowTs() });
     tx.set(ref.collection('bids').doc(), { uid, amount: bid, at: nowTs() });
