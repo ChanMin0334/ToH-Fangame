@@ -52,18 +52,21 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     tx.update(userRef, { items_all: items });
 
     const charsRef = db.collection('chars');
-    let charSnaps = await tx.get(
-      charsRef.where('owner_uid', '==', uid).where('items_equipped', 'array-contains', String(itemId))
-    );
+    // 색인 없이도 안전하게: 항상 내 캐릭터만 모아서 메모리 필터
+const mineSnap = await tx.get(charsRef.where('owner_uid','==', uid));
+const targets = mineSnap.docs.filter(d => {
+  const eq = d.data().items_equipped || [];
+  // 숫자/문자 혼용 대비: 문자열로 통일 비교
+  return eq.some(v => String(v) === String(itemId));
+});
 
-    if (charSnaps.empty) {
-      const allMine = await tx.get(charsRef.where('owner_uid', '==', uid));
-      const targets = allMine.docs.filter(d => (d.data().items_equipped || []).some(v => String(v) === String(itemId)));
-      targets.forEach(doc => {
-        const ch = doc.data();
-        const newEquipped = (ch.items_equipped || []).filter(v => String(v) !== String(itemId));
-        tx.update(doc.ref, { items_equipped: newEquipped });
-      });
+// 일괄 착용 해제
+targets.forEach(doc => {
+  const ch = doc.data();
+  const newEquipped = (ch.items_equipped || []).filter(v => String(v) !== String(itemId));
+  tx.update(doc.ref, { items_equipped: newEquipped });
+});
+
     } else {
       charSnaps.forEach(doc => {
         const ch = doc.data();
