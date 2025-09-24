@@ -64,7 +64,7 @@ function header(tab, coins = 0){
     <a href="#/market/trade"   class="bookmark ${tab==='trade'?'active':''}">↔️ 일반거래</a>
     <a href="#/market/auction" class="bookmark ${tab==='auction'?'active':''}">🏷️ 일반 경매</a>
     <a href="#/market/special" class="bookmark ${tab==='special'?'active':''}">🎭 특수 경매</a>
-    <a href="#/market/my" class="bookmark ${tab==='my'?'active':''}">📦 내 등록품</a>
+    <a href="#/market/my" class="bookmark ${tab==='my'?'active':''}">📊 경매정보</a>
     <div class="chip" style="margin-left: auto;">🪙 <b>${coins}</b></div>
   </div>`;
 }
@@ -277,7 +277,11 @@ async function viewAuction(root, inv, coins){
             ${useBadgeHtml(A)}
           </div>
           <div class="text-dim" style="font-size:12px; margin-top:2px">마감: ${prettyTime(A.endsAt)}</div>
-          <div class="chip" style="align-self: flex-start;">🪙 <b>${top}</b></div>
+          <div class="row" style="gap:6px; align-items:center;">
+  <div class="chip">🪙 <b>${top}</b></div>
+  ${ (auth.currentUser?.uid && A.topBid?.uid===auth.currentUser.uid) ? '<span class="chip success">입찰중</span>' : '' }
+</div>
+
           <div class="row" style="margin-top:8px; gap:6px;">
             <button class="btn" data-au-detail="${esc(A.id)}">상세보기</button>
             <input class="input" type="number" min="1" step="1" placeholder="입찰가" style="flex:1;" data-bid-for="${esc(A.id)}">
@@ -416,66 +420,129 @@ async function viewSpecial(root, inv, coins){
   render();
 }
 
+// [교체] 경매정보(내 입찰정보 / 내 등록물품)
 async function viewMyListings(root, coins){
-    let trades = [], auctions = [];
-    async function handleRefresh() {
-        try {
-            [trades, auctions] = await Promise.all([
-                call('tradeListMyListings')({}).then(r => r.data.rows),
-                call('auctionListMyListings')({}).then(r => r.data.rows),
-            ]);
-        } catch (e) {
-            console.error("내 등록품 로딩 실패:", e);
-            root.innerHTML = `<div class="bookview">${header('my', coins)}<div class="empty card error" style="margin-top:12px;">데이터를 불러오는 데 실패했습니다. Firestore 색인이 배포되었는지 확인해주세요.</div></div>`;
-            return;
-        }
-        render();
-    }
-    function render() {
-        const allItems = [...trades.map(t => ({ ...t, type: 'trade' })), ...auctions.map(a => ({ ...a, type: 'auction' }))].sort((a,b) => (b.createdAt?._seconds || 0) - (a.createdAt?._seconds || 0));
-        const listHTML = allItems.length ? `<div class="grid">${allItems.map(item => {
-            if (item.type === 'trade') {
-                const style = rarityStyle(item.item_rarity);
-                const statusText = { active: '판매중', sold: '판매완료', cancelled: '취소됨' }[item.status] || item.status;
-                return `
-                    <div class="card" style="border-left: 3px solid ${style.border};">
-                        <div class="item-name title" style="color:${style.text}">${esc(item.item_name)}</div>
-                        <div class="text-dim" style="font-size:12px;">일반거래 · ${statusText}</div>
-                        <div class="row" style="margin-top:8px; justify-content:space-between">
-                            <div class="chip">🪙 ${item.price}</div>
-                            ${item.status === 'active' ? `<button class="btn danger" data-cancel-my="${esc(item.id)}">판매취소</button>` : ''}
-                        </div>
-                    </div>`;
-            } else {
-                const top = item.topBid?.amount ? `현재가 ${item.topBid.amount}` : `시작가 ${item.minBid}`;
-                const isEnded = (item.endsAt?._seconds * 1000 || 0) <= Date.now();
-                return `
-                    <div class="card ${item.kind === 'special' ? 'special-card' : ''}">
-                        <div class="item-name title">${esc(item.item_name || `비공개 물품 #${item.id.slice(-6)}`)}</div>
-                        <div class="text-dim" style="font-size:12px;">${item.kind === 'special' ? '특수경매' : '일반경매'} · ${item.status}</div>
-                        <div class="text-dim" style="font-size:12px;">마감: ${prettyTime(item.endsAt)}</div>
-                        <div class="row" style="margin-top:8px; justify-content:space-between">
-                            <div class="chip">🪙 ${top}</div>
-                            ${item.status === 'active' && isEnded ? `<button class="btn primary" data-settle-my="${esc(item.id)}">정산</button>` : ''}
-                        </div>
-                    </div>`;
-            }
-        }).join('')}</div>` : `<div class="empty card">등록한 물품이 없습니다.</div>`;
+  let sub = 'bids';
+  let myBids = [], myListings = [];
 
-        root.innerHTML = `${header('my', coins)}<div class="bookview" style="padding-top:12px;">${listHTML}</div>`;
-        root.querySelectorAll('[data-cancel-my]').forEach(btn => btn.onclick = async () => {
-            if (!await confirmModal({title: '판매 취소', lines: ['등록을 취소하고 아이템을 돌려받겠습니까?']})) return;
-            try { await call('tradeCancelListing')({ listingId: btn.dataset.cancelMy }); showToast('판매를 취소했습니다.'); handleRefresh(); }
-            catch (e) { showToast(`취소 실패: ${e.message}`); }
-        });
-        root.querySelectorAll('[data-settle-my]').forEach(btn => btn.onclick = async () => {
-             if (!await confirmModal({ title: '정산', lines: ['마감된 경매를 정산합니다.']})) return;
-            try { await call('auctionSettle')({ auctionId: btn.dataset.settleMy }); showToast('정산 완료!'); handleRefresh(); }
-            catch (e) { showToast(`정산 실패: ${e.message}`); }
-        });
+  async function refresh(){
+    try{
+      const [bidsRes, listRes] = await Promise.all([
+        call('auctionListMyBids')({}),
+        call('auctionListMyListings')({})
+      ]);
+      myBids = Array.isArray(bidsRes?.data?.rows) ? bidsRes.data.rows : [];
+      myListings = Array.isArray(listRes?.data?.rows) ? listRes.data.rows : [];
+    }catch(e){
+      console.error(e);
+      root.innerHTML = `${header('my', coins)}<div class="bookview"><div class="empty card error" style="margin-top:12px;">경매정보를 불러오지 못했어.</div></div>`;
+      return;
     }
-    handleRefresh();
+    render();
+  }
+
+  function bidsHTML(){
+    const uid = auth.currentUser?.uid;
+    if (!myBids.length) return `<div class="empty card">입찰한 경매가 아직 없어.</div>`;
+    return `<div class="grid">` + myBids.map(row=>{
+      const iAmTop = (uid && row.topBid?.uid === uid);
+      const topTxt = row.topBid?.amount ? `현재가 ${row.topBid.amount}` : `시작가 ${row.minBid}`;
+      const name = row.kind === 'special' ? `비공개 물품 #${row.id.slice(-6)}` : (row.item_name || '(이름없음)');
+      const style = row.item_rarity ? rarityStyle(row.item_rarity) : { border:'#555', bg:'', text:'' };
+      return `
+        <div class="card ${row.kind==='special'?'special-card':''}" style="border-left:3px solid ${style.border};">
+          <div class="item-name title" style="color:${style.text}">${esc(name)}</div>
+          <div class="text-dim" style="font-size:12px;">마감: ${prettyTime(row.endsAt)}</div>
+          <div class="row" style="gap:6px; align-items:center; margin-top:4px;">
+            <div class="chip">🪙 ${topTxt}</div>
+            ${iAmTop ? '<span class="chip success">입찰중</span>' : ''}
+          </div>
+          <div class="row" style="margin-top:8px; gap:6px;">
+            <div class="chip ghost">내 최근 입찰: <b>${row.myAmount}</b></div>
+            <input class="input" type="number" min="${Math.max((row.topBid?.amount||0)+1, row.minBid)}" step="1" placeholder="재입찰가" style="flex:1;" data-rebid-for="${esc(row.id)}">
+            <button class="btn primary" data-rebid="${esc(row.id)}">올려서 입찰</button>
+          </div>
+        </div>`;
+    }).join('') + `</div>`;
+  }
+
+  function listingsHTML(){
+    const allItems = [...myListings].sort((a,b)=> (b.createdAt?._seconds||0)-(a.createdAt?._seconds||0));
+    if (!allItems.length) return `<div class="empty card">등록한 물품이 없습니다.</div>`;
+    return `<div class="grid">` + allItems.map(item=>{
+      if (item.type === 'trade'){
+        const style = rarityStyle(item.item_rarity);
+        const statusText = { active:'판매중', sold:'판매완료', cancelled:'취소됨' }[item.status] || item.status;
+        return `
+          <div class="card" style="border-left:3px solid ${style.border};">
+            <div class="item-name title" style="color:${style.text}">${esc(item.item_name)}</div>
+            <div class="text-dim" style="font-size:12px;">일반거래 · ${statusText}</div>
+            <div class="row" style="margin-top:8px; justify-content:space-between">
+              <div class="chip">🪙 ${item.price}</div>
+              ${item.status==='active' ? `<button class="btn danger" data-cancel-my="${esc(item.id)}">판매취소</button>` : ''}
+            </div>
+          </div>`;
+      } else {
+        const top = item.topBid?.amount ? `현재가 ${item.topBid.amount}` : `시작가 ${item.minBid}`;
+        const isEnded = (item.endsAt?._seconds * 1000 || 0) <= Date.now();
+        return `
+          <div class="card ${item.kind==='special'?'special-card':''}">
+            <div class="item-name title">${esc(item.item_name || `비공개 물품 #${item.id.slice(-6)}`)}</div>
+            <div class="text-dim" style="font-size:12px;">${item.kind==='special'?'특수경매':'일반경매'} · ${item.status}</div>
+            <div class="text-dim" style="font-size:12px;">마감: ${prettyTime(item.endsAt)}</div>
+            <div class="row" style="margin-top:8px; justify-content:space-between">
+              <div class="chip">🪙 ${top}</div>
+              ${item.status==='active' && isEnded ? `<button class="btn primary" data-settle-my="${esc(item.id)}">정산</button>` : ''}
+            </div>
+          </div>`;
+      }
+    }).join('') + `</div>`;
+  }
+
+  function render(){
+    root.innerHTML = `
+      ${header('my', coins)}
+      <div class="bookview">
+        <div class="card">
+          <div class="row" style="gap:6px;">
+            <button class="btn ${sub==='bids'?'primary':''}" data-sub="bids">내 입찰정보</button>
+            <button class="btn ${sub==='list'?'primary':''}" data-sub="list">내 등록물품</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          ${sub==='bids' ? bidsHTML() : listingsHTML()}
+        </div>
+      </div>
+    `;
+
+    root.querySelectorAll('[data-sub]').forEach(b=> b.onclick=()=>{ sub=b.dataset.sub; render(); });
+
+    // 재입찰
+    root.querySelectorAll('[data-rebid]').forEach(btn => btn.onclick = async ()=>{
+      const id = btn.dataset.rebid;
+      const amt = Number(root.querySelector(`[data-rebid-for="${cssEsc(id)}"]`)?.value||0);
+      if (!amt) return showToast('재입찰 금액을 입력해줘');
+      if (!await confirmModal({ title:'재입찰 확인', lines:['입찰가는 즉시 보증금으로 홀드됩니다.']})) return;
+      try{ await call('auctionBid')({ auctionId:id, amount:amt }); showToast('입찰 올리기 완료!'); refresh(); }
+      catch(e){ showToast(`실패: ${e.message}`); }
+    });
+
+    // 기존 취소/정산(그대로 유지)
+    root.querySelectorAll('[data-cancel-my]').forEach(btn => btn.onclick = async ()=>{
+      if (!await confirmModal({title:'판매 취소', lines:['등록을 취소하고 아이템을 돌려받겠습니까?']})) return;
+      try { await call('tradeCancelListing')({ listingId: btn.dataset.cancelMy }); showToast('판매를 취소했습니다.'); refresh(); }
+      catch (e) { showToast(`취소 실패: ${e.message}`); }
+    });
+    root.querySelectorAll('[data-settle-my]').forEach(btn => btn.onclick = async ()=>{
+      if (!await confirmModal({ title:'정산', lines:['마감된 경매를 정산합니다.']})) return;
+      try { await call('auctionSettle')({ auctionId: btn.dataset.settleMy }); showToast('정산 완료!'); refresh(); }
+      catch (e) { showToast(`정산 실패: ${e.message}`); }
+    });
+  }
+
+  refresh();
 }
+
 
 export default async function showMarket(){
   ensureModalCss();
