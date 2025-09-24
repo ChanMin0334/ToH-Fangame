@@ -483,13 +483,16 @@ async function viewMyListings(root, coins){
 
     if (latestBids.length === 0) return `<div class="empty card">입찰한 경매가 아직 없어.</div>`;
     
-    return `<div class="grid">` + latestBids.map(row=>{
+        return `<div class="grid">` + latestBids.map(row=>{
       const iAmTop = (uid && row.topBid?.uid === uid);
       const topTxt = row.topBid?.amount ? `현재가 ${row.topBid.amount}` : `시작가 ${row.minBid}`;
-      const name = row.kind === 'special' ? `비공개 물품 #${row.id.slice(-6)}` : (row.item_name || '(이름없음)');
+      const isSpecial = row.kind === 'special';
+      const name = isSpecial ? `비공개 물품 #${row.id.slice(-6)}` : (row.item_name || '(이름없음)');
       const style = row.item_rarity ? rarityStyle(row.item_rarity) : { border:'#555', bg:'', text:'' };
+      const borderStyle = isSpecial ? '' : `border-left:3px solid ${style.border};`;
+
       return `
-        <div class="card ${row.kind==='special'?'special-card':''}" style="border-left:3px solid ${style.border};">
+        <div class="card ${isSpecial ? 'special-card' : ''}" style="${borderStyle}">
           <div class="item-name title" style="color:${style.text}">${esc(name)}</div>
           <div class="text-dim" style="font-size:12px;">마감: ${prettyTime(row.endsAt)}</div>
           <div class="row" style="gap:6px; align-items:center; margin-top:4px;">
