@@ -24,14 +24,30 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     return priceTier[item.rarity] || 0;
   };
 
-  function _removeItemFromUser(tx, userRef, userSnap, itemId) {
+  // ANCHOR: _removeItemFromUser 함수 수정
+  async function _removeItemFromUser(tx, userRef, userSnap, itemId, uid) {
     const items = Array.isArray(userSnap.get('items_all')) ? [...userSnap.get('items_all')] : [];
     const idx = items.findIndex(it => String(it?.id) === String(itemId));
     _assert(idx >= 0, 'failed-precondition', '인벤토리에 해당 아이템이 없어');
     const [item] = items.splice(idx, 1);
     tx.update(userRef, { items_all: items });
+
+    // 장착된 아이템 제거 로직 추가
+    if (uid) {
+        const charsRef = db.collection('chars');
+        const charQuery = charsRef.where('owner_uid', '==', uid).where('items_equipped', 'array-contains', itemId);
+        const charSnaps = await tx.get(charQuery);
+        charSnaps.forEach(doc => {
+            const charData = doc.data();
+            const newEquipped = (charData.items_equipped || []).filter(id => id !== itemId);
+            tx.update(doc.ref, { items_equipped: newEquipped });
+        });
+    }
+
     return item;
   }
+  // ANCHOR_END
+
   function _addItemToUser(tx, userRef, itemObj) {
     const FieldValue = admin.firestore.FieldValue;
     tx.set(userRef, { items_all: FieldValue.arrayUnion(itemObj) }, { merge:true });
@@ -54,23 +70,19 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     tx.update(userRef, { coins: coins - amount, coins_hold: hold + amount });
   }
   
-  // ANCHOR: _release 함수 수정
   function _release(tx, userRef, userSnap, amount) {
     const want = Math.max(0, Math.floor(Number(amount||0)));
-    if (want === 0) return; // 0원이면 아무것도 안 함
+    if (want === 0) return;
   
     const curHold = Number(userSnap.get('coins_hold') || 0);
-    // 현재 보증금이 해제할 금액보다 적으면 데이터 불일치이므로 에러 발생
     _assert(curHold >= want, 'internal', '보증금 환불 불가 (데이터 불일치)');
   
-    // FieldValue.increment를 사용하여 안전하게 금액 조작
     const FieldValue = admin.firestore.FieldValue;
     tx.update(userRef, {
       coins: FieldValue.increment(want),
       coins_hold: FieldValue.increment(-want)
     });
   }
-  // ANCHOR_END
   
   function _capture(tx, userRef, userSnap, amount) {
     const hold = Number(userSnap.get('coins_hold')||0);
@@ -106,7 +118,9 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       const userSnap = await tx.get(userRef);
       _assert(userSnap.exists, 'not-found', '유저 없음');
       _bumpDailyTradeCount(tx, userRef, userSnap);
-      const item = _removeItemFromUser(tx, userRef, userSnap, String(itemId));
+      // ANCHOR: _removeItemFromUser 호출 시 uid 전달
+      const item = await _removeItemFromUser(tx, userRef, userSnap, String(itemId), uid);
+      // ANCHOR_END
       const basePrice = _calculatePrice(item);
       _assert(basePrice > 0, 'invalid-argument', '가격을 산정할 수 없는 아이템이야');
       const minPrice = Math.floor(basePrice * 0.5);
@@ -230,7 +244,9 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     await db.runTransaction(async (tx)=>{
       const userSnap = await tx.get(userRef);
       _assert(userSnap.exists, 'not-found', '유저 없음');
-      const item = _removeItemFromUser(tx, userRef, userSnap, String(itemId));
+      // ANCHOR: _removeItemFromUser 호출 시 uid 전달
+      const item = await _removeItemFromUser(tx, userRef, userSnap, String(itemId), uid);
+      // ANCHOR_END
       const endMs = Date.now() + dur*60*1000;
       tx.set(aucRef, {
         status:'active', seller_uid: uid, kind: k,
@@ -250,7 +266,6 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     if (kindReq === 'special') {
       q = q.where('kind','==','special');
     } else if (kindReq === 'normal') {
-      // 'normal'이거나 kind 필드가 아예 없는 레거시 데이터 포함
       q = q.where('kind', 'in', ['normal', null]);
     }
 
@@ -315,11 +330,9 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     _assert(snap.exists, 'not-found', '경매 없음');
     const A = snap.data();
 
-    // 특수경매는 정보 비공개
     if ((A.kind || 'normal') === 'special') {
       return { ok: true, kind: 'special' };
     }
-    // 일반경매는 상세 정보를 제공
     return {
       ok: true,
       kind: A.kind || 'normal',
@@ -330,10 +343,6 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     };
   });
 
-
-
-
-  // [교체] 재입찰(delta hold) + 역전 알림
 const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
   _assert(uid, 'unauthenticated', '로그인이 필요해');
@@ -359,12 +368,10 @@ const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
     _assert(me.exists, 'not-found', '유저 없음');
 
     if (prev?.uid && prev.uid === uid) {
-      // 같은 사람이 금액 올릴 때: 증가분만 홀드
       const delta = bid - Number(prev.amount||0);
       _assert(delta >= MIN_STEP, 'failed-precondition', '이전 입찰보다 높아야 해');
       _hold(tx, meRef, me, delta);
     } else {
-      // 새 사람의 입찰: 전체 금액 홀드 후 이전 보증금 해제
       _hold(tx, meRef, me, bid);
       if (prev?.uid) {
         const prevRef = db.doc(`users/${prev.uid}`);
@@ -376,7 +383,6 @@ const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
     tx.update(ref, { topBid: { uid, amount: bid }, updatedAt: nowTs() });
     tx.set(ref.collection('bids').doc(), { uid, amount: bid, at: nowTs() });
 
-    // 역전 알림: 이전 최고입찰자가 있고, 내가 그 사람이 아닐 때
     if (prev?.uid && prev.uid !== uid) {
       const mailRef = db.collection('mail').doc(prev.uid).collection('msgs').doc();
       tx.set(mailRef, {
@@ -427,7 +433,6 @@ const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
     return { ok:true };
   });
 
-  // [추가] 내가 입찰한 경매 목록/최근입찰
 const auctionListMyBids = onCall({ region:'us-central1' }, async (req)=>{
   const uid = req.auth?.uid;
   _assert(uid, 'unauthenticated', '로그인이 필요해');
