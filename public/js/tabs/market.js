@@ -1,4 +1,4 @@
-// /public/js/tabs/market.js (모바일 UI 및 버그 수정 최종본)
+// public/js/tabs/market.js (모바일 UI 및 버그 수정 최종본)
 
 import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
@@ -420,22 +420,24 @@ async function viewSpecial(root, inv, coins){
   render();
 }
 
-// [교체] 경매정보(내 입찰정보 / 내 등록물품)
+// ANCHOR: viewMyListings 함수 수정
 async function viewMyListings(root, coins){
   let sub = 'bids';
-  let myBids = [], myListings = [];
+  let myBids = [], myTrades = [], myAuctions = [];
 
   async function refresh(){
-    try{
-      const [bidsRes, listRes] = await Promise.all([
+    try {
+      const [bidsRes, tradesRes, auctionsRes] = await Promise.all([
         call('auctionListMyBids')({}),
+        call('tradeListMyListings')({}),
         call('auctionListMyListings')({})
       ]);
       myBids = Array.isArray(bidsRes?.data?.rows) ? bidsRes.data.rows : [];
-      myListings = Array.isArray(listRes?.data?.rows) ? listRes.data.rows : [];
-    }catch(e){
+      myTrades = Array.isArray(tradesRes?.data?.rows) ? tradesRes.data.rows.map(r => ({...r, type: 'trade'})) : [];
+      myAuctions = Array.isArray(auctionsRes?.data?.rows) ? auctionsRes.data.rows.map(r => ({...r, type: 'auction'})) : [];
+    } catch(e) {
       console.error(e);
-      root.innerHTML = `${header('my', coins)}<div class="bookview"><div class="empty card error" style="margin-top:12px;">경매정보를 불러오지 못했어.</div></div>`;
+      root.innerHTML = `${header('my', coins)}<div class="bookview"><div class="empty card error" style="margin-top:12px;">정보를 불러오지 못했어.</div></div>`;
       return;
     }
     render();
@@ -443,8 +445,15 @@ async function viewMyListings(root, coins){
 
   function bidsHTML(){
     const uid = auth.currentUser?.uid;
-    if (!myBids.length) return `<div class="empty card">입찰한 경매가 아직 없어.</div>`;
-    return `<div class="grid">` + myBids.map(row=>{
+    // 1. 마감되지 않은(active) 경매만 필터링
+    const activeBids = myBids.filter(row => row.status === 'active');
+    
+    // 2. 경매 ID별로 최신 입찰만 남기기 (중복 제거)
+    const latestBids = Array.from(new Map(activeBids.map(item => [item.id, item])).values());
+
+    if (latestBids.length === 0) return `<div class="empty card">입찰한 경매가 아직 없어.</div>`;
+    
+    return `<div class="grid">` + latestBids.map(row=>{
       const iAmTop = (uid && row.topBid?.uid === uid);
       const topTxt = row.topBid?.amount ? `현재가 ${row.topBid.amount}` : `시작가 ${row.minBid}`;
       const name = row.kind === 'special' ? `비공개 물품 #${row.id.slice(-6)}` : (row.item_name || '(이름없음)');
@@ -465,9 +474,9 @@ async function viewMyListings(root, coins){
         </div>`;
     }).join('') + `</div>`;
   }
-
+  
   function listingsHTML(){
-    const allItems = [...myListings].sort((a,b)=> (b.createdAt?._seconds||0)-(a.createdAt?._seconds||0));
+    const allItems = [...myTrades, ...myAuctions].sort((a,b)=> (b.createdAt?._seconds||0)-(a.createdAt?._seconds||0));
     if (!allItems.length) return `<div class="empty card">등록한 물품이 없습니다.</div>`;
     return `<div class="grid">` + allItems.map(item=>{
       if (item.type === 'trade'){
@@ -517,7 +526,6 @@ async function viewMyListings(root, coins){
 
     root.querySelectorAll('[data-sub]').forEach(b=> b.onclick=()=>{ sub=b.dataset.sub; render(); });
 
-    // 재입찰
     root.querySelectorAll('[data-rebid]').forEach(btn => btn.onclick = async ()=>{
       const id = btn.dataset.rebid;
       const amt = Number(root.querySelector(`[data-rebid-for="${cssEsc(id)}"]`)?.value||0);
@@ -527,7 +535,6 @@ async function viewMyListings(root, coins){
       catch(e){ showToast(`실패: ${e.message}`); }
     });
 
-    // 기존 취소/정산(그대로 유지)
     root.querySelectorAll('[data-cancel-my]').forEach(btn => btn.onclick = async ()=>{
       if (!await confirmModal({title:'판매 취소', lines:['등록을 취소하고 아이템을 돌려받겠습니까?']})) return;
       try { await call('tradeCancelListing')({ listingId: btn.dataset.cancelMy }); showToast('판매를 취소했습니다.'); refresh(); }
@@ -539,10 +546,9 @@ async function viewMyListings(root, coins){
       catch (e) { showToast(`정산 실패: ${e.message}`); }
     });
   }
-
   refresh();
 }
-
+// ANCHOR_END
 
 export default async function showMarket(){
   ensureModalCss();
