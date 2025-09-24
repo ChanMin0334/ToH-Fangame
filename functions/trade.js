@@ -53,24 +53,25 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     _assert(coins >= amount, 'failed-precondition', '골드가 부족해(입찰 보증금)');
     tx.update(userRef, { coins: coins - amount, coins_hold: hold + amount });
   }
+  
+  // ANCHOR: _release 함수 수정
   function _release(tx, userRef, userSnap, amount) {
-  const want = Math.max(0, Math.floor(Number(amount||0)));
-  const curCoins = Number(userSnap.get('coins')||0);
-  const curHold  = Number(userSnap.get('coins_hold')||0);
-
-  // hold가 모자라면 가능한 만큼만 환불하고, 로그만 남겨서 트랜잭션이 죽지 않도록 함
-  const refund = Math.min(curHold, want);
-  tx.update(userRef, {
-    coins: curCoins + refund,
-    coins_hold: curHold - refund
-  });
-
-  // 참고용: 남은 차액이 있으면(=데이터 불일치) 경고 로그 남김
-  if (refund < want) {
-    try { logger?.warn?.('[auctionBid] release shortfall', { uid: userRef.id, want, refund, curHold }); } catch (_) {}
+    const want = Math.max(0, Math.floor(Number(amount||0)));
+    if (want === 0) return; // 0원이면 아무것도 안 함
+  
+    const curHold = Number(userSnap.get('coins_hold') || 0);
+    // 현재 보증금이 해제할 금액보다 적으면 데이터 불일치이므로 에러 발생
+    _assert(curHold >= want, 'internal', '보증금 환불 불가 (데이터 불일치)');
+  
+    // FieldValue.increment를 사용하여 안전하게 금액 조작
+    const FieldValue = admin.firestore.FieldValue;
+    tx.update(userRef, {
+      coins: FieldValue.increment(want),
+      coins_hold: FieldValue.increment(-want)
+    });
   }
-}
-
+  // ANCHOR_END
+  
   function _capture(tx, userRef, userSnap, amount) {
     const hold = Number(userSnap.get('coins_hold')||0);
     _assert(hold >= amount, 'internal', '보증금 확정 불가');
