@@ -270,6 +270,7 @@ async function viewAuction(root, inv, coins){
     const listHTML = sortedRows.length ? `<div class="grid">${sortedRows.map(A=>{
       const top = A.topBid?.amount ? `현재가 ${A.topBid.amount}` : `시작가 ${A.minBid}`;
       const style = rarityStyle(A.item_rarity);
+      const minNext = Math.max(A.minBid||1, (A.topBid?.amount||0)+1);
       return `
         <div class="card" style="border-left: 3px solid ${style.border}; background: ${style.bg};">
           <div class="row" style="justify-content:space-between; align-items:flex-start">
@@ -284,7 +285,7 @@ async function viewAuction(root, inv, coins){
 
           <div class="row" style="margin-top:8px; gap:6px;">
             <button class="btn" data-au-detail="${esc(A.id)}">상세보기</button>
-            <input class="input" type="number" min="1" step="1" placeholder="입찰가" style="flex:1;" data-bid-for="${esc(A.id)}">
+            <input class="input" type="number" min="${minNext}" step="1" placeholder="${minNext} 이상" style="flex:1;" data-bid-for="${esc(A.id)}">
             <button class="btn primary" data-bid="${esc(A.id)}">입찰</button>
           </div>
         </div>
@@ -323,13 +324,27 @@ async function viewAuction(root, inv, coins){
     root.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{mode=b.dataset.go; render();});
     root.querySelector('#sortA')?.addEventListener('change', e => { sortKey = e.target.value; render(); });
     root.querySelectorAll('[data-sell-detail]').forEach(btn => btn.onclick = () => showItemModalForListing(JSON.parse(btn.dataset.sellDetail)));
-    root.querySelectorAll('[data-bid]').forEach(btn=>{ btn.onclick = async ()=>{
-        const id = btn.dataset.bid; const amt = Number(root.querySelector(`[data-bid-for="${cssEsc(id)}"]`)?.value || 0);
-        if (!amt) return showToast('입찰가를 입력해줘');
-        if (!await confirmModal({ title: '입찰 확인', lines: ['입찰가는 즉시 보증금으로 홀드됩니다.']})) return;
-        try{ await call('auctionBid')({ auctionId:id, amount:amt }); showToast('입찰 완료!'); handleRefresh(); }
-        catch(e){ showToast(`입찰 실패: ${e.message}`); }
-    }});
+    root.querySelectorAll('[data-bid]').forEach(btn => {
+  btn.onclick = async () => {
+    const id  = btn.dataset.bid;
+    const amt = Number(root.querySelector(`[data-bid-for="${cssEsc(id)}"]`)?.value || 0);
+    if (!amt) return showToast('입찰가를 입력해줘');
+
+    // 현재 카드 데이터에서 최소 허용가 재계산
+    const A = (rows||[]).find(r => String(r.id) === String(id)) || {};
+    const minNext = Math.max((A.minBid||1), (A.topBid?.amount||0) + 1);
+    if (amt < minNext) return showToast(`최소 ${minNext} 이상으로 입찰해줘`);
+
+    if (!await confirmModal({ title: '입찰 확인', lines: ['입찰가는 즉시 보증금으로 홀드됩니다.'] })) return;
+    try {
+      await call('auctionBid')({ auctionId:id, amount:amt });
+      showToast('입찰 완료!'); handleRefresh();
+    } catch (e) {
+      showToast(`입찰 실패: ${e.message}`);
+    }
+  };
+});
+
     root.querySelectorAll('[data-aucl]').forEach(btn=>{ btn.onclick = async ()=>{
         const id = btn.dataset.aucl;
         const sb = Number(root.querySelector(`[data-sbid-for="${cssEsc(id)}"]`)?.value||0);
@@ -362,6 +377,7 @@ async function viewSpecial(root, inv, coins){
   function render(){
     const listHTML = rows.length ? `<div class="grid">${rows.map(A=>{
       const top = A.topBid?.amount ? `현재가 ${A.topBid.amount}` : `시작가 ${A.minBid}`;
+      const minNext = Math.max(A.minBid||1, (A.topBid?.amount||0)+1);
       return `
         <div class="card special-card">
           <div class="item-name title">비공개 물품 #${esc(A.id.slice(-6))}</div>
@@ -369,7 +385,7 @@ async function viewSpecial(root, inv, coins){
           <div class="text-dim" style="font-size:12px; margin-top:2px">마감: ${prettyTime(A.endsAt)}</div>
           <div class="chip" style="align-self: flex-start;">🪙 <b>${top}</b></div>
           <div class="row" style="margin-top:8px; gap:6px;">
-            <input class="input" type="number" min="1" step="1" placeholder="입찰가" style="flex:1;" data-bid-sp-for="${esc(A.id)}">
+            <input class="input" type="number" min="${minNext}" step="1" placeholder="${minNext} 이상" style="flex:1;" data-bid-sp-for="${esc(A.id)}">
             <button class="btn primary" data-bid-sp="${esc(A.id)}">입찰</button>
           </div>
         </div>
@@ -401,12 +417,26 @@ async function viewSpecial(root, inv, coins){
     `;
     root.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { mode = b.dataset.go; render(); });
     root.querySelectorAll('[data-sell-detail]').forEach(btn => btn.onclick = () => showItemModalForListing(JSON.parse(btn.dataset.sellDetail)));
-    root.querySelectorAll('[data-bid-sp]').forEach(btn=>{ btn.onclick = async ()=>{
-        const id = btn.dataset.bidSp; const amt = Number(root.querySelector(`[data-bid-sp-for="${cssEsc(id)}"]`)?.value || 0);
-        if (!amt) return showToast('입찰가를 입력해줘');
-        if (!await confirmModal({ title: '입찰 확인', lines: ['입찰가는 즉시 보증금으로 홀드됩니다.']})) return;
-        try{ await call('auctionBid')({ auctionId:id, amount:amt }); showToast('입찰 완료!'); handleRefresh(); } catch(e){ showToast(`입찰 실패: ${e.message}`); }
-    }});
+    root.querySelectorAll('[data-bid-sp]').forEach(btn => {
+  btn.onclick = async () => {
+    const id  = btn.dataset.bidSp;
+    const amt = Number(root.querySelector(`[data-bid-sp-for="${cssEsc(id)}"]`)?.value || 0);
+    if (!amt) return showToast('입찰가를 입력해줘');
+
+    const A = (rows||[]).find(r => String(r.id) === String(id)) || {};
+    const minNext = Math.max((A.minBid||1), (A.topBid?.amount||0) + 1);
+    if (amt < minNext) return showToast(`최소 ${minNext} 이상으로 입찰해줘`);
+
+    if (!await confirmModal({ title: '입찰 확인', lines: ['입찰가는 즉시 보증금으로 홀드됩니다.'] })) return;
+    try {
+      await call('auctionBid')({ auctionId:id, amount:amt });
+      showToast('입찰 완료!'); handleRefresh();
+    } catch (e) {
+      showToast(`입찰 실패: ${e.message}`);
+    }
+  };
+});
+
     root.querySelectorAll('[data-aucl-sp]').forEach(btn=>{ btn.onclick = async ()=>{
         const id = btn.dataset.auclSp;
         const sb = Number(root.querySelector(`[data-sbid-sp-for="${cssEsc(id)}"]`)?.value||0);
@@ -468,7 +498,13 @@ async function viewMyListings(root, coins){
           </div>
           <div class="row" style="margin-top:8px; gap:6px;">
             <div class="chip ghost">내 최근 입찰: <b>${row.myAmount}</b></div>
-            <input class="input" type="number" min="${Math.max((row.topBid?.amount||0)+1, row.minBid)}" step="1" placeholder="재입찰가" style="flex:1;" data-rebid-for="${esc(row.id)}">
+            <input class="input" type="number"
+       min="${Math.max((row.topBid?.amount||0)+1, row.minBid)}"
+       step="1"
+       placeholder="${Math.max((row.topBid?.amount||0)+1, row.minBid)} 이상"
+       style="flex:1;"
+       data-rebid-for="${esc(row.id)}">
+
             <button class="btn primary" data-rebid="${esc(row.id)}">올려서 입찰</button>
           </div>
         </div>`;
