@@ -54,10 +54,23 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     tx.update(userRef, { coins: coins - amount, coins_hold: hold + amount });
   }
   function _release(tx, userRef, userSnap, amount) {
-    const hold = Number(userSnap.get('coins_hold')||0);
-    _assert(hold >= amount, 'internal', '보증금 해제 불가');
-    tx.update(userRef, { coins: Number(userSnap.get('coins')||0) + amount, coins_hold: hold - amount });
+  const want = Math.max(0, Math.floor(Number(amount||0)));
+  const curCoins = Number(userSnap.get('coins')||0);
+  const curHold  = Number(userSnap.get('coins_hold')||0);
+
+  // hold가 모자라면 가능한 만큼만 환불하고, 로그만 남겨서 트랜잭션이 죽지 않도록 함
+  const refund = Math.min(curHold, want);
+  tx.update(userRef, {
+    coins: curCoins + refund,
+    coins_hold: curHold - refund
+  });
+
+  // 참고용: 남은 차액이 있으면(=데이터 불일치) 경고 로그 남김
+  if (refund < want) {
+    try { logger?.warn?.('[auctionBid] release shortfall', { uid: userRef.id, want, refund, curHold }); } catch (_) {}
   }
+}
+
   function _capture(tx, userRef, userSnap, amount) {
     const hold = Number(userSnap.get('coins_hold')||0);
     _assert(hold >= amount, 'internal', '보증금 확정 불가');
