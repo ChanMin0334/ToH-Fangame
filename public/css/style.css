@@ -511,3 +511,11 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
     grid-template-columns: 1fr; /* 화면이 좁아지면 1열로 변경 */
   }
 }
+
+/* 입찰 선두 표시 */
+.chip.success {
+  background: #104d2d;
+  color: #d1fae5;
+  border: 1px solid #198754;
+}
+
