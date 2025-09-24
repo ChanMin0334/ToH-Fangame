@@ -14,9 +14,9 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     if (!cond) throw new HttpsError(code, msg);
   }
 
+  // ANCHOR: _calculatePrice 함수 최종 수정 (소비성 아이템 필드 및 희귀도 동의어 처리 강화)
   function _calculatePrice(item) {
-    const raw = String(item?.rarity || 'normal').toLowerCase();
-    // 동의어 정규화: 한글, 영문 동의어를 표준 키로 통일
+    const raw = String(item?.rarity || 'normal').trim().toLowerCase();
     const norm = ({
       'unique': 'epic', '유니크': 'epic',
       'uncommon': 'rare', '레어': 'rare',
@@ -27,10 +27,22 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       consumable:    { normal: 1,  rare: 5,  epic: 25,  legend: 50,  myth: 100, aether: 250 },
       non_consumable:{ normal: 2,  rare:10,  epic: 50,  legend:100,  myth: 200, aether: 500 }
     };
+    
+    // [수정] 모든 가능한 소비성 아이템 필드 이름을 확인하도록 변경
     const isConsumable = item.isConsumable || item.consumable || item.consume;
     const table = isConsumable ? prices.consumable : prices.non_consumable;
-    return table[norm] || 0;
+    
+    const price = table[norm];
+
+    // [추가] 만약 가격 계산이 실패하면(0원), 최소 가격 1원을 보장하여 등록 실패 방지
+    if (!price || price <= 0) {
+        logger.warn(`[trade] Price calculation failed for item. Defaulting to 1.`, { itemId: item.id, rarity: item.rarity, isConsumable });
+        return 1;
+    }
+
+    return price;
   }
+  // ANCHOR_END
 
   async function _removeItemFromUser(tx, userRef, userSnap, itemId, uid) {
     const items = Array.isArray(userSnap.get('items_all')) ? [...userSnap.get('items_all')] : [];
@@ -39,14 +51,11 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     const [item] = items.splice(idx, 1);
     tx.update(userRef, { items_all: items });
 
-    // 이 아이템을 장착한 모든 내 캐릭터를 찾아 장착 해제
     const charsRef = db.collection('chars');
-    // 1차: 문자열 id 기준
     let charSnaps = await tx.get(
       charsRef.where('owner_uid', '==', uid).where('items_equipped', 'array-contains', String(itemId))
     );
 
-    // 2차: 혹시 숫자로 저장된 케이스 대비(없으면 skip)
     if (charSnaps.empty) {
       const allMine = await tx.get(charsRef.where('owner_uid', '==', uid));
       const targets = allMine.docs.filter(d => (d.data().items_equipped || []).some(v => String(v) === String(itemId)));
@@ -95,10 +104,9 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   
   function _release(tx, userRef, userSnap, amount) {
     const want = Math.max(0, Math.floor(Number(amount||0)));
-    if (want === 0) return; // 0원이면 아무것도 안 함
+    if (want === 0) return;
   
     const curHold = Number(userSnap.get('coins_hold') || 0);
-    // 현재 보증금이 해제할 금액보다 적으면 데이터 불일치이므로 에러 발생
     _assert(curHold >= want, 'internal', '보증금 환불 불가 (데이터 불일치)');
   
     const FieldValue = admin.firestore.FieldValue;
@@ -128,7 +136,6 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     }
   }
 
-  // ========== [일반거래] ==========
   const tradeCol = db.collection('market_trades');
 
   const tradeCreateListing = onCall({ region:'us-central1' }, async (req)=>{
@@ -249,7 +256,6 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       return { ok:true, rows };
   });
 
-  // ========== [경매(일반/특수)] ==========
   const aucCol = db.collection('market_auctions');
   const MIN_MINUTES = 30;
   const MIN_STEP = 1;
