@@ -45,31 +45,31 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
   // ANCHOR_END
 
   async function _removeItemFromUser(tx, userRef, userSnap, itemId, uid) {
-    const items = Array.isArray(userSnap.get('items_all')) ? [...userSnap.get('items_all')] : [];
-    const idx = items.findIndex(it => String(it?.id) === String(itemId));
-    _assert(idx >= 0, 'failed-precondition', '인벤토리에 해당 아이템이 없어');
-    const [item] = items.splice(idx, 1);
-    tx.update(userRef, { items_all: items });
+  const items = Array.isArray(userSnap.get('items_all')) ? [...userSnap.get('items_all')] : [];
+  const idx = items.findIndex(it => String(it?.id) === String(itemId));
+  _assert(idx >= 0, 'failed-precondition', '인벤토리에 해당 아이템이 없어');
+  const [item] = items.splice(idx, 1);
 
-    const charsRef = db.collection('chars');
-    // 색인 없이도 안전하게: 항상 내 캐릭터만 모아서 메모리 필터
-const mineSnap = await tx.get(charsRef.where('owner_uid','==', uid));
-const targets = mineSnap.docs.filter(d => {
-  const eq = d.data().items_equipped || [];
-  // 숫자/문자 혼용 대비: 문자열로 통일 비교
-  return eq.some(v => String(v) === String(itemId));
-});
+  // 1) 모든 읽기 먼저 (내 캐릭터들 중 이 아이템 착용한 애들 찾기)
+  const charsRef = db.collection('chars');
+  const mineSnap = await tx.get(charsRef.where('owner_uid','==', uid));
+  const targets = mineSnap.docs.filter(d => {
+    const eq = d.data().items_equipped || [];
+    return eq.some(v => String(v) === String(itemId));
+  });
 
-// 일괄 착용 해제
-targets.forEach(doc => {
-  const ch = doc.data();
-  const newEquipped = (ch.items_equipped || []).filter(v => String(v) !== String(itemId));
-  tx.update(doc.ref, { items_equipped: newEquipped });
-});
+  // 2) 그 다음 모든 쓰기 (인벤토리 반영 → 착용 해제)
+  tx.update(userRef, { items_all: items });
 
+  targets.forEach(doc => {
+    const ch = doc.data();
+    const newEquipped = (ch.items_equipped || []).filter(v => String(v) !== String(itemId));
+    tx.update(doc.ref, { items_equipped: newEquipped });
+  });
 
-    return item;
-  }
+  return item;
+}
+
 
   function _addItemToUser(tx, userRef, itemObj) {
     const FieldValue = admin.firestore.FieldValue;
