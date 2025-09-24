@@ -461,7 +461,7 @@ input{background:#0f141b;color:#fff;border:1px solid var(--bd);border-radius:10p
 .special-card {
   position: relative;
   background: #1a1a2e;
-  border: 1px solid #4a4e69;
+  border: 1px solid transparent;
   overflow: hidden;
 }
 
