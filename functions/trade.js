@@ -16,9 +16,13 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
 
   function _calculatePrice(item) {
     const raw = String(item?.rarity || 'normal').toLowerCase();
-    // 동의어 정규화: 유니크 → 에픽으로 통일
-    const norm = ({ unique:'epic', uncommon:'rare' }[raw]) || raw;
-
+    // 동의어 정규화: 한글, 영문 동의어를 표준 키로 통일
+    const norm = ({
+      'unique': 'epic', '유니크': 'epic',
+      'uncommon': 'rare', '레어': 'rare',
+      '일반': 'normal', '레전드': 'legend', '신화': 'myth', '에테르': 'aether'
+    }[raw]) || raw;
+  
     const prices = {
       consumable:    { normal: 1,  rare: 5,  epic: 25,  legend: 50,  myth: 100, aether: 250 },
       non_consumable:{ normal: 2,  rare:10,  epic: 50,  legend:100,  myth: 200, aether: 500 }
