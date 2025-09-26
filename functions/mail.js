@@ -169,20 +169,16 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
         let picked = entries[0][0];
         for (const [rar, w] of entries){ r -= Number(w); if (r<=0){ picked = rar; break; } }
 
-        // 시스템 프롬프트 로드
-        let systemText = '';
+        // ===== [디버깅 시작] 생성 과정 전체를 로그로 기록합니다. =====
+        const gachaLogRef = db.collection('gacha_logs').doc();
+        let systemText = '', userText = '', rawAiResponse = '', errorLog = '';
+
         try{
           const ps = await db.collection('configs').doc('prompts').get();
           systemText = String((ps.exists && ps.data()?.gacha_item_system) || '');
-        }catch(err){
-          logger.warn('[mail] prompts load fail', err);
-        }
 
-        // 서버의 aiGenerate HTTP 함수 호출(비공개 키 보관)
-        try{
           const baseUrl = 'https://us-central1-' + process.env.GCLOUD_PROJECT + '.cloudfunctions.net/aiGenerate';
-          // [수정] AI가 이해하기 쉬운 자연어 형태로 userText를 구성합니다.
-          const userText = `생성할 아이템의 희귀도: ${picked}\n유저의 요청사항: ${String(prompt||'없음').slice(0,500)}`;
+          userText = `생성할 아이템의 희귀도: ${picked}\n유저의 요청사항: ${String(prompt||'없음').slice(0,500)}`;
 
           const res = await fetch(baseUrl, {
             method:'POST',
@@ -195,9 +191,11 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
               maxOutputTokens: 1024
             })
           });
+
           const j = await res.json().catch(()=>({}));
-          const gen = j?.text ? JSON.parse(j.text) : {}; // aiGenerate는 {text}로 반환
-          // 안전 파싱
+          rawAiResponse = j?.text || ''; // AI가 보낸 원본 텍스트 저장
+          const gen = rawAiResponse ? JSON.parse(rawAiResponse) : {};
+          
           const name = String(gen?.name || '이름 없는 아이템');
           const description = String(gen?.description || '').slice(0, 500);
           const isConsumable = !!gen?.isConsumable;
@@ -213,7 +211,7 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
           };
         }catch(e){
           logger.error('[mail] aiGenerate failed', e);
-          // AI 실패시 등급만 반영한 더미 생성
+          errorLog = e.message || String(e); // 에러 메시지 저장
           ticketItem = {
             id: `item_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
             name: `${picked.toUpperCase()} 등급 보상`,
@@ -223,6 +221,29 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
             uses: 1
           };
         }
+
+        // Firestore 'gacha_logs' 컬렉션에 모든 정보 저장
+        await gachaLogRef.set({
+          uid,
+          mailId,
+          at: admin.firestore.FieldValue.serverTimestamp(),
+          request: {
+            rarity: picked,
+            userPrompt: prompt || null,
+          },
+          ai_input: {
+            systemPrompt: systemText,
+            userPrompt: userText,
+          },
+          ai_output: {
+            rawResponse: rawAiResponse,
+          },
+          result: {
+            generatedItem: ticketItem,
+            error: errorLog || null,
+          }
+        });
+        // ===== [디버깅 끝] =====
       }
     }
 
