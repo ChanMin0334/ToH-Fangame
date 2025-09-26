@@ -3,12 +3,48 @@
 // - 발송: 공지/경고/일반 지원. 일반은 첨부 { ticket: { weights } } 또는 기존 coins/items도 허용
 // - 만료시각: expiresAt(ms) 직접 지정 가능(없으면 null)
 // - 수령: ticket이 있으면 서버에서 가중치 추첨 → Firestore configs/prompts.gacha_item_system 로 시스템 프롬프트 로딩
-//         → functions/index.js에 정의된 HTTP 함수 aiGenerate 호출로 아이템 생성(JSON) → 유저 인벤토리에 추가
+//         → ★내부 AI 헬퍼 함수 호출로 아이템 생성(JSON) → 유저 인벤토리에 추가
 //         (아이템 스키마: {id, name, rarity, isConsumable, uses, description})
 
 module.exports = (admin, { onCall, HttpsError, logger }) => {
   const db = admin.firestore();
   const fetch = (...args)=>import('node-fetch').then(({default:fetch})=>fetch(...args)); // ESM 호환
+
+  // [신규] Gemini API 호출을 위한 내부 헬퍼 함수
+  // functions/index.js의 aiGenerate 로직을 가져와 직접 호출 방식으로 변경
+  async function _callGeminiForItem(systemText, userText) {
+    // API 키는 Cloud Functions 환경 변수에서 안전하게 로드됩니다.
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      logger.error('GEMINI_API_KEY is not set in environment variables.');
+      throw new HttpsError('internal', 'AI API 키가 설정되지 않았습니다.');
+    }
+
+    const model = 'gemini-1.5-flash'; // 아이템 생성에 flash 모델 사용
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const body = {
+      contents: [{ role: 'user', parts: [{ text: `${systemText}\n\n${userText||''}` }]}],
+      generationConfig: { 
+        temperature: 0.9, 
+        maxOutputTokens: 1024,
+        responseMimeType: "application/json" // JSON 응답을 명시적으로 요청
+      },
+      safetySettings: []
+    };
+
+    const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    if(!res.ok){
+      const txt = await res.text().catch(()=> '');
+      throw new HttpsError('internal', `Gemini 직접 호출 실패: ${res.status} ${txt}`);
+    }
+
+    const j = await res.json().catch(()=>null);
+    const text = j?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+    if(!text) throw new HttpsError('internal', 'Gemini 응답이 비어 있습니다.');
+
+    return text;
+  }
+
 
   async function isAdmin(uid){
     if(!uid) return false;
@@ -169,7 +205,6 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
         let picked = entries[0][0];
         for (const [rar, w] of entries){ r -= Number(w); if (r<=0){ picked = rar; break; } }
 
-        // ===== [디버깅 시작] 생성 과정 전체를 로그로 기록합니다. =====
         const gachaLogRef = db.collection('gacha_logs').doc();
         let systemText = '', userText = '', rawAiResponse = '', errorLog = '';
 
@@ -177,23 +212,11 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
           const ps = await db.collection('configs').doc('prompts').get();
           systemText = String((ps.exists && ps.data()?.gacha_item_system) || '');
 
-          const baseUrl = 'https://us-central1-' + process.env.GCLOUD_PROJECT + '.cloudfunctions.net/aiGenerate';
           userText = `생성할 아이템의 희귀도: ${picked}\n유저의 요청사항: ${String(prompt||'없음').slice(0,500)}`;
 
-          const res = await fetch(baseUrl, {
-            method:'POST',
-            headers:{ 'Content-Type':'application/json' },
-            body: JSON.stringify({
-              model: 'gemini-1.5-flash',
-              systemText,
-              userText,
-              temperature: 0.9,
-              maxOutputTokens: 1024
-            })
-          });
-
-          const j = await res.json().catch(()=>({}));
-          rawAiResponse = j?.text || ''; // AI가 보낸 원본 텍스트 저장
+          // [수정] HTTP 호출 대신 내부 함수를 직접 호출합니다.
+          rawAiResponse = await _callGeminiForItem(systemText, userText);
+          
           const gen = rawAiResponse ? JSON.parse(rawAiResponse) : {};
           
           const name = String(gen?.name || '이름 없는 아이템');
@@ -222,7 +245,6 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
           };
         }
 
-        // Firestore 'gacha_logs' 컬렉션에 모든 정보 저장
         await gachaLogRef.set({
           uid,
           mailId,
@@ -243,7 +265,6 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
             error: errorLog || null,
           }
         });
-        // ===== [디버깅 끝] =====
       }
     }
 
@@ -254,22 +275,21 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       const cur = Array.isArray(uSnap.get('items_all')) ? uSnap.get('items_all') : [];
       const add = [];
 
-      // 코인
       if (coins>0){
         tx.update(userRef, { coins: admin.firestore.FieldValue.increment(coins) });
       }
-      // 고정 아이템
+
       for (const it of staticItems){
         add.push({
           id: `mail_${snap.id}_${Math.random().toString(36).slice(2,8)}`,
           name: String(it.name||'Gift'),
           rarity: String(it.rarity||'normal'),
           isConsumable: !!(it.consumable||it.isConsumable),
-          uses: Math.max(1, Math.floor(Number(it.count||1))), // count→uses
+          uses: Math.max(1, Math.floor(Number(it.count||1))),
           description: String(it.description||'')
         });
       }
-      // 뽑기권 결과 아이템
+
       if (ticketItem) add.push(ticketItem);
 
       if (add.length){
