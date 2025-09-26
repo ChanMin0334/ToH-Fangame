@@ -181,10 +181,8 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
         // 서버의 aiGenerate HTTP 함수 호출(비공개 키 보관)
         try{
           const baseUrl = 'https://us-central1-' + process.env.GCLOUD_PROJECT + '.cloudfunctions.net/aiGenerate';
-          const userText = JSON.stringify({
-            rarity: picked,
-            user_prompt: String(prompt||'').slice(0,500)
-          });
+          // [수정] AI가 이해하기 쉬운 자연어 형태로 userText를 구성합니다.
+          const userText = `생성할 아이템의 희귀도: ${picked}\n유저의 요청사항: ${String(prompt||'없음').slice(0,500)}`;
 
           const res = await fetch(baseUrl, {
             method:'POST',
