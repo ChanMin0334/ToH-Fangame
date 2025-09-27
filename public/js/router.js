@@ -29,7 +29,8 @@ export function highlightTab() {
   const mainRoute = '#/' + hash.split('/')[1];
   let tabName = mainRoute.substring(2);
 
-  if (tabName === 'economy') {
+  // 경제 탭의 서브 경로들(shop, stock)도 'economy' 탭을 활성화합니다.
+  if (['economy', 'shop', 'stock', 'realty'].includes(tabName)) {
     tabName = 'plaza'; // 하단 바에서는 '광장' 아이콘을 활성화
   }
 
@@ -42,10 +43,11 @@ export function router() {
   document.querySelector('.fixed-actions')?.remove();
   const hash = location.hash || '#/home';
   
+  // 동적 경로 목록에 #/economy/ 추가
   const dynamicRoutes = [
     '#/char/', '#/relations/', '#/explore-run/', '#/explore-battle/',
     '#/battlelog/', '#/encounter-log/', '#/explorelog/',
-    '#/guild/', '#/market', '#/economy' // plaza -> economy
+    '#/guild/', '#/market', '#/economy/'
   ];
   
   const matchedRoute = dynamicRoutes.find(route => hash.startsWith(route));
