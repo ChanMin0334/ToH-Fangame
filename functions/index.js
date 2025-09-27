@@ -1,5 +1,7 @@
 // functions/index.js
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+
 const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
 try { admin.app(); } catch { admin.initializeApp(); }
@@ -15,6 +17,15 @@ const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY'); // 이미 있다면 재�
 const exploreV2 = require('./explore_v2')(admin, { onCall, HttpsError, logger, GEMINI_API_KEY });
 const encounterV2 = require('./encounter_v2')(admin, { onCall, HttpsError, logger, GEMINI_API_KEY });
 const maintenanceFns = require('./maintenance')(admin, { onCall, HttpsError, logger }); 
+
+const stockmarket = require('./stockmarket')(admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KEY });
+exports.updateStockMarket      = stockmarket.updateStockMarket;
+exports.buyStock               = stockmarket.buyStock;
+exports.sellStock              = stockmarket.sellStock;
+exports.subscribeToStock       = stockmarket.subscribeToStock;
+exports.createGuildStock       = stockmarket.createGuildStock;
+exports.distributeDividends    = stockmarket.distributeDividends;
+
 
 // === [탐험 난이도/룰 테이블 & 헬퍼] ===
 const EXPLORE_CONFIG = {
