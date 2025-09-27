@@ -14,7 +14,7 @@ const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY'); // 이미 있다면 재�
 
 const exploreV2 = require('./explore_v2')(admin, { onCall, HttpsError, logger, GEMINI_API_KEY });
 const encounterV2 = require('./encounter_v2')(admin, { onCall, HttpsError, logger, GEMINI_API_KEY });
-
+const maintenanceFns = require('./maintenance')(admin, { onCall, HttpsError, logger }); 
 
 // === [탐험 난이도/룰 테이블 & 헬퍼] ===
 const EXPLORE_CONFIG = {
@@ -646,6 +646,8 @@ const guildFns = require('./guild')(admin, { onCall, HttpsError, logger });
 Object.assign(exports, guildFns);
 exports.kickGuildMember = guildFns.kickFromGuild;
 
+
+Object.assign(exports, maintenanceFns);
 
 // === BEGIN PATCH: trade module export ===
 const tradeFns = require('./trade')(admin, { onCall, HttpsError, logger });
