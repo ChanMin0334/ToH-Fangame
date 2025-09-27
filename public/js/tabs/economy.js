@@ -92,15 +92,15 @@ async function renderStocks(root){
 }
 
 export default async function showEconomy(){
-  const main = document.getElementById('main');
-  if (!main) return;
+  const view = document.getElementById('view');
+  if (!view) return;
 
   // hash 분기
   const hash = location.hash || '#/economy/shop';
   const isShop = hash.startsWith('#/economy/shop');
   const isStock = hash.startsWith('#/economy/stock');
 
-  main.innerHTML = `
+  view.innerHTML = `
     <div class="kv-card" style="padding:12px;margin-bottom:8px;">
       <div style="font-weight:900;font-size:20px;">경제 허브</div>
       <div style="color:var(--muted);font-size:12px;">상점 / 주식 / 부동산</div>
@@ -109,7 +109,7 @@ export default async function showEconomy(){
     <div id="eco-body"></div>
   `;
 
-  const body = main.querySelector('#eco-body');
+  const body = view.querySelector('#eco-body');
 
   // 기존 구독 해제(cleanup)
   if (body.__unsub) { try { body.__unsub(); } catch {} }
