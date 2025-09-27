@@ -1,7 +1,8 @@
-// /public/js/tabs/plaza.js (전체 코드)
-import { db, fx, auth } from '../api/firebase.js';
+// /public/js/tabs/plaza.js
+import { db, fx, auth, func } from '../api/firebase.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
-import { uploadGuildBadgeSquare, createGuild, fetchMyChars } from '../api/store.js';
+import { fetchMyChars, uploadGuildBadgeSquare, createGuild } from '../api/store.js';
 
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -71,8 +72,13 @@ async function loadActiveChar(){
   return snap.exists() ? { id: cid, ...snap.data() } : null;
 }
 
-async function renderGuilds(root, c) {
-    let myGuildId = null, myGuild = null;
+export default async function showPlaza() {
+  const root = document.getElementById('view');
+  root.innerHTML = `<section class="container narrow"><div class="spin-center" style="margin-top:40px;"></div></section>`;
+  
+  const c = await loadActiveChar();
+
+  let myGuildId = null, myGuild = null;
     if (c?.id) {
         const cs = await fx.getDoc(fx.doc(db, 'chars', c.id));
         const cd = cs.exists() ? cs.data() : {};
@@ -102,11 +108,14 @@ async function renderGuilds(root, c) {
       </a>
     `;
 
-    root.innerHTML = `
+    const wrap = document.createElement('section');
+    wrap.className = 'container narrow';
+    wrap.innerHTML = `
       <div class="book-card">
         <div class="bookmarks">
-            <a href="#/economy/shop" class="bookmark" style="text-decoration:none;">🏛️ 경제</a>
-            <a href="#/plaza" class="bookmark active" style="text-decoration:none;">🏰 길드</a>
+            <a href="#/economy" class="bookmark">🏛️ 경제</a>
+            <a href="#/plaza" class="bookmark active">🏰 길드</a>
+            <a href="#/market" class="bookmark">↔️ 거래소</a>
         </div>
         <div class="bookview p12">
           <div class="kv-card" style="margin-bottom:12px;">
@@ -143,29 +152,16 @@ async function renderGuilds(root, c) {
       </div>
     `;
 
-    root.querySelector('#btn-open-create')?.addEventListener('click', () => {
+    root.innerHTML = '';
+    root.appendChild(wrap);
+
+    wrap.querySelector('#btnPickChar')?.addEventListener('click', () => {
+        openCharPicker(showPlaza);
+    });
+    
+    wrap.querySelector('#btn-open-create')?.addEventListener('click', () => {
         if (myGuildId) { showToast('이미 길드 소속이라 만들 수 없습니다.'); return; }
         if (!c) { openCharPicker(showPlaza); return; }
-        // TODO: 길드 생성 모달 UI
         showToast('길드 생성 기능은 준비 중입니다.');
     });
-}
-
-export default async function showPlaza() {
-  const root = document.getElementById('view');
-  root.innerHTML = `<section class="container narrow"><div class="spin-center" style="margin-top:40px;"></div></section>`;
-  
-  const c = await loadActiveChar();
-
-  const wrap = document.createElement('section');
-  wrap.className = 'container narrow';
-  
-  await renderGuilds(wrap, c);
-
-  root.innerHTML = '';
-  root.appendChild(wrap);
-
-  wrap.querySelector('#btnPickChar')?.addEventListener('click', () => {
-      openCharPicker(showPlaza);
-  });
 }
