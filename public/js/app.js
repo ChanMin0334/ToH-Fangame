@@ -1,4 +1,6 @@
-// /public/js/app.js (기존 내용)
+// /public/js/app.js
+
+// (기존 import)
 import { auth, db, fx } from './api/firebase.js';
 import { fetchWorlds, App } from './api/store.js';
 import { ensureUserDoc } from './api/user.js';
