@@ -184,7 +184,8 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
       ? FieldValue.arrayUnion(uid) : FieldValue.arrayRemove(uid);
 
     await stockRef.update({ subscribers: op });
-    return { ok: true, subscribed: (op === FieldValue.arrayUnion(uid)) };
+    return { ok: true, subscribed: (subscribe === true || (subscribe === undefined && !has)) };
+
   });
 
   // ---------- onCall: 길드 상장 ----------
