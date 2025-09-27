@@ -105,7 +105,7 @@ if (!document.getElementById('guild-style')) {
   if(!gRaw){
     wrap.innerHTML = `
       <div class="bookmarks">
-        <a href="#/plaza/guilds" class="bookmark">🏰 길드</a>
+        <a href="#/plaza" class="bookmark">🏰 길드</a>
         <a class="bookmark active">소개</a>
       </div>
       <div class="bookview"><div class="kv-card text-dim">해당 길드를 찾을 수 없어.</div></div>`;
