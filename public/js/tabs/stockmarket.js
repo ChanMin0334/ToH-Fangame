@@ -1,87 +1,89 @@
-// /functions/stockmarket.js (신규 파일)
-const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
-const { logger } = require('firebase-functions');
+// /public/js/tabs/stockmarket.js
+import { db, fx, auth, func } from '../api/firebase.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 
-module.exports = (admin, { onCall, HttpsError, logger, onSchedule }) => {
-    const db = admin.firestore();
-    const { FieldValue } = admin.firestore;
+const call = (name)=> httpsCallable(func, name);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 
-    // TODO: AI 뉴스 생성을 위한 Gemini 호출 헬퍼 함수 구현 필요
+export async function renderStocks(container){
+  container.innerHTML = `<div class="spin-center" style="margin-top:40px;"></div>`;
 
-    // 15분마다 주식 시장을 업데이트하는 스케줄러
-    const updateStockMarket = onSchedule({
-        schedule: "every 15 minutes",
-        region: 'us-central1'
-    }, async (event) => {
-        logger.info("Running scheduled stock market update...");
+  // 상단 툴바
+  const shell = document.createElement('div');
+  shell.innerHTML = `
+    <div class="kv-card" style="margin-bottom:8px">
+      <div class="row" style="gap:8px;align-items:center">
+        <div style="font-weight:900">시장 보기</div>
+        <div class="text-dim" style="font-size:12px">15분 주기 업데이트</div>
+        <div style="flex:1"></div>
+        <button id="btn-refresh" class="btn ghost small">새로고침</button>
+      </div>
+    </div>
+    <div id="list"></div>
+  `;
+  container.innerHTML = '';
+  container.appendChild(shell);
+  const list = shell.querySelector('#list');
 
-        const stocksRef = db.collection('stocks');
-        const stocksMasterSnap = await db.doc('configs/stocks').get();
-        const stocksMaster = stocksMasterSnap.exists() ? stocksMasterSnap.data().stocks_master : [];
-        
-        const stocksSnap = await stocksRef.where('status', '==', 'listed').get();
+  const renderRow = (d) => `
+    <div class="kv-card" data-id="${d.id}" style="margin-bottom:8px">
+      <div class="row" style="gap:10px;align-items:center">
+        <div style="font-weight:800">${esc(d.name || d.id)}</div>
+        <div class="text-dim" style="font-size:12px">${esc(d.type || '-')}, 변동성: ${esc(d.volatility || 'normal')}</div>
+        <div style="flex:1"></div>
+        <div style="font-weight:900">🪙 ${Number(d.current_price||0).toLocaleString()}</div>
+        <button class="btn xs" data-act="sub">${d.isSubscribed ? '구독취소' : '속보구독'}</button>
+        <button class="btn xs" data-act="buy">매수</button>
+        <button class="btn xs" data-act="sell">매도</button>
+      </div>
+      <div class="text-dim" style="font-size:12px;margin-top:6px">${esc(d.description || '')}</div>
+    </div>
+  `;
 
-        for (const doc of stocksSnap.docs) {
-            const stock = doc.data();
-            const master = stocksMaster.find(s => s.id === doc.id);
-            if (!master) continue;
+  let stop = null;
+  async function loadOnce(){
+    const me = auth.currentUser?.uid || null;
 
-            // 로직: 15분 주기 = 1. 다음 이벤트 결정 -> 2. 뉴스 생성 -> 3. 가격 반영 (3단계 순환)
-            if (!stock.upcoming_event) {
-                // 1. 다음 이벤트 미리 결정 (상승/하락/보합)
-                const directions = ['up', 'down', 'stable'];
-                const magnitudes = ['small', 'medium', 'large'];
-                // TODO: master.volatility에 따라 확률 가중치 부여
-                const nextEvent = {
-                    change_direction: directions[Math.floor(Math.random() * directions.length)],
-                    magnitude: magnitudes[Math.floor(Math.random() * magnitudes.length)],
-                    news_generated: false
-                };
-                await doc.ref.update({ upcoming_event: nextEvent });
-
-            } else if (!stock.upcoming_event.news_generated) {
-                // 2. AI 뉴스 생성 및 메일 발송 (현재는 더미 데이터)
-                const aiNews = { title: "새로운 소식!", body: `${stock.name}에 대한 흥미로운 변화가 감지되었습니다.` };
-
-                const mailPromises = (stock.subscribers || []).map(uid => {
-                    const mailRef = db.collection('mail').doc(uid).collection('msgs').doc();
-                    return mailRef.set({
-                        kind: 'etc',
-                        title: `[주식 속보] ${stock.name}`,
-                        body: `${aiNews.title}\n\n${aiNews.body}`,
-                        sentAt: FieldValue.serverTimestamp(),
-                        from: '증권 정보국',
-                        read: false,
-                        attachments: { ref_type: 'stock', ref_id: doc.id }
-                    });
-                });
-                await Promise.all(mailPromises);
-                await doc.ref.update({ 'upcoming_event.news_generated': true });
-
-            } else {
-                // 3. 실제 가격 반영 및 이벤트 초기화
-                const currentPrice = stock.current_price || 100;
-                let fluctuation = 0;
-                // TODO: upcoming_event 내용에 따라 변동률 계산
-                const newPrice = Math.max(1, Math.round(currentPrice * (1 + fluctuation)));
-
-                const priceHistory = (stock.price_history || []).slice(-29);
-                priceHistory.push({ date: new Date().toISOString(), price: newPrice });
-                
-                await doc.ref.update({
-                    current_price: newPrice,
-                    price_history: priceHistory,
-                    upcoming_event: null
-                });
-            }
-        }
-        logger.info(`Stock market updated for ${stocksSnap.size} stocks.`);
+    // stocks 컬렉션 실시간 조회
+    const q = fx.query(
+      fx.collection(db, 'stocks'),
+      fx.where('status','==','listed'),
+      fx.limit(50)
+    );
+    if (stop) stop(); // 중복 구독 방지
+    stop = fx.onSnapshot(q, async (snap)=>{
+      // master 설명/타입은 stocks 문서에도 중복 저장 권장
+      const arr = await Promise.all(snap.docs.map(async d=>{
+        const x = { id:d.id, ...d.data() };
+        x.isSubscribed = me ? Array.isArray(x.subscribers) && x.subscribers.includes(me) : false;
+        return x;
+      }));
+      list.innerHTML = arr.length ? arr.map(renderRow).join('') : `<div class="kv-card text-dim">상장된 종목이 없어.</div>`;
+      wireRows();
     });
+  }
 
-    // TODO: buyStock, sellStock, subscribeToStock, createGuildStock, distributeDividends 함수 구현
+  function wireRows(){
+    list.querySelectorAll('.kv-card[data-id]').forEach(row=>{
+      const id = row.getAttribute('data-id');
+      row.querySelectorAll('[data-act]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          const act = btn.getAttribute('data-act');
+          if (act==='sub'){
+            const want = btn.textContent.includes('속보구독'); // true=구독
+            await call('subscribeToStock')({ stockId:id, subscribe: want });
+          } else if (act==='buy'){
+            const qty = Number(prompt('매수 수량?','1')||'0')|0;
+            if (qty>0) await call('buyStock')({ stockId:id, quantity:qty });
+          } else if (act==='sell'){
+            const qty = Number(prompt('매도 수량?','1')||'0')|0;
+            if (qty>0) await call('sellStock')({ stockId:id, quantity:qty });
+          }
+        };
+      });
+    });
+  }
 
-    return {
-        updateStockMarket,
-    };
-};
+  shell.querySelector('#btn-refresh').onclick = loadOnce;
+  await loadOnce();
+}
