@@ -1,6 +1,7 @@
-// /functions/stockmarket.js (완성본)
+// /functions/stockmarket.js (수정)
 module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API_KEY*/ }) => {
   const db = admin.firestore();
+  // FieldValue를 admin.firestore()에서 직접 가져오도록 수정
   const { FieldValue } = admin.firestore;
 
   // ---------- helpers ----------
