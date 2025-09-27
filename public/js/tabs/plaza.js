@@ -1,6 +1,5 @@
 // /public/js/tabs/plaza.js (전체 코드)
-import { db, fx, auth, func } from '../api/firebase.js';
-import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+import { db, fx, auth } from '../api/firebase.js';
 import { showToast } from '../ui/toast.js';
 import { uploadGuildBadgeSquare, createGuild, fetchMyChars } from '../api/store.js';
 
@@ -32,12 +31,12 @@ async function openCharPicker(onSelectCallback){
   back.innerHTML = `
     <div class="modal-card" style="max-width:720px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <div style="font-weight:900;font-size:18px;">캐릭터 선택</div>
+        <div style="font-weight:900;font-size:18px;">활동할 캐릭터 선택</div>
         <button class="btn ghost" id="mClose">닫기</button>
       </div>
       <div class="grid3" style="gap:10px;">
         ${items.length ? items.map(c => `
-          <button class="kv-card" data-cid="${c.id}" style="text-align:left;display:flex;gap:10px;align-items:center;">
+          <button class="kv-card" data-cid="${c.id}" style="text-align:left;display:flex;gap:10px;align-items:center;cursor:pointer;">
             <img src="${c.image_url || c.thumb_url || ''}" onerror="this.style.display='none'"
                  style="width:56px;height:56px;border-radius:10px;object-fit:cover;background:#111">
             <div>
@@ -45,7 +44,7 @@ async function openCharPicker(onSelectCallback){
               <div class="text-dim" style="font-size:12px">${esc(c.world_id || '')}</div>
             </div>
           </button>
-        `).join('') : `<div class="kv-card text-dim">캐릭터가 없어. 먼저 캐릭터를 만들어줘.</div>`}
+        `).join('') : `<div class="kv-card text-dim">캐릭터가 없습니다. 먼저 생성해주세요.</div>`}
       </div>
     </div>
   `;
@@ -72,16 +71,7 @@ async function loadActiveChar(){
   return snap.exists() ? { id: cid, ...snap.data() } : null;
 }
 
-async function loadMyCoins(){
-  const uid = auth.currentUser?.uid;
-  if(!uid) return 0;
-  const snap = await fx.getDoc(fx.doc(db, 'users', uid));
-  return snap.exists() ? Math.max(0, Math.floor(Number(snap.data()?.coins || 0))) : 0;
-}
-
 async function renderGuilds(root, c) {
-    const coin = await loadMyCoins();
-
     let myGuildId = null, myGuild = null;
     if (c?.id) {
         const cs = await fx.getDoc(fx.doc(db, 'chars', c.id));
@@ -94,24 +84,22 @@ async function renderGuilds(root, c) {
     }
 
     let guilds = [];
-    try{
-        const qs = await fx.getDocs(fx.query(fx.collection(db, 'guilds'), fx.where('settings.isPublic','==', true), fx.limit(50)));
+    try {
+        const qs = await fx.getDocs(fx.query(fx.collection(db, 'guilds'), fx.where('settings.isPublic', '==', true), fx.limit(50)));
         guilds = qs.docs.map(d => ({ id: d.id, ...d.data() }));
-        guilds.sort((a,b)=> (b.weekly_points||0)-(a.weekly_points||0) || (b.member_count||0)-(a.member_count||0) || (b.updatedAt||0)-(a.updatedAt||0));
-    }catch(e){ console.error('guild list load failed', e); guilds = []; }
+        guilds.sort((a, b) => (b.weekly_points || 0) - (a.weekly_points || 0) || (b.member_count || 0) - (a.member_count || 0) || (b.updatedAt || 0) - (a.updatedAt || 0));
+    } catch (e) { console.error('guild list load failed', e); guilds = []; }
 
-    const guildCard = (g)=>`
-      <div class="kv-card link guild-card" data-gid="${g.id}" style="cursor:pointer">
+    const guildCard = (g) => `
+      <a class="kv-card link guild-card" href="#/guild/${g.id}" style="text-decoration:none; color:inherit;">
         <div class="row" style="gap:12px;align-items:center">
           <img src="${esc(g.badge_url||'')}" onerror="this.style.display='none'" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid #273247;">
           <div>
             <div style="font-weight:900">${esc(g.name||'(이름없음)')}</div>
             <div class="text-dim" style="font-size:12px">멤버 ${g.member_count||1}명 · 레벨 ${g.level||1}</div>
           </div>
-          <div style="flex:1"></div>
-          <a class="btn ghost small" href="#/guild/${g.id}" style="text-decoration:none;">보기</a>
         </div>
-      </div>
+      </a>
     `;
 
     root.innerHTML = `
@@ -120,61 +108,46 @@ async function renderGuilds(root, c) {
             <a href="#/economy/shop" class="bookmark" style="text-decoration:none;">🏛️ 경제</a>
             <a href="#/plaza" class="bookmark active" style="text-decoration:none;">🏰 길드</a>
         </div>
-        <div class="bookview">
-          <div class="kv-card">
+        <div class="bookview p12">
+          <div class="kv-card" style="margin-bottom:12px;">
             <div class="row" style="justify-content:space-between;align-items:center">
               <div style="font-weight:900">길드</div>
-              <div class="row" style="gap:8px;align-items:center">
-                <button id="btn-open-create" class="btn" ${myGuildId?'disabled title="이미 길드 소속이야"':''}>길드 만들기</button>
-              </div>
+              <button id="btn-open-create" class="btn" ${myGuildId?'disabled title="이미 길드 소속입니다."':''}>길드 만들기</button>
             </div>
           </div>
-          <div class="kv-card">
-            <div id="btnPickChar" style="cursor:pointer">
-              ${c ? `캐릭터: <b>${esc(c.name||c.id)}</b> <span class="text-dim">(눌러서 변경)</span>` : '캐릭터 선택 필요 (눌러서 선택)'}
+          <div class="kv-card" style="margin-bottom:12px;">
+            <div id="btnPickChar" style="cursor:pointer; padding: 4px 0;">
+              ${c ? `활동 캐릭터: <b>${esc(c.name||c.id)}</b> <span class="text-dim">(변경)</span>` : '활동할 캐릭터를 선택해주세요.'}
             </div>
           </div>
           ${myGuild ? `
-            <div class="kv-card" id="my-guild-card" style="margin-top:8px; cursor:pointer" data-gid="${myGuild.id}">
-                <div class="row" style="gap:12px;align-items:center">
-                    <img src="${esc(myGuild.badge_url||'')}" onerror="this.style.display='none'" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;border:1px solid #273247;">
-                    <div>
-                        <div style="font-weight:900">${esc(myGuild.name||'(이름없음)')}</div>
-                        <div class="text-dim" style="font-size:12px">멤버 ${myGuild.member_count||1}명 · 레벨 ${myGuild.level||1}</div>
+            <div class="kv-card" id="my-guild-card" style="margin-bottom:12px;">
+                <div class="kv-label">내 길드</div>
+                <a href="#/guild/${myGuild.id}" style="text-decoration:none; color:inherit;">
+                    <div class="row" style="gap:12px;align-items:center; margin-top:8px;">
+                        <img src="${esc(myGuild.badge_url||'')}" onerror="this.style.display='none'" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;border:1px solid #273247;">
+                        <div>
+                            <div style="font-weight:900">${esc(myGuild.name||'(이름없음)')}</div>
+                            <div class="text-dim" style="font-size:12px">멤버 ${myGuild.member_count||1}명 · 레벨 ${myGuild.level||1}</div>
+                        </div>
                     </div>
-                    <div style="flex:1"></div>
-                    <a class="btn small" href="#/guild/${myGuild.id}" style="text-decoration:none;">길드 관리</a>
-                </div>
+                </a>
             </div>`:''}
-          <div class="kv-card" style="margin-top:8px">
+          <div class="kv-card">
             <div style="font-weight:900; margin-bottom:8px">공개 길드</div>
             <div class="col" style="gap:8px;">
-                ${guilds.length ? guilds.map(guildCard).join('') : `<div class="text-dim">아직 공개 길드가 없어.</div>`}
+                ${guilds.length ? guilds.map(guildCard).join('') : `<div class="text-dim">아직 공개된 길드가 없습니다.</div>`}
             </div>
           </div>
         </div>
       </div>
     `;
 
-    root.querySelectorAll('.guild-card').forEach(el => {
-        el.onclick = (e) => {
-            if (e.target.closest('a')) return;
-            const gid = el.getAttribute('data-gid');
-            if(gid) location.hash = `#/guild/${gid}`;
-        };
-    });
-
     root.querySelector('#btn-open-create')?.addEventListener('click', () => {
-        if (myGuildId) { showToast('이미 길드 소속이라 만들 수 없어'); return; }
+        if (myGuildId) { showToast('이미 길드 소속이라 만들 수 없습니다.'); return; }
         if (!c) { openCharPicker(showPlaza); return; }
-        // TODO: Create Guild Modal
+        // TODO: 길드 생성 모달 UI
         showToast('길드 생성 기능은 준비 중입니다.');
-    });
-
-    root.querySelector('#my-guild-card')?.addEventListener('click', (e) => {
-        if (e.target.closest('a')) return;
-        const gid = e.currentTarget.getAttribute('data-gid');
-        if(gid) location.hash = `#/guild/${gid}`;
     });
 }
 
