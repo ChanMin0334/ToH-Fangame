@@ -1,7 +1,7 @@
 // /public/js/tabs/manage.js
-// 관리자 도구: [메일 발송] / [검색] / [버전 관리] / [후원자 목록] 탭 UI
+// 관리자 도구: [메일 발송] / [검색] / [버전 관리] / [후원자 목록] / [서비스 점검] 탭 UI
 
-import { func, db, fx } from '../api/firebase.js'; // db, fx 추가
+import { func, db, fx } from '../api/firebase.js';
 import { ensureAdmin, isAdminCached } from '../api/admin.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
@@ -29,7 +29,7 @@ function stylesOnce(){
     .manage-tab.active { color: var(--pri1); border-bottom-color: var(--pri1); font-weight: 600; }
 
     .manage-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    .manage-grid3 { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px; } /* 추가 */
+    .manage-grid3 { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px; }
     @media (max-width: 640px) { .manage-grid2 { grid-template-columns: 1fr; } }
     
     .manage-col { display: flex; flex-direction: column; gap: 12px; }
@@ -73,6 +73,7 @@ function mainTpl(){
         <button class="manage-tab" data-tab="version">버전 관리</button>
         <button class="manage-tab" data-tab="supporter">후원자 설정</button>
         <button class="manage-tab" data-tab="supporter-list">후원자 목록</button>
+        <button class="manage-tab" data-tab="maintenance">서비스 점검</button>
       </div>
       <div id="manage-tab-content"></div>
     </div>
@@ -80,7 +81,6 @@ function mainTpl(){
   `;
 }
 
-// (기존 sendTpl, searchTpl, versionTpl, supporterTpl 함수는 그대로 유지)
 function sendTpl(){
   return `
   <div class="manage-col">
@@ -201,6 +201,28 @@ function supporterListTpl() {
   </div>`;
 }
 
+// [신규] 서비스 점검 탭 UI 템플릿
+function maintenanceTpl() {
+  return `
+  <div class="manage-col">
+    <h4 style="margin-top:0">서비스 점검 설정</h4>
+    <div id="maintenance-status" class="manage-hint">현재 상태를 불러오는 중...</div>
+    
+    <div class="manage-row">
+      <label class="manage-label">점검 모드 활성화</label>
+      <span id="maintenance-switch" class="manage-switch" data-on="0" role="switch"><i></i></span>
+    </div>
+    
+    <div class="manage-row">
+      <label class="manage-label">점검 안내 메시지</label>
+      <textarea id="maintenance-message" class="manage-textarea" rows="3" placeholder="예: 서버 안정화 작업을 위해 점검 중입니다. (오후 2시 ~ 3시)"></textarea>
+    </div>
+    
+    <div class="manage-row" style="justify-content:flex-end">
+      <button id="btn-set-maintenance" class="btn primary">상태 저장</button>
+    </div>
+  </div>`;
+}
 
 export async function showManage(){
   stylesOnce();
@@ -236,7 +258,7 @@ export async function showManage(){
     } else if (tabId === 'supporter-list') {
         contentWrap.innerHTML = supporterListTpl();
         bindSupporterListEvents();
-    } else if (tabId === 'maintenance') { // ◀◀◀ 이 부분 추가
+    } else if (tabId === 'maintenance') {
         contentWrap.innerHTML = maintenanceTpl();
         bindMaintenanceEvents();
     }
@@ -255,7 +277,6 @@ export async function showManage(){
   renderTabContent('send');
 }
 
-// (기존 bindSendEvents, bindSearchEvents, bindVersionEvents, bindSupporterEvents 함수는 그대로 유지)
 function bindSendEvents() {
     const $switch = document.getElementById('gacha-switch');
     const $panel  = document.getElementById('gacha-panel');
@@ -426,7 +447,6 @@ function bindSupporterListEvents() {
 
   const loadSupporterUsers = async () => {
     try {
-      // 'adminGetSupporterUsers' 라는 새로운 Cloud Function을 호출합니다.
       const getSupporterUsers = httpsCallable(func, 'adminGetSupporterUsers');
       const result = await getSupporterUsers();
       
@@ -437,7 +457,6 @@ function bindSupporterListEvents() {
         return;
       }
 
-      // 받아온 유저 목록으로 프로필 카드 UI를 생성합니다.
       listContainer.innerHTML = users.map(u => `
         <div class="manage-card" style="display: flex; flex-direction: column; gap: 8px; padding: 10px;">
           <div class="manage-row">
@@ -451,7 +470,6 @@ function bindSupporterListEvents() {
         </div>
       `).join('');
 
-      // UID 클릭 시 복사 기능 추가
       listContainer.querySelectorAll('[data-uid]').forEach(el => {
         el.addEventListener('click', () => {
           navigator.clipboard.writeText(el.dataset.uid);
@@ -468,14 +486,12 @@ function bindSupporterListEvents() {
   loadSupporterUsers();
 }
 
-// [신규] 서비스 점검 탭 이벤트 바인딩
 function bindMaintenanceEvents() {
     const statusEl = document.getElementById('maintenance-status');
     const switchEl = document.getElementById('maintenance-switch');
     const messageEl = document.getElementById('maintenance-message');
     const btn = document.getElementById('btn-set-maintenance');
 
-    // 현재 상태 불러오기
     const statusRef = fx.doc(db, 'configs/app_status');
     fx.getDoc(statusRef).then(snap => {
         if (snap.exists()) {
@@ -518,8 +534,6 @@ function bindMaintenanceEvents() {
         }
     });
 }
-
-
 
 export const showAdmin = showManage;
 export default showManage;
