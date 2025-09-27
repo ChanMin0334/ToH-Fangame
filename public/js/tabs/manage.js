@@ -236,6 +236,9 @@ export async function showManage(){
     } else if (tabId === 'supporter-list') {
         contentWrap.innerHTML = supporterListTpl();
         bindSupporterListEvents();
+    } else if (tabId === 'maintenance') { // ◀◀◀ 이 부분 추가
+        contentWrap.innerHTML = maintenanceTpl();
+        bindMaintenanceEvents();
     }
   };
 
@@ -464,6 +467,58 @@ function bindSupporterListEvents() {
 
   loadSupporterUsers();
 }
+
+// [신규] 서비스 점검 탭 이벤트 바인딩
+function bindMaintenanceEvents() {
+    const statusEl = document.getElementById('maintenance-status');
+    const switchEl = document.getElementById('maintenance-switch');
+    const messageEl = document.getElementById('maintenance-message');
+    const btn = document.getElementById('btn-set-maintenance');
+
+    // 현재 상태 불러오기
+    const statusRef = fx.doc(db, 'configs/app_status');
+    fx.getDoc(statusRef).then(snap => {
+        if (snap.exists()) {
+            const data = snap.data();
+            const enabled = data.isMaintenance === true;
+            statusEl.textContent = `현재 상태: ${enabled ? '점검 중' : '정상 운영 중'}`;
+            switchEl.dataset.on = enabled ? '1' : '0';
+            messageEl.value = data.message || '';
+        } else {
+            statusEl.textContent = '현재 상태: 정상 운영 중 (설정 없음)';
+        }
+    });
+
+    switchEl.addEventListener('click', () => {
+        switchEl.dataset.on = switchEl.dataset.on === '1' ? '0' : '1';
+    });
+
+    btn.addEventListener('click', async () => {
+        const enabled = switchEl.dataset.on === '1';
+        const message = messageEl.value.trim();
+
+        if (enabled && !message) {
+            showToast('점검 모드 활성화 시 안내 메시지는 필수입니다.');
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = '저장 중...';
+
+        try {
+            const setMaintenanceStatus = httpsCallable(func, 'setMaintenanceStatus');
+            await setMaintenanceStatus({ enabled, message });
+            showToast('서비스 점검 상태가 성공적으로 업데이트되었습니다.');
+            statusEl.textContent = `현재 상태: ${enabled ? '점검 중' : '정상 운영 중'}`;
+        } catch (e) {
+            showToast(`상태 업데이트 실패: ${e.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '상태 저장';
+        }
+    });
+}
+
 
 
 export const showAdmin = showManage;
