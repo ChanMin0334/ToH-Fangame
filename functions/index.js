@@ -126,6 +126,42 @@ exports.setGlobalCooldown = onCall({ region:'us-central1' }, async (req)=>{
   return { ok:true };
 });
 
+// === [신규] 주간 길드 기여도 초기화 (매주 월요일 0시 실행) ===
+exports.resetWeeklyGuildPoints = onSchedule({
+    schedule: "every monday 00:00",
+    timeZone: "Asia/Seoul",
+}, async (event) => {
+    logger.info("매주 월요일, 길드 주간 기여도 초기화 작업을 시작합니다.");
+
+    const batch = db.batch();
+
+    // 1. 모든 길드의 weekly_points 초기화 (0보다 큰 경우에만)
+    const guildsRef = db.collection('guilds');
+    const guildsSnap = await guildsRef.where('weekly_points', '>', 0).get();
+    guildsSnap.forEach(doc => {
+        batch.update(doc.ref, { weekly_points: 0 });
+    });
+    logger.info(`${guildsSnap.size}개 길드의 주간 기여도를 초기화합니다.`);
+
+    // 2. 모든 길드 멤버의 points_weekly 초기화 (0보다 큰 경우에만)
+    const membersRef = db.collection('guild_members');
+    const membersSnap = await membersRef.where('points_weekly', '>', 0).get();
+    membersSnap.forEach(doc => {
+        batch.update(doc.ref, { points_weekly: 0 });
+    });
+    logger.info(`${membersSnap.size}명 멤버의 주간 기여도를 초기화합니다.`);
+
+    try {
+        if (guildsSnap.size > 0 || membersSnap.size > 0) {
+            await batch.commit();
+            logger.info("길드 주간 기여도 초기화 작업이 성공적으로 완료되었습니다.");
+        } else {
+            logger.info("초기화할 길드 또는 멤버가 없습니다.");
+        }
+    } catch (error) {
+        logger.error("길드 주간 기여도 초기화 중 오류 발생:", error);
+    }
+});
 
 
 
@@ -648,6 +684,8 @@ exports.kickGuildMember = guildFns.kickFromGuild;
 
 
 Object.assign(exports, maintenanceFns);
+Object.assign(exports, stockmarketFns);
+
 
 // === BEGIN PATCH: trade module export ===
 const tradeFns = require('./trade')(admin, { onCall, HttpsError, logger });
