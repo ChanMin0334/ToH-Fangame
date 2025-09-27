@@ -115,7 +115,7 @@ if (!document.getElementById('guild-style')) {
   // ── 탭 헤더
   wrap.innerHTML = `
     <div class="bookmarks">
-      <a href="#/plaza/guilds" class="bookmark">🏰 길드</a>
+      <a href="#/plaza" class="bookmark">🏰 길드</a>
       <a href="#/guild/${esc(g.id)}/about"     class="bookmark ${sub==='about'?'active':''}">소개</a>
       <a href="#/guild/${esc(g.id)}/members"   class="bookmark ${sub==='members'?'active':''}">멤버</a>
       <a href="#/guild/${esc(g.id)}/level"     class="bookmark ${sub==='level'?'active':''}">레벨업</a>
