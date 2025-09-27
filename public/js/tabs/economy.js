@@ -1,6 +1,9 @@
 // /public/js/tabs/economy.js (신규 파일)
-import { db, fx, auth } from '../api/firebase.js';
+import { db, auth, fx, func } from '../api/firebase.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+import { showToast } from '../ui/toast.js';
 import { showStockMarket } from './stockmarket.js';
+import { renderShop } from './shop.js';
 
 /**
  * 현재 URL 해시를 기반으로 서브 탭 경로를 파싱합니다.
@@ -41,13 +44,14 @@ export default async function showEconomy() {
   wrap.innerHTML = `
     <div class="book-card">
       <div class="bookmarks">
+        <a href="#/plaza" class="bookmark">🏰 길드</a>
         <a href="#/economy/shop" class="bookmark ${tab === 'shop' ? 'active' : ''}" style="text-decoration:none;">🛒 상점</a>
         <a href="#/economy/stock" class="bookmark ${tab === 'stock' ? 'active' : ''}" style="text-decoration:none;">📈 주식</a>
         <a href="#/economy/realty" class="bookmark ${tab === 'realty' ? 'active' : ''}" style="text-decoration:none; color: var(--muted); cursor: not-allowed;">🏡 부동산(준비중)</a>
         <div class="chip" style="margin-left: auto;">🪙 <b>${coins.toLocaleString()}</b></div>
       </div>
-      <div class="bookview" id="economy-bookview">
-        </div>
+      <div class="bookview p12" id="economy-bookview">
+      </div>
     </div>
   `;
 
@@ -63,7 +67,6 @@ export default async function showEconomy() {
     bookview.innerHTML = `<div class="p16 text-dim" style="text-align:center;">부동산 시스템은 현재 준비 중입니다.</div>`;
   } else {
     // 기본값은 상점
-    // TODO: 상점 UI 구현 후 연결
-    bookview.innerHTML = `<div class="p16 text-dim" style="text-align:center;">상점 시스템은 현재 준비 중입니다.</div>`;
+    await renderShop(bookview);
   }
 }
