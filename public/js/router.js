@@ -23,6 +23,7 @@ export const routes = {
   '#/plaza': () => import('./tabs/plaza.js').then(m => (m.showPlaza || m.default)()),
   '#/market': () => import('./tabs/market.js').then(m => (m.showMarket || m.default)()),
   '#/guild': () => import('./tabs/guild.js').then(m => (m.showGuild || m.default)()),
+  '#/economy': () => import('./tabs/economy.js').then(m => (m.default)()), // [추가]
   '#/logs': () => import('./tabs/logs.js').then(m => (m.showLogs || m.default)()),
   '#/mail': () => import('./tabs/mail.js').then(m => (m.showMailbox || m.default)()),
   '#/manage': () => import('./tabs/manage.js').then(m => (m.showManage || m.default)()),
@@ -49,7 +50,9 @@ export function router() {
   // startsWith를 사용하여 /:id 와 같은 파라미터를 포함하는 경로를 처리합니다.
   const dynamicRoutes = [
     '#/char/', '#/relations/', '#/explore-run/', '#/explore-battle/',
-    '#/battlelog/', '#/encounter-log/', '#/explorelog/', '#/plaza', '#/guild/', '#/market'
+    '#/battlelog/', '#/encounter-log/', '#/explorelog/',
+    '#/guild/', '#/market',
+    '#/economy/' // [추가]
   ];
   
   // URL 해시가 동적 경로 패턴 중 하나로 시작하는지 찾습니다.
