@@ -1,10 +1,11 @@
 // /public/js/tabs/economy.js (신규 파일)
-
 import { db, fx, auth } from '../api/firebase.js';
-import { renderShop } from './shop.js'; // 상점 렌더링 함수 (분리 예정)
-import { showStockMarket } from './stockmarket.js'; // 주식 렌더링 함수 (신규)
+import { showStockMarket } from './stockmarket.js';
 
-// 현재 URL 해시를 기반으로 서브 탭 경로를 파싱합니다.
+/**
+ * 현재 URL 해시를 기반으로 서브 탭 경로를 파싱합니다.
+ * @returns {string} 현재 활성화된 서브 탭 ID (예: 'shop', 'stock')
+ */
 function subpath() {
   const h = location.hash || '';
   // 예: #/economy/stock -> m[1]: stock
@@ -12,7 +13,10 @@ function subpath() {
   return m?.[1] ? m[1] : 'shop'; // 기본 탭은 '상점'
 }
 
-// 유저의 코인 정보를 가져옵니다.
+/**
+ * 현재 로그인한 유저의 코인 정보를 Firestore에서 가져옵니다.
+ * @returns {Promise<number>} 보유 코인
+ */
 async function loadMyCoins() {
   const uid = auth.currentUser?.uid;
   if (!uid) return 0;
@@ -20,9 +24,12 @@ async function loadMyCoins() {
   return snap.exists() ? Math.floor(Number(snap.data()?.coins || 0)) : 0;
 }
 
-// 메인 진입 함수
+/**
+ * 경제 탭의 메인 UI를 렌더링하고, 서브 탭에 맞는 콘텐츠를 표시합니다.
+ */
 export default async function showEconomy() {
   const root = document.getElementById('view');
+  if (!root) return;
   root.innerHTML = `<section class="container narrow"><div class="spin-center" style="margin-top:40px;"></div></section>`;
 
   const tab = subpath();
@@ -34,10 +41,10 @@ export default async function showEconomy() {
   wrap.innerHTML = `
     <div class="book-card">
       <div class="bookmarks">
-        <a href="#/economy/shop" class="bookmark ${tab === 'shop' ? 'active' : ''}">🛒 상점</a>
-        <a href="#/economy/stock" class="bookmark ${tab === 'stock' ? 'active' : ''}">📈 주식</a>
-        <a href="#/economy/realty" class="bookmark ${tab === 'realty' ? 'active' : ''}" style="text-decoration:none;">🏡 부동산(준비중)</a>
-        <div class="chip" style="margin-left: auto;">🪙 <b>${coins}</b></div>
+        <a href="#/economy/shop" class="bookmark ${tab === 'shop' ? 'active' : ''}" style="text-decoration:none;">🛒 상점</a>
+        <a href="#/economy/stock" class="bookmark ${tab === 'stock' ? 'active' : ''}" style="text-decoration:none;">📈 주식</a>
+        <a href="#/economy/realty" class="bookmark ${tab === 'realty' ? 'active' : ''}" style="text-decoration:none; color: var(--muted); cursor: not-allowed;">🏡 부동산(준비중)</a>
+        <div class="chip" style="margin-left: auto;">🪙 <b>${coins.toLocaleString()}</b></div>
       </div>
       <div class="bookview" id="economy-bookview">
         </div>
@@ -53,10 +60,10 @@ export default async function showEconomy() {
   if (tab === 'stock') {
     await showStockMarket(bookview);
   } else if (tab === 'realty') {
-    bookview.innerHTML = `<div class="p16 text-dim">부동산 시스템은 현재 준비 중입니다.</div>`;
+    bookview.innerHTML = `<div class="p16 text-dim" style="text-align:center;">부동산 시스템은 현재 준비 중입니다.</div>`;
   } else {
     // 기본값은 상점
-    // await renderShop(bookview); // shop.js가 준비되면 이 코드를 사용
-    bookview.innerHTML = `<div class="p16 text-dim">상점 시스템은 현재 준비 중입니다.</div>`;
+    // TODO: 상점 UI 구현 후 연결
+    bookview.innerHTML = `<div class="p16 text-dim" style="text-align:center;">상점 시스템은 현재 준비 중입니다.</div>`;
   }
 }
