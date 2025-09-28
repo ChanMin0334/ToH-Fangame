@@ -1,3 +1,11 @@
+// /public/js/tabs/stockmarket.js
+import { db, fx, auth, func } from '../api/firebase.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+import { showToast } from '../ui/toast.js';
+
+const call = (name)=> httpsCallable(func, name);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
 export async function renderStocks(container){
   container.innerHTML = `
     <style>
