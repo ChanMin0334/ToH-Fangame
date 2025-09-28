@@ -1,4 +1,4 @@
-// /functions/stockmarket.js
+// /functions/stockmarket.js  (no-index fallbacks 적용 완전체)
 module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KEY }) => {
   const db = admin.firestore();
   const { FieldValue } = admin.firestore;
@@ -57,30 +57,30 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
   }
 
   const applyEventToPrice = (cur, dir, mag) => {
-  const base = Number.isFinite(+cur) && +cur > 0 ? +cur : 1;
-  const randomFactor = 1 + (Math.random() - 0.5) * 0.4;
-  const rateBase = { small: 0.03, medium: 0.08, large: 0.20, massive: 0.35 }[mag] ?? 0.05;
-  const finalRate = rateBase * randomFactor;
-  const sign = dir === 'positive' ? 1 : dir === 'negative' ? -1 : 0;
-  const next = base * (1 + sign * finalRate);
-  const n = Math.round(next);
-  return n > 0 ? n : 1;
-};
-
+    const base = Number.isFinite(+cur) && +cur > 0 ? +cur : 1;
+    const randomFactor = 1 + (Math.random() - 0.5) * 0.4;
+    const rateBase = { small: 0.03, medium: 0.08, large: 0.20, massive: 0.35 }[mag] ?? 0.05;
+    const finalRate = rateBase * randomFactor;
+    const sign = dir === 'positive' ? 1 : dir === 'negative' ? -1 : 0;
+    const next = base * (1 + sign * finalRate);
+    const n = Math.round(next);
+    return n > 0 ? n : 1;
+  };
 
   const applyTradeToPrice = (currentPrice, quantity, isBuy) => {
-  const price = Number.isFinite(+currentPrice) && +currentPrice > 0 ? +currentPrice : 1;
-  const qty = Math.max(1, Math.floor(+quantity || 0));
-  const baseRate = 0.001;
-  const changeRate = baseRate * (qty / 100);
-  const mult = isBuy ? (1 + changeRate) : Math.max(0.5, 1 - changeRate);
-  const n = Math.round(price * mult);
-  return n > 0 ? n : 1;
-};
+    const price = Number.isFinite(+currentPrice) && +currentPrice > 0 ? +currentPrice : 1;
+    const qty = Math.max(1, Math.floor(+quantity || 0));
+    const baseRate = 0.001;
+    const changeRate = baseRate * (qty / 100);
+    const mult = isBuy ? (1 + changeRate) : Math.max(0.5, 1 - changeRate);
+    const n = Math.round(price * mult);
+    return n > 0 ? n : 1;
+  };
 
   const ensureListed = (s) => {
     if (!s || s.status !== 'listed') throw new HttpsError('failed-precondition', '상장 상태가 아닙니다.');
   };
+
   async function _isAdmin(uid) {
     if (!uid) return false;
     try {
@@ -137,6 +137,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         try {
           const ideaRaw = await callGemini('gemini-2.5-flash', systemPrompt, userPrompt);
           const idea = safeJson(ideaRaw, { title_before: '임시 제목' });
+          // [CHANGE] 자정 직전 10분은 피한다 (결과 +10분 유실 방지)
           const triggerMinute = Math.floor(Math.random() * ((24 * 60) - 10));
           const actual_outcome = Math.random() < 0.7 ? idea.potential_impact
             : (idea.potential_impact === 'positive' ? 'negative' : 'positive');
@@ -161,7 +162,8 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         date: today,
         world_id: stock.world_id || worldInfo.id || null,
         world_name: stock.world_name || worldInfo.name || null,
-        major_events: majorEvents
+        major_events: majorEvents,
+        last_processed_minute: -1 // [ADD] 처음엔 초깃값
       }, { merge: true });
 
       // [신규] 일일 잔물결 계획(목표가/트렌드) 초기화
@@ -192,6 +194,16 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
     const currentMinute = now.getHours() * 60 + now.getMinutes();
 
+    // [ADD] '지났으면 처리' 판정기 (자정 래핑 대응)
+    const isDue = (m, lastMinute) => {
+      const t   = ((m % 1440) + 1440) % 1440;
+      const cur = currentMinute;
+      if (typeof lastMinute !== 'number' || lastMinute < 0) return cur >= t;
+      const last = ((lastMinute % 1440) + 1440) % 1440;
+      if (last < cur) return t > last && t <= cur;
+      return t > last || t <= cur;
+    };
+
     const stocksSnap = await db.collection('stocks').where('status', '==', 'listed').get();
 
     for (const stockDoc of stocksSnap.docs) {
@@ -203,35 +215,18 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         if (!stockSnap.exists) return;
 
         const stock = stockSnap.data();
-        const plan = planSnap.exists ? planSnap.data() : { stock_id: stockRef.id, date: today, major_events: [] };
+        const plan = planSnap.exists ? planSnap.data() : { stock_id: stockRef.id, date: today, major_events: [], last_processed_minute: -1 };
         let price = Number(stock.current_price || 0);
         let planUpdated = false;
 
         const events = Array.isArray(plan.major_events) ? plan.major_events : [];
-
-        // [CHANGE] 해당 분을 '지나쳤는지' 판정 (지연 실행/스킵 방지, 자정 래핑 대응)
-        const isDue = (m, lastMinute) => {
-          const t   = ((m % 1440) + 1440) % 1440;   // 0~1439
-          const cur = currentMinute;                // 0~1439
-
-          // 기록 없으면(첫 실행) 지금 시간이 트리거 시각을 '지났으면' 처리
-          if (typeof lastMinute !== 'number') return cur >= t;
-
-          const last = ((lastMinute % 1440) + 1440) % 1440;
-
-          // 같은 날 진행(last < cur): (last, cur] 구간에 t가 있으면 처리
-          if (last < cur) return t > last && t <= cur;
-
-          // 자정 넘김(last > cur): (last, 1439] ∪ [0, cur]에 t가 있으면 처리
-          return t > last || t <= cur;
-        };
-
+        const lastProcessed = typeof plan.last_processed_minute === 'number' ? plan.last_processed_minute : -1;
 
         let movedByEvent = false;
 
         for (const ev of events) {
-          // (1) 트리거 정각: 예고 발송
-          if (!ev.forecast_sent && isDue(ev.trigger_minute, plan.last_processed_minute)) {
+          // (1) 트리거 정각: 예고 발송 (지났으면 처리)
+          if (!ev.forecast_sent && isDue(ev.trigger_minute, lastProcessed)) {
             const subscribers = Array.isArray(stock.subscribers) ? stock.subscribers : [];
             const worldName = plan.world_name || stock.world_name || stock.world_id || '';
             const worldBadge = worldName ? `【${worldName}】 ` : '';
@@ -247,8 +242,8 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
             planUpdated = true;
           }
 
-          // (2) +10분: 실제 결과 반영
-          if (ev.forecast_sent && !ev.processed && isDue(ev.trigger_minute + 10, plan.last_processed_minute)) {
+          // (2) +10분: 실제 결과 반영 (지났으면 처리)
+          if (ev.forecast_sent && !ev.processed && isDue(ev.trigger_minute + 10, lastProcessed)) {
             price = applyEventToPrice(price, ev.actual_outcome, 'large');
             try {
               const systemPrompt = `역할: 너는 게임 속 경제 기사 작가야.
@@ -291,7 +286,6 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
             if (dailySnap.exists) {
               const dplan = dailySnap.data();
               const currentTarget = dplan.target_price || price;
-              // 'large' 이벤트는 약 5~10%의 목표가 변동을 유발
               const impactMultiplier = ev.actual_outcome === 'positive' ? 1.075 : 0.925;
               const newTarget = Math.round(currentTarget * impactMultiplier);
               tx.update(dailyRef, { target_price: newTarget });
@@ -316,8 +310,6 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
 
           const bps = Number(dplan.drift_bps || 5);
           const trend = Number(dplan.trend_sign || 1);
-
-          // 목표가를 소수점까지 정밀하게 계산하여 정체 현상 방지
           const nextTarget = (dplan.target_price || price) * (1 + trend * (bps / 10000));
           const gap = nextTarget - price;
           const step = gap * 0.25; // 25% 이동
@@ -327,11 +319,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
           const noise = (Math.random() - 0.5) * price * noiseFactor;
 
           let newPrice = price + step + noise;
-
-          if (Math.round(newPrice) === price) {
-              newPrice += (Math.random() < 0.5 ? -1 : 1);
-          }
-
+          if (Math.round(newPrice) === price) newPrice += (Math.random() < 0.5 ? -1 : 1);
           price = Math.max(1, Math.round(newPrice));
 
           tx.update(dailyRef, { target_price: nextTarget }); // 소수점 목표가 저장
@@ -344,29 +332,43 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
           tx.update(stockRef, { current_price: price, price_history: history });
         }
 
-        // (5) 이벤트 계획이 변경되었다면 업데이트
+        // (5) 이벤트 계획 변경분 저장
         if (planUpdated) {
           tx.set(planDocRef, plan, { merge: true });
         }
-        // [ADD] 이번 루프의 마지막 처리 분을 기록 (중복 방지 & 누락분 보정 기준)
-        tx.set(planDocRef, { last_processed_minute: currentMinute }, { merge: true });
 
+        // [ADD] 이번 루프의 마지막 처리 분 기록 (중복 방지 & 누락분 보정 기준)
+        tx.set(planDocRef, { last_processed_minute: currentMinute }, { merge: true });
       });
     }
 
     // === 세계관 사건 (예고) 처리 ===
     try {
       const nowUtc = new Date();
-      const worldEventsQuery = db.collection('world_events')
-        .where('processed_preliminary', '==', false)
-        .where('trigger_time', '<=', admin.firestore.Timestamp.fromDate(nowUtc));
 
-      const worldEventsSnap = await worldEventsQuery.get();
+      // [NO-INDEX PATH] 인덱스 필요시 에러 → fallback 스캔
+      let worldEventsSnap;
+      try {
+        const q = db.collection('world_events')
+          .where('processed_preliminary', '==', false)
+          .where('trigger_time', '<=', admin.firestore.Timestamp.fromDate(nowUtc));
+        worldEventsSnap = await q.get();
+      } catch (idxErr) {
+        logger.warn('[fallback] world_events 인덱스 미설정. processed_preliminary만 가져와 메모리 필터합니다.', idxErr);
+        const q2 = db.collection('world_events').where('processed_preliminary', '==', false);
+        const s2 = await q2.get();
+        worldEventsSnap = {
+          docs: s2.docs.filter(d => {
+            const ms = d.data()?.trigger_time?.toMillis?.();
+            return typeof ms === 'number' && ms <= nowUtc.getTime();
+          })
+        };
+      }
 
       for (const eventDoc of worldEventsSnap.docs) {
         const event = eventDoc.data();
 
-        // --- 이전 사건들 맥락으로 가져오기 (인덱스 실패 대비) ---
+        // --- 이전 사건들 맥락 (인덱스 실패 대비) ---
         const historyLogs = [];
         let recentDocs = [];
         try {
@@ -385,7 +387,6 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
             .limit(20);
           const s2 = await q2.get();
           recentDocs = s2.docs
-            .map(d => d)
             .filter(d => (d.data()?.trigger_time?.toMillis?.()||0) < event.trigger_time.toMillis())
             .sort((a,b)=> (b.data().trigger_time?.toMillis?.()||0) - (a.data().trigger_time?.toMillis?.()||0))
             .slice(0,3);
@@ -395,10 +396,20 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
           ? `\n\n## 참고: 최근 일어난 사건\n${historyLogs.join('\n')}`
           : '';
 
-        const affectedStocksSnap = await db.collection('stocks')
-          .where('world_id', '==', event.world_id)
-          .where('status', '==', 'listed')
-          .get();
+        // 영향받는 종목 조회 (인덱스 실패 시 world_id만 조회 → 메모리 필터)
+        let affectedStocksSnap;
+        try {
+          affectedStocksSnap = await db.collection('stocks')
+            .where('world_id', '==', event.world_id)
+            .where('status', '==', 'listed')
+            .get();
+        } catch (idxErr) {
+          logger.warn('[fallback] stocks(world_id,status) 복합 인덱스 미설정. world_id만으로 조회 후 메모리 필터.', idxErr);
+          const s2 = await db.collection('stocks').where('world_id', '==', event.world_id).get();
+          affectedStocksSnap = {
+            docs: s2.docs.filter(d => d.data()?.status === 'listed')
+          };
+        }
 
         for (const stockDoc of affectedStocksSnap.docs) {
           const stock = stockDoc.data();
@@ -456,7 +467,6 @@ ${event.premise}
             final_impact_at: admin.firestore.Timestamp.fromDate(finalImpactTime)
           });
 
-
           // 예고 기사 발송
           const subscribers = stock.subscribers || [];
           if (subscribers.length > 0) {
@@ -477,83 +487,78 @@ ${event.premise}
       }
     } catch (e) { logger.error('세계관 사건(예고) 처리 중 오류', e); }
 
-// === 세계관 사건 (결과) 처리 ===
-try {
-  const nowUtcTs = admin.firestore.Timestamp.now();
-
-  // 인덱스 우선 시도
-  let dueDocs = [];
-  try {
-    const q = db.collectionGroup('responses')
-      .where('processed_final', '==', false)
-      .where('final_impact_at', '<=', nowUtcTs)
-      .orderBy('final_impact_at', 'asc');
-    const snap = await q.get();
-    dueDocs = snap.docs;
-  } catch (idxErr) {
-    // 인덱스/권한/타이밍 문제 시 fallback: 스캔 후 메모리 필터
-    logger.warn('[fallback] responses 인덱스 문제 또는 미생성. 범위/정렬 없이 스캔합니다.', idxErr);
-    const snap = await db.collectionGroup('responses')
-      .where('processed_final', '==', false)
-      .get();
-    const nowMs = Date.now();
-    dueDocs = snap.docs
-      .filter(d => {
-        const ms = d.data()?.final_impact_at?.toMillis?.();
-        return typeof ms === 'number' && ms <= nowMs;
-      })
-      .slice(0, 200);
-  }
-
-  for (const responseDoc of dueDocs) {
-    // 트랜잭션 내부 오류가 나더라도, 응답 문서는 반드시 마감한다.
+    // === 세계관 사건 (결과) 처리 ===
     try {
-      await db.runTransaction(async (tx) => {
-        // 최신 스냅 재확인(경쟁조건 방지)
-        const freshRespSnap = await tx.get(responseDoc.ref);
-        const resp = freshRespSnap.data() || {};
-        const stockId = resp.stock_id || responseDoc.id; // stock_id가 있으면 우선
-        const stockRef = db.doc(`stocks/${stockId}`);
-        const stockSnap = await tx.get(stockRef);
+      const nowUtcTs = admin.firestore.Timestamp.now();
 
-        if (stockSnap.exists && resp.impact !== 'neutral') {
-          const s = stockSnap.data();
-          const basePrice = Number.isFinite(+s?.current_price) && +s.current_price > 0 ? +s.current_price : 1;
-          const newPrice = applyEventToPrice(basePrice, resp.impact, 'medium');
-          const history = Array.isArray(s?.price_history) ? s.price_history.slice(-1439) : [];
-          history.push({ date: nowISO(), price: newPrice });
-          tx.update(stockRef, { current_price: newPrice, price_history: history });
-        } else if (!stockSnap.exists) {
-          logger.warn(`[responses] stock 문서 없음: ${stockId} (event=${responseDoc.ref.parent?.parent?.id || 'unknown'})`);
+      // [NO-INDEX PATH] 우선 시도, 실패 시 스캔
+      let dueDocs = [];
+      try {
+        const q = db.collectionGroup('responses')
+          .where('processed_final', '==', false)
+          .where('final_impact_at', '<=', nowUtcTs)
+          .orderBy('final_impact_at', 'asc');
+        const snap = await q.get();
+        dueDocs = snap.docs;
+      } catch (idxErr) {
+        logger.warn('[fallback] responses 인덱스 문제 또는 미생성. 범위/정렬 없이 스캔합니다.', idxErr);
+        const snap = await db.collectionGroup('responses')
+          .where('processed_final', '==', false)
+          .get();
+        const nowMs = Date.now();
+        dueDocs = snap.docs
+          .filter(d => {
+            const ms = d.data()?.final_impact_at?.toMillis?.();
+            return typeof ms === 'number' && ms <= nowMs;
+          })
+          .slice(0, 500);
+      }
+
+      for (const responseDoc of dueDocs) {
+        try {
+          await db.runTransaction(async (tx) => {
+            const freshRespSnap = await tx.get(responseDoc.ref);
+            const resp = freshRespSnap.data() || {};
+            if (resp.processed_final === true) return; // 중복 방지
+
+            const stockId = resp.stock_id || responseDoc.id;
+            const stockRef = db.doc(`stocks/${stockId}`);
+            const stockSnap = await tx.get(stockRef);
+
+            if (stockSnap.exists && resp.impact !== 'neutral') {
+              const s = stockSnap.data();
+              const basePrice = Number.isFinite(+s?.current_price) && +s.current_price > 0 ? +s.current_price : 1;
+              const newPrice = applyEventToPrice(basePrice, resp.impact, 'medium');
+              const history = Array.isArray(s?.price_history) ? s.price_history.slice(-1439) : [];
+              history.push({ date: nowISO(), price: newPrice });
+              tx.update(stockRef, { current_price: newPrice, price_history: history });
+            } else if (!stockSnap.exists) {
+              logger.warn(`[responses] stock 문서 없음: ${stockId} (event=${responseDoc.ref.parent?.parent?.id || 'unknown'})`);
+            }
+
+            tx.update(responseDoc.ref, { processed_final: true });
+          });
+        } catch (txErr) {
+          logger.error('[responses] 트랜잭션 실패. 응답 문서만 마감 처리합니다.', txErr);
+          await responseDoc.ref.update({ processed_final: true }).catch(()=>{});
         }
 
-        // [핵심] 가격 반영과 무관하게 응답 문서는 반드시 마감
-        tx.update(responseDoc.ref, { processed_final: true });
-      });
-    } catch (txErr) {
-      logger.error('[responses] 트랜잭션 실패. 응답 문서만 마감 처리합니다.', txErr);
-      // 트랜잭션 실패해도 깃발은 내려서 다음 루프에 안 걸리게 만든다.
-      await responseDoc.ref.update({ processed_final: true }).catch(()=>{});
-    }
-
-    // 상위 world_event도 남은 응답 없으면 마감
-    const eventRef = responseDoc.ref.parent?.parent;
-    if (eventRef) {
-      const pending = await eventRef.collection('responses')
-        .where('processed_final', '==', false)
-        .limit(1)
-        .get();
-      if (pending.empty) {
-        await eventRef.update({ processed_final: true });
-        logger.info(`[world_event done] ${eventRef.id} → processed_final=true`);
+        const eventRef = responseDoc.ref.parent?.parent;
+        if (eventRef) {
+          const pending = await eventRef.collection('responses')
+            .where('processed_final', '==', false)
+            .limit(1)
+            .get();
+          if (pending.empty) {
+            await eventRef.update({ processed_final: true });
+            logger.info(`[world_event done] ${eventRef.id} → processed_final=true`);
+          }
+        }
       }
+    } catch (e) {
+      logger.error('세계관 사건(결과) 처리 중 오류', e);
     }
-  }
-} catch (e) {
-  logger.error('세계관 사건(결과) 처리 중 오류', e);
-}
-// === 끝 ===
-
+    // === 끝 ===
   });
 
   // ==================================================================
@@ -588,7 +593,7 @@ try {
       if (planSnap.exists) {
         const plan = planSnap.data();
         const currentTarget = plan.target_price || price;
-        const impact = Math.round(cost * 0.0005); // 거래대금의 0.05%
+        const impact = Math.round(cost * 0.0005);
         tx.update(planRef, { target_price: currentTarget + impact });
       }
 
@@ -600,7 +605,6 @@ try {
       tx.update(userRef, { coins: FieldValue.increment(-cost) });
       tx.set(portRef, { stock_id: stockId, quantity: nextQty, average_buy_price: nextAvg, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
 
-      // 히스토리 push
       const histBuy = Array.isArray(stock.price_history) ? stock.price_history.slice(-1439) : [];
       histBuy.push({ date: nowISO(), price: Number(newPrice) });
       tx.update(stockRef, { current_price: Number(newPrice), price_history: histBuy });
@@ -635,11 +639,10 @@ try {
 
       const newPrice = applyTradeToPrice(price, quantity, false);
 
-      // 목표가 조정
       if (planSnap.exists) {
         const plan = planSnap.data();
         const currentTarget = plan.target_price || price;
-        const impact = Math.round(income * 0.0005); // 거래대금의 0.05%
+        const impact = Math.round(income * 0.0005);
         tx.update(planRef, { target_price: currentTarget - impact });
       }
 
