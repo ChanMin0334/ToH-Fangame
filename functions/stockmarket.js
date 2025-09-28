@@ -57,19 +57,27 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
   }
 
   const applyEventToPrice = (cur, dir, mag) => {
-    const randomFactor = 1 + (Math.random() - 0.5) * 0.4;
-    const rateBase = { small: 0.03, medium: 0.08, large: 0.20, massive: 0.35 }[mag] ?? 0.05;
-    const finalRate = rateBase * randomFactor;
-    const rate = dir === 'positive' ? finalRate : dir === 'negative' ? -finalRate : 0;
-    return Math.max(1, Math.round(cur * (1 + rate)));
-  };
+  const base = Number.isFinite(+cur) && +cur > 0 ? +cur : 1;
+  const randomFactor = 1 + (Math.random() - 0.5) * 0.4;
+  const rateBase = { small: 0.03, medium: 0.08, large: 0.20, massive: 0.35 }[mag] ?? 0.05;
+  const finalRate = rateBase * randomFactor;
+  const sign = dir === 'positive' ? 1 : dir === 'negative' ? -1 : 0;
+  const next = base * (1 + sign * finalRate);
+  const n = Math.round(next);
+  return n > 0 ? n : 1;
+};
+
 
   const applyTradeToPrice = (currentPrice, quantity, isBuy) => {
-    const baseRate = 0.001;
-    const changeRate = baseRate * (quantity / 100);
-    const multiplier = isBuy ? (1 + changeRate) : (1 - changeRate);
-    return Math.max(1, Math.round(currentPrice * multiplier));
-  };
+  const price = Number.isFinite(+currentPrice) && +currentPrice > 0 ? +currentPrice : 1;
+  const qty = Math.max(1, Math.floor(+quantity || 0));
+  const baseRate = 0.001;
+  const changeRate = baseRate * (qty / 100);
+  const mult = isBuy ? (1 + changeRate) : Math.max(0.5, 1 - changeRate);
+  const n = Math.round(price * mult);
+  return n > 0 ? n : 1;
+};
+
   const ensureListed = (s) => {
     if (!s || s.status !== 'listed') throw new HttpsError('failed-precondition', '상장 상태가 아닙니다.');
   };
@@ -421,10 +429,13 @@ ${event.premise}
 
           // 회사별 대응 결과를 이벤트 문서의 하위 컬렉션에 저장
           await eventDoc.ref.collection('responses').doc(stockDoc.id).set({
+            stock_id: stockDoc.id,
+            world_id: event.world_id,
             impact: analysis.impact || 'neutral',
             processed_final: false,
             final_impact_at: admin.firestore.Timestamp.fromDate(finalImpactTime)
           });
+
 
           // 예고 기사 발송
           const subscribers = stock.subscribers || [];
@@ -446,49 +457,83 @@ ${event.premise}
       }
     } catch (e) { logger.error('세계관 사건(예고) 처리 중 오류', e); }
 
-    // === 세계관 사건 (결과) 처리 ===
+// === 세계관 사건 (결과) 처리 ===
+try {
+  const nowUtcTs = admin.firestore.Timestamp.now();
+
+  // 인덱스 우선 시도
+  let dueDocs = [];
+  try {
+    const q = db.collectionGroup('responses')
+      .where('processed_final', '==', false)
+      .where('final_impact_at', '<=', nowUtcTs)
+      .orderBy('final_impact_at', 'asc');
+    const snap = await q.get();
+    dueDocs = snap.docs;
+  } catch (idxErr) {
+    // 인덱스/권한/타이밍 문제 시 fallback: 스캔 후 메모리 필터
+    logger.warn('[fallback] responses 인덱스 문제 또는 미생성. 범위/정렬 없이 스캔합니다.', idxErr);
+    const snap = await db.collectionGroup('responses')
+      .where('processed_final', '==', false)
+      .get();
+    const nowMs = Date.now();
+    dueDocs = snap.docs
+      .filter(d => {
+        const ms = d.data()?.final_impact_at?.toMillis?.();
+        return typeof ms === 'number' && ms <= nowMs;
+      })
+      .slice(0, 200);
+  }
+
+  for (const responseDoc of dueDocs) {
+    // 트랜잭션 내부 오류가 나더라도, 응답 문서는 반드시 마감한다.
     try {
-      const nowUtcTs = admin.firestore.Timestamp.now();
-      const finalImpactQuery = db.collectionGroup('responses')
-        .where('processed_final', '==', false)
-        .where('final_impact_at', '<=', nowUtcTs)
-        .orderBy('final_impact_at', 'asc');
-      
-      const responsesSnap = await finalImpactQuery.get();
-
-      for (const responseDoc of responsesSnap.docs) {
-        const response = responseDoc.data();
-        const stockId = responseDoc.id;
+      await db.runTransaction(async (tx) => {
+        // 최신 스냅 재확인(경쟁조건 방지)
+        const freshRespSnap = await tx.get(responseDoc.ref);
+        const resp = freshRespSnap.data() || {};
+        const stockId = resp.stock_id || responseDoc.id; // stock_id가 있으면 우선
         const stockRef = db.doc(`stocks/${stockId}`);
+        const stockSnap = await tx.get(stockRef);
 
-        await db.runTransaction(async (tx) => {
-          const stockSnap = await tx.get(stockRef);
-          if (!stockSnap.exists()) return;
+        if (stockSnap.exists && resp.impact !== 'neutral') {
+          const s = stockSnap.data();
+          const basePrice = Number.isFinite(+s?.current_price) && +s.current_price > 0 ? +s.current_price : 1;
+          const newPrice = applyEventToPrice(basePrice, resp.impact, 'medium');
+          const history = Array.isArray(s?.price_history) ? s.price_history.slice(-1439) : [];
+          history.push({ date: nowISO(), price: newPrice });
+          tx.update(stockRef, { current_price: newPrice, price_history: history });
+        } else if (!stockSnap.exists) {
+          logger.warn(`[responses] stock 문서 없음: ${stockId} (event=${responseDoc.ref.parent?.parent?.id || 'unknown'})`);
+        }
 
-          const stock = stockSnap.data();
-          if (response.impact !== 'neutral') {
-            const newPrice = applyEventToPrice(stock.current_price, response.impact, 'medium');
-            const history = Array.isArray(stock.price_history) ? stock.price_history.slice(-1439) : [];
-            history.push({ date: nowISO(), price: newPrice });
-            tx.update(stockRef, { current_price: newPrice, price_history: history });
-          }
-          tx.update(responseDoc.ref, { processed_final: true });
-        });
-       // [ADD] 모든 회사 응답이 끝났다면, 상위 world_event 문서도 완료로 표시
-        const eventRef = responseDoc.ref.parent.parent; // world_events/{eventId}
-        if (eventRef) {
-          const pending = await eventRef.collection('responses')
-            .where('processed_final', '==', false)
-            .limit(1)
-            .get();
-          if (pending.empty) {
-            await eventRef.update({ processed_final: true });
-            logger.info(`[world_event done] ${eventRef.id} → processed_final=true`);
-          }
-        }        
+        // [핵심] 가격 반영과 무관하게 응답 문서는 반드시 마감
+        tx.update(responseDoc.ref, { processed_final: true });
+      });
+    } catch (txErr) {
+      logger.error('[responses] 트랜잭션 실패. 응답 문서만 마감 처리합니다.', txErr);
+      // 트랜잭션 실패해도 깃발은 내려서 다음 루프에 안 걸리게 만든다.
+      await responseDoc.ref.update({ processed_final: true }).catch(()=>{});
+    }
+
+    // 상위 world_event도 남은 응답 없으면 마감
+    const eventRef = responseDoc.ref.parent?.parent;
+    if (eventRef) {
+      const pending = await eventRef.collection('responses')
+        .where('processed_final', '==', false)
+        .limit(1)
+        .get();
+      if (pending.empty) {
+        await eventRef.update({ processed_final: true });
+        logger.info(`[world_event done] ${eventRef.id} → processed_final=true`);
       }
-    } catch (e) { logger.error('세계관 사건(결과) 처리 중 오류', e); }
-    // === 끝 ===
+    }
+  }
+} catch (e) {
+  logger.error('세계관 사건(결과) 처리 중 오류', e);
+}
+// === 끝 ===
+
   });
 
   // ==================================================================
