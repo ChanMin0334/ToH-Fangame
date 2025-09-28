@@ -1,17 +1,32 @@
 // /functions/stockmarket.js (수정)
 module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API_KEY*/ }) => {
   const db = admin.firestore();
-  // FieldValue를 admin.firestore()에서 직접 가져오도록 수정
   const { FieldValue } = admin.firestore;
 
   // ---------- helpers ----------
   const nowISO = () => new Date().toISOString();
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+  
+  // [수정] 이벤트 기반 가격 변동 로직
   const applyEventToPrice = (cur, dir, mag) => {
-    const rateBase = { small: 0.02, medium: 0.05, large: 0.12 }[mag] ?? 0.03;
+    const rateBase = { small: 0.03, medium: 0.08, large: 0.15 }[mag] ?? 0.05;
     const rate = dir === 'up' ? rateBase : dir === 'down' ? -rateBase : 0;
     return Math.max(1, Math.round(cur * (1 + rate)));
   };
+
+  // [신규] 거래량 기반 가격 변동 로직
+  const applyTradeToPrice = (currentPrice, quantity, isBuy) => {
+      // 거래량 100주당 0.1% 변동을 기본으로 설정
+      const baseRate = 0.001; 
+      const changeRate = baseRate * (quantity / 100);
+      const multiplier = isBuy ? (1 + changeRate) : (1 - changeRate);
+      
+      // 가격 변동폭을 최대 5%로 제한하여 급격한 펌핑/덤핑 방지
+      const finalMultiplier = clamp(multiplier, 0.95, 1.05);
+      
+      return Math.max(1, Math.round(currentPrice * finalMultiplier));
+  };
+  
   const ensureListed = (s) => {
     if (!s || s.status !== 'listed') throw new HttpsError('failed-precondition', '상장 상태가 아닙니다.');
   };
@@ -25,15 +40,19 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
     const stocksSnap = await db.collection('stocks').get();
     for (const doc of stocksSnap.docs) {
       const stock = doc.data();
+      const stockId = doc.id;
+      // [신규] 이벤트 문서를 별도 컬렉션에서 관리
+      const eventRef = db.collection('stock_events').doc(stockId);
+      const eventSnap = await eventRef.get();
+      const upcomingEvent = eventSnap.exists ? eventSnap.data() : null;
 
-      // 신규/초기 데이터 보정
       const name = stock.name || 'UNNAMED';
       const subscribers = Array.isArray(stock.subscribers) ? stock.subscribers : [];
       const price = Number(stock.current_price || 100);
       const ph = Array.isArray(stock.price_history) ? stock.price_history : [];
 
       // 1단계: 다음 이벤트 비공개 결정
-      if (!stock.upcoming_event) {
+      if (!upcomingEvent) {
         const directions = ['up', 'down', 'stable'];
         const magnitudes = ['small', 'medium', 'large'];
         const nextEvent = {
@@ -41,17 +60,17 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
           magnitude: magnitudes[Math.floor(Math.random()*magnitudes.length)],
           news_generated: false,
         };
-        await doc.ref.update({ upcoming_event: nextEvent });
+        await eventRef.set(nextEvent); // [수정] 별도 컬렉션에 저장
         continue;
       }
 
-      // 2단계: 뉴스 생성/발송 (샘플: 더미 뉴스 — Gemini 연동지점)
-      if (stock.upcoming_event && !stock.upcoming_event.news_generated) {
+      // 2단계: 뉴스 생성/발송
+      if (upcomingEvent && !upcomingEvent.news_generated) {
         const aiNews = {
           title: `[속보] ${name}에 이상 징후`,
-          body: `${name} 종목에 의미 있는 변화 신호가 포착되었습니다. (예정: ${stock.upcoming_event.change_direction}/${stock.upcoming_event.magnitude})`,
+          body: `${name} 종목에 의미 있는 변화 신호가 포착되었습니다. (예정: ${upcomingEvent.change_direction}/${upcomingEvent.magnitude})`,
         };
-
+        // ... (메일 발송 로직은 기존과 동일)
         const tasks = subscribers.map(uid => {
           const mailRef = db.collection('mail').doc(uid).collection('msgs').doc();
           return mailRef.set({
@@ -65,24 +84,24 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
           });
         });
         await Promise.all(tasks);
-        await doc.ref.update({ 'upcoming_event.news_generated': true });
+        await eventRef.update({ news_generated: true }); // [수정] 이벤트 문서 업데이트
         continue;
       }
 
       // 3단계: 실제 가격 반영
-      if (stock.upcoming_event && stock.upcoming_event.news_generated) {
-        const dir = stock.upcoming_event.change_direction || 'stable';
-        const mag = stock.upcoming_event.magnitude || 'small';
+      if (upcomingEvent && upcomingEvent.news_generated) {
+        const dir = upcomingEvent.change_direction || 'stable';
+        const mag = upcomingEvent.magnitude || 'small';
         const next = applyEventToPrice(price, dir, mag);
 
-        const history = ph.slice(-719); // 부담 줄이기(최대 720개 유지 = 약 7~8일 x 15분)
+        const history = ph.slice(-719);
         history.push({ date: nowISO(), price: next });
 
         await doc.ref.update({
           current_price: next,
           price_history: history,
-          upcoming_event: null,
         });
+        await eventRef.delete(); // [수정] 사용된 이벤트 삭제
       }
     }
     logger.info('Stock market cycle done.');
@@ -110,6 +129,9 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
       const cost = price * quantity;
       const coins = Number(userSnap.data()?.coins || 0);
       if (coins < cost) throw new HttpsError('failed-precondition', '코인이 부족합니다.');
+      
+      // [신규] 매수에 따른 가격 상승 적용
+      const newPrice = applyTradeToPrice(price, quantity, true);
 
       const heldQty = Number(portSnap.data()?.quantity || 0);
       const heldAvg = Number(portSnap.data()?.average_buy_price || 0);
@@ -123,6 +145,9 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
         average_buy_price: nextAvg,
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
+      
+      // [신규] 가격 변동을 주식 문서에 업데이트
+      tx.update(stockRef, { current_price: newPrice });
 
       return { ok: true, paid: cost, quantity: quantity, price };
     });
@@ -151,6 +176,9 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
 
       const price = Number(stock.current_price || 0);
       const income = price * quantity;
+      
+      // [신규] 매도에 따른 가격 하락 적용
+      const newPrice = applyTradeToPrice(price, quantity, false);
 
       const nextQty = heldQty - quantity;
       if (nextQty > 0) {
@@ -162,12 +190,15 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
         tx.delete(portRef);
       }
       tx.update(userRef, { coins: FieldValue.increment(income) });
+      
+      // [신규] 가격 변동을 주식 문서에 업데이트
+      tx.update(stockRef, { current_price: newPrice });
 
       return { ok: true, received: income, quantity, price };
     });
   });
-
-  // ---------- onCall: 구독 토글 ----------
+  
+  // ... 나머지 함수 (subscribeToStock, createGuildStock, distributeDividends)는 기존과 동일 ...
   const subscribeToStock = onCall({ region: 'us-central1' }, async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
@@ -281,6 +312,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
 
     return { ok: true, distributed, holders: holders.length };
   });
+
 
   return {
     updateStockMarket,
