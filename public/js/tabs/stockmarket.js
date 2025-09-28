@@ -176,7 +176,9 @@ export async function renderStocks(container){
       const isSubscribed = me && Array.isArray(stock.subscribers) && stock.subscribers.includes(me);
 
       detailView.innerHTML = `
-        <canvas id="chart-${stockId}" height="120"></canvas>
+        <div style="height: 120px; position: relative; margin-bottom: 8px;">
+          <canvas id="chart-${stockId}"></canvas>
+        </div>
         <div class="text-dim" style="font-size:12px;margin:8px 0">${esc(stock.description || '')}</div>
         <div class="row" style="gap:8px; justify-content:flex-end;">
           <button class="btn xs" data-act="sub" data-id="${stockId}">${isSubscribed ? '구독취소' : '속보구독'}</button>
