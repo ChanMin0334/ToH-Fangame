@@ -73,7 +73,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
     const today = dayStamp();
     const stocksSnap = await db.collection('stocks').where('status', '==', 'listed').get();
     const worldsSnap = await db.collection('configs').doc('worlds').get();
-    const worldsData = worldsSnap.exists() ? worldsSnap.data() : {};
+    const worldsData = worldsSnap.exists ? worldsSnap.data() : {};
 
     for (const doc of stocksSnap.docs) {
       const stock = doc.data();
@@ -210,49 +210,56 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
             ev.processed = true;
             movedByEvent = true;
             planUpdated = true;
+
+            // [추가] 이벤트 발생 시 목표가(target_price)를 조정하여 지속적인 영향 부여
+            const dailyRef = db.collection('stock_daily_plans').doc(`${stockRef.id}_${today}`);
+            const dailySnap = await tx.get(dailyRef);
+            if (dailySnap.exists) {
+              const dplan = dailySnap.data();
+              const currentTarget = dplan.target_price || price;
+              // 'large' 이벤트는 약 5~10%의 목표가 변동을 유발
+              const impactMultiplier = ev.actual_outcome === 'positive' ? 1.075 : 0.925;
+              const newTarget = Math.round(currentTarget * impactMultiplier);
+              tx.update(dailyRef, { target_price: newTarget });
+            }
           }
         }
         
         // (3) 잔물결 효과 (이벤트가 없었을 때만)
         if (!movedByEvent) {
-  const dailyRef = db.collection('stock_daily_plans').doc(`${stockRef.id}_${today}`);
-  const dailySnap = await tx.get(dailyRef);
-  
-  let dplan = dailySnap.exists ? dailySnap.data() : null;
-  if (!dplan) {
-    dplan = {
-      stock_id: stockRef.id, date: today, target_price: price,
-      trend_sign: Math.random() < 0.5 ? -1 : 1, daily_open: price,
-      drift_bps: ({ low: 2, normal: 5, high: 10 }[stock.volatility] ?? 5),
-    };
-    tx.set(dailyRef, dplan, { merge: true });
-  }
+          const dailyRef = db.collection('stock_daily_plans').doc(`${stockRef.id}_${today}`);
+          const dailySnap = await tx.get(dailyRef);
+          
+          let dplan = dailySnap.exists ? dailySnap.data() : null;
+          if (!dplan) {
+            dplan = {
+              stock_id: stockRef.id, date: today, target_price: price,
+              trend_sign: Math.random() < 0.5 ? -1 : 1, daily_open: price,
+              drift_bps: ({ low: 2, normal: 5, high: 10 }[stock.volatility] ?? 5),
+            };
+            tx.set(dailyRef, dplan, { merge: true });
+          }
 
-  const bps = Number(dplan.drift_bps || 5);
-  const trend = Number(dplan.trend_sign || 1);
-  
-  // [수정 1] 목표가를 소수점까지 정밀하게 계산하여 정체 현상 방지
-  const nextTarget = (dplan.target_price || price) * (1 + trend * (bps / 10000));
-  const gap = nextTarget - price;
-  const step = gap * 0.25; // 반올림 없이 25% 이동
+          const bps = Number(dplan.drift_bps || 5);
+          const trend = Number(dplan.trend_sign || 1);
+          
+          const nextTarget = (dplan.target_price || price) * (1 + trend * (bps / 10000));
+          const gap = nextTarget - price;
+          const step = gap * 0.25;
 
-  const volatility = stock.volatility || 'normal';
-  // [수정 2] 노이즈 팩터를 약간 올려 반올림에 의해 사라지지 않도록 보정
-  const noiseFactor = { low: 0.003, normal: 0.006, high: 0.015 }[volatility] || 0.006;
-  const noise = (Math.random() - 0.5) * price * noiseFactor;
+          const volatility = stock.volatility || 'normal';
+          const noiseFactor = { low: 0.003, normal: 0.006, high: 0.015 }[volatility] || 0.006;
+          const noise = (Math.random() - 0.5) * price * noiseFactor;
+          
+          let newPrice = price + step + noise;
+          if (Math.round(newPrice) === price) {
+              newPrice += (Math.random() < 0.5 ? -1 : 1);
+          }
 
-  let newPrice = price + step + noise;
+          price = Math.max(1, Math.round(newPrice));
 
-  // [수정 3] 만약 모든 계산 후에도 가격이 그대로라면 최소 ±1의 변동을 강제
-  if (Math.round(newPrice) === price) {
-      newPrice += (Math.random() < 0.5 ? -1 : 1);
-  }
-
-  // 최종 가격은 마지막에 한 번만 반올림
-  price = Math.max(1, Math.round(newPrice));
-
-  tx.update(dailyRef, { target_price: nextTarget }); // 소수점 목표가 저장
-}
+          tx.update(dailyRef, { target_price: nextTarget });
+        }
 
         // (4) [핵심 수정] 계산된 최종 가격과 히스토리를 DB에 업데이트
         if (price !== Number(stock.current_price)) {
@@ -358,8 +365,6 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         } catch (errEach) {
           // 개별 사건 처리 중 오류: 다음 사건은 계속 처리
           logger.error(`세계관 사건 처리 중 오류 (event: ${eventDoc.id})`, errEach);
-          // 필요시 실패 누적필드 남기고 싶으면 주석 해제
-          // await eventDoc.ref.set({ last_error: String(errEach?.message || errEach) }, { merge: true });
         }
       } // end for events
 
