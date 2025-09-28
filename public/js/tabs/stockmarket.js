@@ -1,11 +1,3 @@
-// /public/js/tabs/stockmarket.js
-import { db, fx, auth, func } from '../api/firebase.js';
-import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
-import { showToast } from '../ui/toast.js';
-
-const call = (name)=> httpsCallable(func, name);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-
 export async function renderStocks(container){
   container.innerHTML = `
     <style>
@@ -216,20 +208,45 @@ export async function renderStocks(container){
   
   function displayChart(stockId, fullHistory, range) {
     let historySlice = [];
+    let xAxisOptions = {};
+
     if (range === '1H') {
       historySlice = fullHistory.slice(-12); // 12개 * 5분 = 1시간
+      xAxisOptions = {
+        ticks: {
+          display: true,
+          font: { size: 9 },
+          maxRotation: 0,
+          autoSkip: false, // 모든 레이블 표시
+        },
+        grid: { display: false },
+        border: { display: false }
+      };
     } else { // 기본값 6H
       historySlice = fullHistory.slice(-72); // 72개 * 5분 = 6시간
+      xAxisOptions = {
+        ticks: {
+          display: true,
+          font: { size: 10 },
+          maxRotation: 0,
+          callback: function(value, index, ticks) {
+            // 6번째 데이터마다 (30분 간격) 레이블 표시
+            return index % 6 === 0 ? this.getLabelForValue(value) : null;
+          }
+        },
+        grid: { display: false },
+        border: { display: false }
+      };
     }
     
     if (activeChart) {
       activeChart.destroy();
       activeChart = null;
     }
-    renderChart(stockId, historySlice);
+    renderChart(stockId, historySlice, xAxisOptions);
   }
 
-  function renderChart(stockId, history) {
+  function renderChart(stockId, history, xAxisOptions) {
     const ctx = document.getElementById(`chart-${stockId}`);
     if (!ctx) return;
     
@@ -254,17 +271,7 @@ export async function renderStocks(container){
       options: {
         responsive: true, maintainAspectRatio: false,
         scales: {
-          x: { 
-            ticks: { 
-                display: true, // [수정] X축 시간 표시
-                font: { size: 10 },
-                maxRotation: 0,
-                autoSkip: true,
-                maxTicksLimit: 6 // [수정] 최대 6개의 시간 레이블만 표시하여 가독성 확보
-            }, 
-            grid: { display: false }, 
-            border: { display: false } 
-          },
+          x: xAxisOptions,
           y: { ticks: { font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.1)' }, border: { display: false } }
         },
         plugins: { legend: { display: false } }
