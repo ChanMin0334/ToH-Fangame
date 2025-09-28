@@ -34,7 +34,6 @@ export async function renderStocks(container){
         border-bottom-right-radius:0;
       }
       .stock-row.active + .stock-detail { display: block; }
-      /* [추가] 차트 시간 범위 버튼 스타일 */
       .btn-range.active {
         background: var(--pri1);
         color: white;
@@ -150,7 +149,6 @@ export async function renderStocks(container){
     } catch (err) {
       showToast(err.message || '오류가 발생했습니다.');
     } finally {
-      // No need to re-enable buttons manually, onSnapshot will refresh the UI.
     }
   }
 
@@ -204,8 +202,7 @@ export async function renderStocks(container){
             displayChart(stockId, stock.price_history || [], e.currentTarget.dataset.range);
         });
       });
-
-      // 기본적으로 6시간(6H) 버튼을 클릭한 상태로 차트를 표시합니다.
+      
       detailView.querySelector('button[data-range="6H"]').click();
 
     } else {
@@ -214,75 +211,107 @@ export async function renderStocks(container){
     }
   }
   
-  function displayChart(stockId, fullHistory, range) {
-    let historySlice = [];
-    let xAxisOptions = {};
-
-    if (range === '1H') {
-      historySlice = fullHistory.slice(-12); // 12개 * 5분 = 1시간
-      xAxisOptions = {
-        ticks: {
-          display: true,
-          font: { size: 9 },
-          maxRotation: 0,
-          autoSkip: false, // 모든 레이블 표시
-        },
-        grid: { display: false },
-        border: { display: false }
-      };
-    } else { // 기본값 6H
-      historySlice = fullHistory.slice(-72); // 72개 * 5분 = 6시간
-      xAxisOptions = {
-        ticks: {
-          display: true,
-          font: { size: 10 },
-          maxRotation: 0,
-          callback: function(value, index, ticks) {
-            // 6번째 데이터마다 (30분 간격) 레이블 표시
-            return index % 6 === 0 ? this.getLabelForValue(value) : null;
-          }
-        },
-        grid: { display: false },
-        border: { display: false }
-      };
+  function processHistoryForChart(history, range) {
+    if (!history || history.length < 2) {
+      return (history || []).map(p => ({ x: new Date(p.date).getTime(), y: p.price }));
     }
-    
+
+    const interval = 5 * 60 * 1000;
+    const duration = (range === '1H' ? 60 : 360) * 60 * 1000;
+
+    const sortedHistory = history.map(p => ({ time: new Date(p.date).getTime(), price: p.price }))
+                                 .sort((a, b) => a.time - b.time);
+
+    const endTime = sortedHistory[sortedHistory.length - 1].time;
+    const startTime = endTime - duration;
+
+    const continuousData = [];
+    let historyIndex = 0;
+
+    for (let t = startTime; t <= endTime; t += interval) {
+        while (historyIndex < sortedHistory.length - 1 && sortedHistory[historyIndex + 1].time <= t) {
+            historyIndex++;
+        }
+
+        const prevPoint = sortedHistory[historyIndex];
+        if (t < prevPoint.time) continue;
+
+        const nextPoint = (historyIndex + 1 < sortedHistory.length) ? sortedHistory[historyIndex + 1] : prevPoint;
+
+        let price;
+        if (prevPoint.time === nextPoint.time || prevPoint.time === t) {
+            price = prevPoint.price;
+        } else {
+            const timeDiff = nextPoint.time - prevPoint.time;
+            const priceDiff = nextPoint.price - prevPoint.price;
+            const ratio = timeDiff > 0 ? (t - prevPoint.time) / timeDiff : 0;
+            price = prevPoint.price + (priceDiff * ratio);
+        }
+        
+        continuousData.push({ x: t, y: price });
+    }
+
+    return continuousData;
+  }
+
+  function displayChart(stockId, fullHistory, range) {
     if (activeChart) {
       activeChart.destroy();
       activeChart = null;
     }
-    renderChart(stockId, historySlice, xAxisOptions);
+    const processedData = processHistoryForChart(fullHistory, range);
+    renderChart(stockId, processedData, range);
   }
 
-  function renderChart(stockId, history, xAxisOptions) {
+  function renderChart(stockId, data, range) {
     const ctx = document.getElementById(`chart-${stockId}`);
-    if (!ctx) return;
+    if (!ctx || !data.length) return;
     
-    const labels = history.map(h => new Date(h.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
-    const data = history.map(h => h.price);
-    const lastPrice = data[data.length - 1] || 0;
-    const prevPrice = data.length > 1 ? data[data.length - 2] : lastPrice;
+    const lastPrice = data[data.length - 1]?.y || 0;
+    const prevPrice = data.length > 1 ? data[data.length - 2]?.y : lastPrice;
     const borderColor = lastPrice >= prevPrice ? 'rgba(255, 107, 107, 0.8)' : 'rgba(91, 124, 255, 0.8)';
     
     activeChart = new Chart(ctx, {
       type: 'line',
-      data: { labels, datasets: [{
-        label: '가격', data, borderColor, borderWidth: 2, pointRadius: 0, tension: 0.1,
-        backgroundColor: (context) => {
-          const gradient = context.chart.ctx.createLinearGradient(0, 0, 0, context.chart.height);
-          gradient.addColorStop(0, `${borderColor.slice(0, -4)}0.3)`);
-          gradient.addColorStop(1, `${borderColor.slice(0, -4)}0)`);
-          return gradient;
-        },
-        fill: true,
-      }]},
+      data: { 
+        datasets: [{
+          label: '가격', data, borderColor, borderWidth: 2, pointRadius: 0, tension: 0.1,
+          backgroundColor: (context) => {
+            const gradient = context.chart.ctx.createLinearGradient(0, 0, 0, context.chart.height);
+            gradient.addColorStop(0, `${borderColor.slice(0, -4)}0.3)`);
+            gradient.addColorStop(1, `${borderColor.slice(0, -4)}0)`);
+            return gradient;
+          },
+          fill: true,
+        }]
+      },
       options: {
         responsive: true, maintainAspectRatio: false,
         scales: {
-          x: xAxisOptions,
-          y: { ticks: { font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.1)' }, border: { display: false } }
+          x: { 
+            type: 'timeseries',
+            time: {
+                unit: range === '1H' ? 'minute' : 'hour',
+                stepSize: range === '1H' ? 15 : 1,
+                displayFormats: {
+                    minute: 'HH:mm',
+                    hour: 'HH:mm'
+                }
+            },
+            ticks: { 
+                font: { size: 10 },
+                maxRotation: 0,
+            },
+            grid: { display: false }, 
+            border: { display: false } 
+          },
+          y: { 
+            ticks: { font: { size: 10 } }, 
+            grid: { color: 'rgba(255,255,255,0.1)' }, 
+            border: { display: false } 
+          }
         },
-        plugins: { legend: { display: false } }
+        plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } }
       }
     });
   }
