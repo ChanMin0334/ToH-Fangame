@@ -263,7 +263,11 @@ if (!didMoveByEvent) {
 
       tx.update(userRef, { coins: FieldValue.increment(-cost) });
       tx.set(portRef, { stock_id: stockId, quantity: nextQty, average_buy_price: nextAvg, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      tx.update(stockRef, { current_price: newPrice });
+      // 히스토리 1,440개 유지 + 새 현재가 기록 푸시
+      const histBuy = Array.isArray(stock.price_history) ? stock.price_history.slice(-1439) : [];
+      histBuy.push({ date: nowISO(), price: Number(newPrice) });
+      tx.update(stockRef, { current_price: Number(newPrice), price_history: histBuy });
+
 
       return { ok: true, paid: cost, quantity: quantity, price };
     });
@@ -308,7 +312,10 @@ if (!didMoveByEvent) {
         tx.update(portRef, { quantity: nextQty, updatedAt: FieldValue.serverTimestamp() });
       } else { tx.delete(portRef); }
       tx.update(userRef, { coins: FieldValue.increment(income) });
-      tx.update(stockRef, { current_price: newPrice });
+      const histSell = Array.isArray(stock.price_history) ? stock.price_history.slice(-1439) : [];
+      histSell.push({ date: nowISO(), price: Number(newPrice) });
+      tx.update(stockRef, { current_price: Number(newPrice), price_history: histSell });
+
 
       return { ok: true, received: income, quantity, price };
     });
