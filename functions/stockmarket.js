@@ -45,6 +45,22 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
     if (!s || s.status !== 'listed') throw new HttpsError('failed-precondition', '상장 상태가 아닙니다.');
   };
 
+
+    // ANCHOR: 관리자 확인 헬퍼 추가
+  async function _isAdmin(uid) {
+    if (!uid) return false;
+    try {
+      const snap = await db.doc('configs/admins').get();
+      const d = snap.exists ? snap.data() : {};
+      const allow = Array.isArray(d.allow) ? d.allow : [];
+      const allowEmails = Array.isArray(d.allowEmails) ? d.allowEmails : [];
+      if (allow.includes(uid)) return true;
+      const user = await admin.auth().getUser(uid);
+      return !!(user?.email && allowEmails.includes(user.email));
+    } catch (_) { return false; }
+  }
+
+
   // ==================================================================
   // 1) 일일 AI 이벤트 계획 스케줄러 (매일 00:05 KST)
   // ==================================================================
@@ -427,6 +443,81 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
     return { ok: true, distributed, holders: holders.length };
   });
 
+  // ANCHOR: 관리자용 주식회사 생성 함수
+  const adminCreateStock = onCall({ region: 'us-central1' }, async (req) => {
+    const uid = req.auth?.uid;
+    if (!await _isAdmin(uid)) throw new HttpsError('permission-denied', '관리자 전용 기능입니다.');
+
+    const { name, world_id, world_name, type, initial_price, volatility, description } = req.data;
+    if (!name || !world_id || !type || !initial_price || initial_price <= 0) {
+      throw new HttpsError('invalid-argument', '필수 인자가 누락되었습니다.');
+    }
+
+    const stockId = `corp_${world_id}_${name.replace(/\s+/g, '_').slice(0, 10)}`.toLowerCase();
+    const stockRef = db.collection('stocks').doc(stockId);
+
+    const doc = await stockRef.get();
+    if (doc.exists) {
+        throw new HttpsError('already-exists', '이미 존재하는 주식회사입니다.');
+    }
+
+    const newStock = {
+        name,
+        world_id,
+        world_name: world_name || world_id,
+        type,
+        status: 'listed',
+        current_price: initial_price,
+        volatility: volatility || 'normal',
+        description: description || '',
+        price_history: [{ date: nowISO(), price: initial_price }],
+        subscribers: [],
+        createdAt: FieldValue.serverTimestamp(),
+    };
+
+    await stockRef.set(newStock);
+    return { ok: true, stockId };
+  });
+
+  // ANCHOR: 관리자용 수동 사건 생성 함수
+  const adminCreateManualEvent = onCall({ region: 'us-central1', secrets: [GEMINI_API_KEY] }, async (req) => {
+    const uid = req.auth?.uid;
+    if (!await _isAdmin(uid)) throw new HttpsError('permission-denied', '관리자 전용 기능입니다.');
+
+    const { stock_id, potential_impact, premise, trigger_minute } = req.data;
+    if (!stock_id || !potential_impact || !premise || trigger_minute === null) {
+        throw new HttpsError('invalid-argument', '필수 인자가 누락되었습니다.');
+    }
+
+    const today = dayStamp();
+    const planRef = db.collection('stock_events').doc(`${stock_id}_${today}`);
+    
+    // AI 뉴스 생성
+    const systemPrompt = `당신은 게임 속 주식 시장의 사건을 만드는 AI입니다. 반드시 JSON 하나로만 답하세요: {"premise":"...", "title_before":"...", "potential_impact":"positive|negative"}`;
+    const userPrompt = `사건 전말 프롬프트: ${premise}\n사건의 방향성: ${potential_impact}`;
+    const ideaRaw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
+    const idea = JSON.parse(ideaRaw);
+
+    const newEvent = {
+        premise: premise,
+        title_before: idea.title_before,
+        potential_impact: potential_impact,
+        actual_outcome: Math.random() < 0.85 ? potential_impact : (potential_impact === 'positive' ? 'negative' : 'positive'), // 85% 확률로 의도대로
+        trigger_minute: trigger_minute,
+        forecast_sent: false,
+        processed: false,
+        is_manual: true,
+    };
+
+    await planRef.set({
+        major_events: FieldValue.arrayUnion(newEvent)
+    }, { merge: true });
+
+    return { ok: true, event: newEvent };
+  });
+
+
+  
   return {
     planDailyStockEvents,
     updateStockMarket,
@@ -435,5 +526,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
     subscribeToStock,
     createGuildStock,
     distributeDividends,
+    adminCreateStock,
+    adminCreateManualEvent,
   };
 };
