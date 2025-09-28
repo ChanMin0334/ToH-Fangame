@@ -28,7 +28,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
       contents: [{ role: "user", parts: [{ text: user }] }],
       generationConfig: {
         temperature: 0.8,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 4096,
         responseMimeType: "application/json"
       }
     };
@@ -399,7 +399,7 @@ ${event.premise}
 
           let analysis;
           try {
-            const raw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
+            const raw = await callGemini('gemini-2.5-flash', systemPrompt, userPrompt);
             const parsed = safeJson(raw, {});
             const impact = /pos/i.test(parsed.impact) ? 'positive' :
                            /neg/i.test(parsed.impact) ? 'negative' : 'neutral';
@@ -473,6 +473,18 @@ ${event.premise}
           }
           tx.update(responseDoc.ref, { processed_final: true });
         });
+       // [ADD] 모든 회사 응답이 끝났다면, 상위 world_event 문서도 완료로 표시
+        const eventRef = responseDoc.ref.parent.parent; // world_events/{eventId}
+        if (eventRef) {
+          const pending = await eventRef.collection('responses')
+            .where('processed_final', '==', false)
+            .limit(1)
+            .get();
+          if (pending.empty) {
+            await eventRef.update({ processed_final: true });
+            logger.info(`[world_event done] ${eventRef.id} → processed_final=true`);
+          }
+        }        
       }
     } catch (e) { logger.error('세계관 사건(결과) 처리 중 오류', e); }
     // === 끝 ===
