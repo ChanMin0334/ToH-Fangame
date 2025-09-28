@@ -1,12 +1,12 @@
-// /public/js/tabs/shop.js (신규 파일)
-import { auth, db, fx, func } from '../api/firebase.js';
-import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
+// /public/js/tabs/shop.js
+
+// (기존 import 문들)
 import { showToast } from '../ui/toast.js';
 import { getUserInventory } from '../api/user.js';
 import { rarityStyle, ensureItemCss, esc, showItemDetailModal } from './char.js';
-import { ensureModalCss, confirmModal } from '../ui/modal.js'; // ◀◀◀ 이 줄을 추가했습니다.
+import { ensureModalCss, confirmModal } from '../ui/modal.js';
 
-// 상점 UI를 렌더링하는 함수 (economy.js에서 호출됨)
+// (renderShop 함수는 기존과 동일)
 export async function renderShop(container) {
     const subtabsHTML = `
         <div class="subtabs" style="margin-top: 12px; padding: 0 8px;">
@@ -18,14 +18,14 @@ export async function renderShop(container) {
     container.innerHTML = subtabsHTML + `<div id="shop-content" style="margin-top: 8px;"></div>`;
 
     const contentRoot = container.querySelector('#shop-content');
-    await renderShop_Sell(contentRoot); // 현재는 판매 탭만 구현
+    await renderShop_Sell(contentRoot);
 }
 
-// [교체] 판매 탭 화면 (plaza의 UI를 그대로 이식)
+
+// ANCHOR: renderShop_Sell 함수 수정
 async function renderShop_Sell(root) {
   ensureItemCss();
 
-  // --- 판매 관련 헬퍼 ---
   const rarityOrder = ['aether', 'myth', 'legend', 'epic', 'rare', 'normal'];
   const rarityNames  = { aether:'에테르', myth:'신화', legend:'레전드', epic:'유니크', rare:'레어', normal:'일반' };
 
@@ -39,13 +39,11 @@ async function renderShop_Sell(root) {
     return tier[(item.rarity || 'normal').toLowerCase()] || 0;
   };
 
-  // --- 상태 ---
   let inventory = [];
   let selectedIds = new Set();
   let searchTerm  = '';
   let isLoading   = false;
 
-  // --- 메인 렌더 ---
   const render = () => {
     if (isLoading) {
       root.innerHTML = `<div class="kv-card text-dim">인벤토리를 불러오는 중...</div>`;
@@ -56,23 +54,19 @@ async function renderShop_Sell(root) {
       return;
     }
 
-    // 검색
     const filtered = inventory.filter(it => String(it.name||'').toLowerCase().includes(searchTerm.toLowerCase()));
 
-    // 등급별 그룹화
     const grouped = filtered.reduce((acc, it)=>{
       const r = (it.rarity||'normal').toLowerCase();
       (acc[r] ||= []).push(it);
       return acc;
     }, {});
 
-    // 총 판매 가격
     const totalPrice = Array.from(selectedIds).reduce((sum, id)=>{
       const it = inventory.find(x=>x.id===id);
       return sum + (it ? calculatePrice(it) : 0);
     }, 0);
 
-    // --- UI ---
     let html = `
       <div class="kv-card" style="margin-bottom:12px;">
         <input type="search" id="item-search" class="input" placeholder="아이템 이름 검색..." value="${esc(searchTerm)}">
@@ -97,12 +91,14 @@ async function renderShop_Sell(root) {
             ${list.map(item=>{
               const isAether   = (String(item.rarity||'').toLowerCase()==='aether');
               const isSelected = selectedIds.has(item.id);
+              const isLocked = item.isLocked === true; // [수정] 잠금 상태 확인
               const leftBorder = isAether ? '' : `border-left:3px solid ${isSelected ? '#4aa3ff' : style.border};`;
               return `
                 <button class="kv-card item-card item-sell-card ${isSelected?'selected':''} ${isAether?'rarity-aether':''}"
                         data-item-id="${item.id}"
-                        style="${leftBorder} text-align:left; padding:8px;">
-                  <div style="font-weight:700; color:${style.text};">${esc(item.name)}</div>
+                        style="${leftBorder} text-align:left; padding:8px; ${isLocked ? 'opacity: 0.6; cursor: not-allowed;' : ''}"
+                        ${isLocked ? 'disabled' : ''}>
+                  <div style="font-weight:700; color:${style.text};">${esc(item.name)} ${isLocked ? '🔒' : ''}</div>
                   <div class="text-dim" style="font-size:12px;">판매가: 🪙 ${calculatePrice(item)}</div>
                 </button>
               `;
@@ -128,17 +124,18 @@ async function renderShop_Sell(root) {
     attachEvents();
   };
 
-  // --- 이벤트 ---
   const attachEvents = () => {
-    // 검색
     root.querySelector('#item-search')?.addEventListener('input', (e)=>{
       searchTerm = e.target.value;
       render();
     });
 
-    // 카드 선택 토글
     root.querySelectorAll('.item-sell-card').forEach(card=>{
       card.addEventListener('click', ()=>{
+        if (card.disabled) { // [수정] 비활성화된 카드는 토스트 메시지만 표시
+          showToast('잠긴 아이템은 판매할 수 없습니다.');
+          return;
+        }
         const id = card.getAttribute('data-item-id');
         if (!id) return;
         if (selectedIds.has(id)) selectedIds.delete(id);
@@ -147,12 +144,15 @@ async function renderShop_Sell(root) {
       });
     });
 
-    // 등급별 일괄선택/해제
     root.querySelectorAll('.btn-bulk-sell').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const r = btn.getAttribute('data-rarity');
-        const targets = (inventory||[]).filter(it => (String(it.rarity||'normal').toLowerCase()===r)
-                                      && String(it.name||'').toLowerCase().includes(searchTerm.toLowerCase()));
+        // [수정] 잠기지 않은 아이템만 대상으로 일괄 선택
+        const targets = (inventory||[]).filter(it => 
+          !it.isLocked &&
+          (String(it.rarity||'normal').toLowerCase()===r) &&
+          String(it.name||'').toLowerCase().includes(searchTerm.toLowerCase())
+        );
         const allSelected = targets.every(it=>selectedIds.has(it.id));
         if (allSelected) targets.forEach(it=>selectedIds.delete(it.id));
         else targets.forEach(it=>selectedIds.add(it.id));
@@ -160,11 +160,9 @@ async function renderShop_Sell(root) {
       });
     });
 
-    // 판매 확인 모달
     root.querySelector('#btn-sell-confirm')?.addEventListener('click', showSellConfirmation);
   };
 
-  // --- 판매 확인 모달 & 실행 ---
   const showSellConfirmation = () => {
     ensureModalCss();
     if (selectedIds.size===0) return;
@@ -234,6 +232,6 @@ async function renderShop_Sell(root) {
     isLoading = false; render();
   };
 
-  // 초기 로드
   loadInventory();
 }
+// ANCHOR_END
