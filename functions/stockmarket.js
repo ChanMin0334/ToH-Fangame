@@ -172,46 +172,61 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         
         for (const ev of events) {
           // (1) 트리거 정각: 예고 발송
-          if (!ev.forecast_sent && isNow(ev.trigger_minute)) {
-            const subscribers = Array.isArray(stock.subscribers) ? stock.subscribers : [];
-            const worldName = plan.world_name || stock.world_name || stock.world_id || '';
-            const worldBadge = worldName ? `【${worldName}】 ` : '';
-            subscribers.forEach(uid => {
-              const mailRef = db.collection('mail').doc(uid).collection('msgs').doc();
-              tx.set(mailRef, {
-                kind: 'etc', title: `[주식 예고] ${worldBadge}${stock.name}`,
-                body: `${ev.title_before}\n\n(10분 후 결과 반영 예정)`,
-                sentAt: FieldValue.serverTimestamp(), from: '증권 정보국', read: false,
-              });
-            });
-            ev.forecast_sent = true;
-            planUpdated = true;
-          }
+if (!ev.forecast_sent && isNow(ev.trigger_minute)) {
+  const subscribers = Array.isArray(stock.subscribers) ? stock.subscribers : [];
+  const worldName = plan.world_name || stock.world_name || stock.world_id || '';
+  const worldBadge = worldName ? `【${worldName}】 ` : '';
+  const evKey = `${stockRef.id}_${today}_${ev.trigger_minute}_forecast`;
+
+  subscribers.forEach(uid => {
+    const mailRef = db.collection('mail').doc(uid).collection('msgs').doc(evKey);
+    tx.set(mailRef, {
+      kind: 'etc',
+      title: `[주식 예고] ${worldBadge}${stock.name}`,
+      body: `${ev.title_before}\n\n(10분 후 결과 반영 예정)`,
+      sentAt: FieldValue.serverTimestamp(),
+      from: '증권 정보국',
+      read: false,
+    }, { merge: true }); // 같은 ID면 덮어쓰기(중복 방지)
+  });
+
+  ev.forecast_sent = true;
+  planUpdated = true;
+}
+
 
           // (2) +10분: 실제 결과 반영
-          if (ev.forecast_sent && !ev.processed && isNow(ev.trigger_minute + 10)) {
-            price = applyEventToPrice(price, ev.actual_outcome, 'large');
-            try {
-              const systemPrompt = `사건의 전말과 실제 결과가 주어졌다. 투자자들에게 충격을 줄 만한 '결과 기사'를 JSON으로 작성하라: {"title_after":"...","body_after":"..."}`;
-              const userPrompt = `사건 전말: ${ev.premise}\n예상: ${ev.potential_impact}\n실제 결과: ${ev.actual_outcome}`;
-              const resultRaw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
-              const news = JSON.parse(resultRaw);
-              const subscribers = stock.subscribers || [];
-              const worldName = plan.world_name || stock.world_name || stock.world_id || '';
-              const worldBadge = worldName ? `【${worldName}】 ` : '';
-              subscribers.forEach(uid => {
-                const mailRef = db.collection('mail').doc(uid).collection('msgs').doc();
-                tx.set(mailRef, {
-                  kind: 'etc', title: `[주식 결과] ${worldBadge}${stock.name}`,
-                  body: `${news.title_after}\n\n${news.body_after}`,
-                  sentAt: FieldValue.serverTimestamp(), from: '증권 정보국', read: false,
-                });
-              });
-            } catch (e) { logger.error('결과 기사 생성 실패:', e); }
-            ev.processed = true;
-            movedByEvent = true;
-            planUpdated = true;
-          }
+if (ev.forecast_sent && !ev.processed && isNow(ev.trigger_minute + 10)) {
+  price = applyEventToPrice(price, ev.actual_outcome, 'large');
+  try {
+    const systemPrompt = `사건의 전말과 실제 결과가 주어졌다. 투자자들에게 충격을 줄 만한 '결과 기사'를 JSON으로 작성하라: {"title_after":"...","body_after":"..."}`;
+    const userPrompt = `사건 전말: ${ev.premise}\n예상: ${ev.potential_impact}\n실제 결과: ${ev.actual_outcome}`;
+    const resultRaw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
+    const news = JSON.parse(resultRaw);
+
+    const subscribers = stock.subscribers || [];
+    const worldName = plan.world_name || stock.world_name || stock.world_id || '';
+    const worldBadge = worldName ? `【${worldName}】 ` : '';
+    const evKey = `${stockRef.id}_${today}_${ev.trigger_minute}_result`;
+
+    subscribers.forEach(uid => {
+      const mailRef = db.collection('mail').doc(uid).collection('msgs').doc(evKey);
+      tx.set(mailRef, {
+        kind: 'etc',
+        title: `[주식 결과] ${worldBadge}${stock.name}`,
+        body: `${news.title_after}\n\n${news.body_after}`,
+        sentAt: FieldValue.serverTimestamp(),
+        from: '증권 정보국',
+        read: false,
+      }, { merge: true }); // 같은 ID면 덮어쓰기(중복 방지)
+    });
+  } catch (e) { logger.error('결과 기사 생성 실패:', e); }
+
+  ev.processed = true;
+  movedByEvent = true;
+  planUpdated = true;
+}
+
         }
         
         // (3) 잔물결 효과 (이벤트가 없었을 때만)
