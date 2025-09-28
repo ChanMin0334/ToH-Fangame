@@ -4,6 +4,7 @@ import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/fireba
 import { showToast } from '../ui/toast.js';
 import { getUserInventory } from '../api/user.js';
 import { rarityStyle, ensureItemCss, esc, showItemDetailModal } from './char.js';
+import { ensureModalCss, confirmModal } from '../ui/modal.js'; // ◀◀◀ 이 줄을 추가했습니다.
 
 // 상점 UI를 렌더링하는 함수 (economy.js에서 호출됨)
 export async function renderShop(container) {
@@ -15,7 +16,7 @@ export async function renderShop(container) {
         </div>
     `;
     container.innerHTML = subtabsHTML + `<div id="shop-content" style="margin-top: 8px;"></div>`;
-    
+
     const contentRoot = container.querySelector('#shop-content');
     await renderShop_Sell(contentRoot); // 현재는 판매 탭만 구현
 }
