@@ -1,5 +1,5 @@
 // /public/js/tabs/economy.js
-import { db, func } from '../api/firebase.js';
+import { db, func, fx } from '../api/firebase.js'; // fx 추가
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
 import { renderShop } from './shop.js';
@@ -7,7 +7,7 @@ import { renderShop } from './shop.js';
 const call = (name) => httpsCallable(func, name);
 
 function h(html){ const div=document.createElement('div'); div.innerHTML=html; return div.firstElementChild; }
-function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function subNav(current='#/economy/shop'){
   return `
@@ -30,7 +30,9 @@ async function renderStocks(root){
 
   const list = root.querySelector('#stock-list');
 
-  const unsub = db.collection('stocks').onSnapshot(snap=>{
+  // [수정] Firestore 호출 방식을 v9 모듈식으로 변경
+  const q = fx.query(fx.collection(db, 'stocks'));
+  const unsub = fx.onSnapshot(q, snap=>{
     list.innerHTML = '';
     if (snap.empty) {
       list.innerHTML = `<div class="kv-card text-dim">상장 종목이 없습니다.</div>`;
@@ -69,18 +71,22 @@ async function renderStocks(root){
       card.querySelector('[data-k="buy"]').onclick = async ()=>{
         const q = prompt('매수 수량을 입력해줘', '1');
         const n = Math.max(1, Math.floor(Number(q||0)));
-        try{
-          const { data } = await call('buyStock')({ stockId: id, quantity: n });
-          showToast(`매수 완료: ${n}주 (지불 ₵${data.paid})`);
-        }catch(e){ showToast(e.message||'오류'); }
+        if (n > 0) {
+            try{
+              const { data } = await call('buyStock')({ stockId: id, quantity: n });
+              showToast(`매수 완료: ${n}주 (지불 ₵${data.paid})`);
+            }catch(e){ showToast(e.message||'오류'); }
+        }
       };
       card.querySelector('[data-k="sell"]').onclick = async ()=>{
         const q = prompt('매도 수량을 입력해줘', '1');
         const n = Math.max(1, Math.floor(Number(q||0)));
-        try{
-          const { data } = await call('sellStock')({ stockId: id, quantity: n });
-          showToast(`매도 완료: ${n}주 (수령 ₵${data.received})`);
-        }catch(e){ showToast(e.message||'오류'); }
+        if (n > 0) {
+            try{
+              const { data } = await call('sellStock')({ stockId: id, quantity: n });
+              showToast(`매도 완료: ${n}주 (수령 ₵${data.received})`);
+            }catch(e){ showToast(e.message||'오류'); }
+        }
       };
 
       list.appendChild(card);
