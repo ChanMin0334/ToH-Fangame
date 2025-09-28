@@ -25,6 +25,7 @@ exports.sellStock              = stockmarket.sellStock;
 exports.subscribeToStock       = stockmarket.subscribeToStock;
 exports.createGuildStock       = stockmarket.createGuildStock;
 exports.distributeDividends    = stockmarket.distributeDividends;
+exports.planDailyStockEvents   = stockmarket.planDailyStockEvents;
 
 
 // === [탐험 난이도/룰 테이블 & 헬퍼] ===
