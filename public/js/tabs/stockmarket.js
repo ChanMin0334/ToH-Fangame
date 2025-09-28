@@ -43,7 +43,7 @@ export async function renderStocks(container){
     <div class="kv-card" style="margin-bottom:8px">
       <div class="row" style="gap:8px;align-items:center">
         <div style="font-weight:900">주식 시장</div>
-        <div class="text-dim" style="font-size:12px">5분 주기 업데이트</div>
+        <div class="text-dim" style="font-size:12px">1분 주기 업데이트</div>
       </div>
     </div>
     <div id="stock-list-container"></div>
@@ -149,6 +149,8 @@ export async function renderStocks(container){
     } catch (err) {
       showToast(err.message || '오류가 발생했습니다.');
     } finally {
+      // finally 블록을 추가하여 작업 성공/실패 여부와 관계없이 버튼을 다시 활성화합니다.
+      actionButtons.forEach(b => b.disabled = false);
     }
   }
 
@@ -216,8 +218,7 @@ export async function renderStocks(container){
       return [];
     }
 
-    // ▼▼▼ 1분 단위 데이터에 맞게 interval 및 duration 수정 ▼▼▼
-    const interval = 1 * 60 * 1000; // 1분 간격
+    const interval = 1 * 60 * 1000;
     const duration = (range === '1H' ? 60 : 360) * 60 * 1000;
 
     const sortedHistory = history.map(p => ({ time: new Date(p.date).getTime(), price: p.price }))
@@ -235,7 +236,7 @@ export async function renderStocks(container){
         }
 
         const prevPoint = sortedHistory[historyIndex];
-        if (!prevPoint || t < prevPoint.time) continue; // 데이터가 시작되기 전 시간은 건너뜀
+        if (!prevPoint || t < prevPoint.time) continue;
 
         const nextPoint = (historyIndex + 1 < sortedHistory.length) ? sortedHistory[historyIndex + 1] : prevPoint;
         
@@ -257,7 +258,6 @@ export async function renderStocks(container){
     return continuousData;
   }
 
-
   function displayChart(stockId, fullHistory, range) {
     if (activeChart) {
       activeChart.destroy();
@@ -272,8 +272,7 @@ export async function renderStocks(container){
     if (!ctx || !data.length) return;
     
     const lastPrice = data[data.length - 1]?.y || 0;
-    // ▼▼▼ 이전 가격을 찾을 때, 바로 직전 데이터가 아닌 조금 더 이전 데이터와 비교하여 추세선 색상 결정 ▼▼▼
-    const prevIndex = Math.max(0, data.length - 6); // 5분 전 데이터와 비교
+    const prevIndex = Math.max(0, data.length - 6);
     const prevPrice = data.length > 1 ? data[prevIndex]?.y : lastPrice;
     const borderColor = lastPrice >= prevPrice ? 'rgba(255, 107, 107, 0.8)' : 'rgba(91, 124, 255, 0.8)';
     
@@ -302,9 +301,8 @@ export async function renderStocks(container){
           x: { 
             type: 'timeseries',
             time: {
-                // ▼▼▼ X축 단위를 1H, 6H에 맞게 조정 ▼▼▼
                 unit: range === '1H' ? 'minute' : 'hour',
-                stepSize: range === '1H' ? 10 : 1, // 1H는 10분 단위, 6H는 1시간 단위로 표시
+                stepSize: range === '1H' ? 10 : 1,
                 displayFormats: { minute: 'HH:mm', hour: 'HH:mm' }
             },
             ticks: { font: { size: 10 }, maxRotation: 0 },
