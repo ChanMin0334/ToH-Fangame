@@ -26,7 +26,8 @@ exports.subscribeToStock       = stockmarket.subscribeToStock;
 exports.createGuildStock       = stockmarket.createGuildStock;
 exports.distributeDividends    = stockmarket.distributeDividends;
 exports.planDailyStockEvents   = stockmarket.planDailyStockEvents;
-
+exports.adminCreateStock       = stockmarket.adminCreateStock;
+exports.adminCreateManualEvent = stockmarket.adminCreateManualEvent;
 
 // === [탐험 난이도/룰 테이블 & 헬퍼] ===
 const EXPLORE_CONFIG = {
