@@ -29,7 +29,7 @@ export async function renderStocks(container){
     <div class="kv-card" style="margin-bottom:8px">
       <div class="row" style="gap:8px;align-items:center">
         <div style="font-weight:900">주식 시장</div>
-        <div class="text-dim" style="font-size:12px">15분 주기 업데이트</div>
+        <div class="text-dim" style="font-size:12px">10분 주기 업데이트</div>
       </div>
     </div>
     <div id="stock-list-container"></div>
@@ -105,7 +105,7 @@ export async function renderStocks(container){
 
         if (row.classList.contains('active')) {
           const stockId = row.dataset.id;
-          const stockData = q.firestore.collection('stocks').doc(stockId);
+          const stockData = fx.doc(db, 'stocks', stockId);
           fx.getDoc(stockData).then(docSnap => {
             if (!docSnap.exists()) return;
             const history = docSnap.data().price_history || [];
@@ -117,9 +117,14 @@ export async function renderStocks(container){
 
     listContainer.querySelectorAll('button[data-act]').forEach(btn => {
       btn.addEventListener('click', async (e) => {
-        e.stopPropagation(); // Stop row click event
+        e.stopPropagation();
         const act = btn.dataset.act;
         const id = btn.dataset.id;
+
+        // [신규] 버튼 비활성화 로직
+        const actionButtons = btn.parentElement.querySelectorAll('button');
+        actionButtons.forEach(b => b.disabled = true);
+        
         try {
             if (act === 'sub') {
                 const want = !btn.textContent.includes('취소');
@@ -127,13 +132,22 @@ export async function renderStocks(container){
                 showToast(`구독 정보가 변경되었습니다.`);
             } else if (act === 'buy') {
                 const qty = Number(prompt('매수 수량?', '1') || '0') | 0;
-                if (qty > 0) await call('buyStock')({ stockId: id, quantity: qty });
+                if (qty > 0) {
+                    await call('buyStock')({ stockId: id, quantity: qty });
+                    showToast('매수 완료!');
+                }
             } else if (act === 'sell') {
                 const qty = Number(prompt('매도 수량?', '1') || '0') | 0;
-                if (qty > 0) await call('sellStock')({ stockId: id, quantity: qty });
+                if (qty > 0) {
+                     await call('sellStock')({ stockId: id, quantity: qty });
+                     showToast('매도 완료!');
+                }
             }
         } catch (err) {
             showToast(err.message || '오류가 발생했습니다.');
+        } finally {
+            // [신규] 처리 완료 후 버튼 다시 활성화
+            actionButtons.forEach(b => b.disabled = false);
         }
       });
     });
@@ -165,7 +179,6 @@ export async function renderStocks(container){
     });
   }
 
-  // Set up cleanup function to be called by the parent router
   container.closest('#view').__cleanup = () => {
     if (unsub) unsub();
     if (activeChart) activeChart.destroy();
