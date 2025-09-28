@@ -1,4 +1,4 @@
-// /public/js/tabs/stockmarket.js
+// /public/js/tabs/stockmarket.js (전체 교체)
 import { db, fx, auth, func } from '../api/firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
 import { showToast } from '../ui/toast.js';
@@ -125,43 +125,36 @@ export async function renderStocks(container){
   async function handleActionClick(btn) {
     const act = btn.dataset.act;
     const id = btn.dataset.id;
-    // ANCHOR: handleActionClick 함수 전체를 교체하세요.
     const detailView = btn.closest('.stock-detail');
     const actionButtons = detailView.querySelectorAll('button[data-act]');
     actionButtons.forEach(b => b.disabled = true);
     
     try {
-        if (act === 'sub') {
-            const want = !btn.textContent.includes('취소');
-            await call('subscribeToStock')({ stockId: id, subscribe: want });
-            showToast(`구독 정보가 변경되었습니다.`);
-        } else if (act === 'buy' || act === 'sell') {
-            const qtyInput = detailView.querySelector(`#stock-qty-${id}`);
-            const qty = Math.floor(Number(qtyInput.value || '0'));
-            
-            if (qty <= 0) {
-                showToast('수량을 정확히 입력해주세요.');
-                return; // 여기서 함수를 종료하여 finally가 실행되도록 합니다.
-            }
-            
-            if (act === 'buy') {
-                await call('buyStock')({ stockId: id, quantity: qty });
-                showToast(`${qty}주 매수 완료!`);
-            } else { // act === 'sell'
-                await call('sellStock')({ stockId: id, quantity: qty });
-                showToast(`${qty}주 매도 완료!`);
-            }
-            qtyInput.value = ''; // 성공 시 입력 필드 비우기
+      if (act === 'sub') {
+        const want = !btn.textContent.includes('취소');
+        await call('subscribeToStock')({ stockId: id, subscribe: want });
+        showToast(`구독 정보가 변경되었습니다.`);
+      } else if (act === 'buy' || act === 'sell') {
+        const qtyInput = detailView.querySelector(`#stock-qty-${id}`);
+        const qty = Math.floor(Number(qtyInput.value || '0'));
+        if (qty <= 0) { showToast('수량을 정확히 입력해주세요.'); return; }
+        if (act === 'buy') {
+          await call('buyStock')({ stockId: id, quantity: qty });
+          showToast(`${qty}주 매수 완료!`);
+        } else {
+          await call('sellStock')({ stockId: id, quantity: qty });
+          showToast(`${qty}주 매도 완료!`);
         }
+        qtyInput.value = '';
+      }
     } catch (err) {
-        showToast(err.message || '오류가 발생했습니다.');
+      showToast(err.message || '오류가 발생했습니다.');
     } finally {
-        actionButtons.forEach(b => b.disabled = false);
+      actionButtons.forEach(b => b.disabled = false);
     }
   }
 
   async function toggleDetailView(row, forceOpen = false) {
-    // ANCHOR: toggleDetailView 함수 전체를 교체하세요.
     const stockId = row.dataset.id;
     const detailView = listContainer.querySelector(`#detail-${stockId}`);
     const currentlyActive = listContainer.querySelector('.stock-row.active');
@@ -183,17 +176,22 @@ export async function renderStocks(container){
       row.classList.add('active');
       const me = auth.currentUser?.uid;
       
-      // 주식 정보와 내 보유량 정보를 동시에 가져옵니다.
+      // 주식 정보와 내 보유량 정보를 동시에 가져옴
       const [docSnap, portfolioSnap] = await Promise.all([
         fx.getDoc(fx.doc(db, 'stocks', stockId)),
         me ? fx.getDoc(fx.doc(db, `users/${me}/portfolio/${stockId}`)) : Promise.resolve(null)
       ]);
 
       if (!docSnap.exists()) return;
-      
       const stock = docSnap.data();
       const heldQty = portfolioSnap?.exists() ? portfolioSnap.data().quantity : 0;
       const isSubscribed = me && Array.isArray(stock.subscribers) && stock.subscribers.includes(me);
+
+      // ★ 안전장치: 서버 히스토리 늦을 때 current_price를 마지막 점으로 보정
+      const fullHistory = Array.isArray(stock.price_history) ? [...stock.price_history] : [];
+      if (!fullHistory.length || Number(fullHistory[fullHistory.length-1].price) !== Number(stock.current_price)) {
+        fullHistory.push({ date: new Date().toISOString(), price: Number(stock.current_price || 0) });
+      }
 
       detailView.innerHTML = `
         <div class="row" style="gap:4px; margin-bottom: 8px;">
@@ -206,11 +204,10 @@ export async function renderStocks(container){
         <div class="text-dim" style="font-size:12px;margin:8px 0">${esc(stock.description || '')}</div>
         
         <div class="kv-card" style="padding: 8px; margin-bottom: 8px;">
-            <div class="row" style="justify-content: space-between; align-items: center;">
-                <div class="text-dim" style="font-size: 12px;">보유: ${heldQty.toLocaleString()}주</div>
-                <input type="number" id="stock-qty-${stockId}" class="input" placeholder="수량 입력" inputmode="numeric" min="1" step="1" style="width: 100px; text-align: right;">
-
-            </div>
+          <div class="row" style="justify-content: space-between; align-items: center;">
+            <div class="text-dim" style="font-size: 12px;">보유: ${Number(heldQty||0).toLocaleString()}주</div>
+            <input type="number" id="stock-qty-${stockId}" class="input" placeholder="수량 입력" inputmode="numeric" min="1" step="1" style="width: 100px; text-align: right;">
+          </div>
         </div>
 
         <div class="row" style="gap:8px; justify-content:flex-end;">
@@ -222,9 +219,9 @@ export async function renderStocks(container){
       
       detailView.querySelectorAll('button[data-range]').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            detailView.querySelectorAll('button[data-range]').forEach(b => b.classList.remove('active'));
-            e.currentTarget.classList.add('active');
-            displayChart(stockId, stock.price_history || [], e.currentTarget.dataset.range);
+          detailView.querySelectorAll('button[data-range]').forEach(b => b.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          displayChart(stockId, fullHistory, e.currentTarget.dataset.range);
         });
       });
       
@@ -237,14 +234,12 @@ export async function renderStocks(container){
   }
   
   function processHistoryForChart(history, range) {
-    if (!history || history.length < 1) {
-      return [];
-    }
+    if (!history || history.length < 1) return [];
 
-    const interval = 1 * 60 * 1000;
+    const interval = 1 * 60 * 1000;                         // 1분 간격
     const duration = (range === '1H' ? 60 : 360) * 60 * 1000;
 
-    const sortedHistory = history.map(p => ({ time: new Date(p.date).getTime(), price: p.price }))
+    const sortedHistory = history.map(p => ({ time: new Date(p.date).getTime(), price: Number(p.price) }))
                                  .sort((a, b) => a.time - b.time);
 
     const endTime = Date.now();
@@ -254,38 +249,32 @@ export async function renderStocks(container){
     let historyIndex = 0;
 
     for (let t = startTime; t <= endTime; t += interval) {
-        while (historyIndex < sortedHistory.length - 1 && sortedHistory[historyIndex + 1].time <= t) {
-            historyIndex++;
-        }
+      while (historyIndex < sortedHistory.length - 1 && sortedHistory[historyIndex + 1].time <= t) {
+        historyIndex++;
+      }
+      const prevPoint = sortedHistory[historyIndex];
+      if (!prevPoint || t < prevPoint.time) continue;
 
-        const prevPoint = sortedHistory[historyIndex];
-        if (!prevPoint || t < prevPoint.time) continue;
-
-        const nextPoint = (historyIndex + 1 < sortedHistory.length) ? sortedHistory[historyIndex + 1] : prevPoint;
-        
-        let price;
-        if (t > sortedHistory[sortedHistory.length - 1].time) {
-            price = sortedHistory[sortedHistory.length - 1].price;
-        } else if (prevPoint.time === nextPoint.time || prevPoint.time === t) {
-            price = prevPoint.price;
-        } else {
-            const timeDiff = nextPoint.time - prevPoint.time;
-            const priceDiff = nextPoint.price - prevPoint.price;
-            const ratio = timeDiff > 0 ? (t - prevPoint.time) / timeDiff : 0;
-            price = prevPoint.price + (priceDiff * ratio);
-        }
-        
-        continuousData.push({ x: t, y: price });
+      const nextPoint = (historyIndex + 1 < sortedHistory.length) ? sortedHistory[historyIndex + 1] : prevPoint;
+      
+      let price;
+      if (t > sortedHistory[sortedHistory.length - 1].time) {
+        price = sortedHistory[sortedHistory.length - 1].price;
+      } else if (prevPoint.time === nextPoint.time || prevPoint.time === t) {
+        price = prevPoint.price;
+      } else {
+        const timeDiff = nextPoint.time - prevPoint.time;
+        const priceDiff = nextPoint.price - prevPoint.price;
+        const ratio = timeDiff > 0 ? (t - prevPoint.time) / timeDiff : 0;
+        price = prevPoint.price + (priceDiff * ratio);
+      }
+      continuousData.push({ x: t, y: price });
     }
-
     return continuousData;
   }
 
   function displayChart(stockId, fullHistory, range) {
-    if (activeChart) {
-      activeChart.destroy();
-      activeChart = null;
-    }
+    if (activeChart) { activeChart.destroy(); activeChart = null; }
     const processedData = processHistoryForChart(fullHistory, range);
     renderChart(stockId, processedData, range);
   }
@@ -304,6 +293,7 @@ export async function renderStocks(container){
     const maxPrice = Math.max(...prices);
     const padding = (maxPrice - minPrice) * 0.1 || 5;
 
+    // Chart.js 전역에 로드되어 있다고 가정
     activeChart = new Chart(ctx, {
       type: 'line',
       data: { 
@@ -324,9 +314,9 @@ export async function renderStocks(container){
           x: { 
             type: 'timeseries',
             time: {
-                unit: range === '1H' ? 'minute' : 'hour',
-                stepSize: range === '1H' ? 10 : 1,
-                displayFormats: { minute: 'HH:mm', hour: 'HH:mm' }
+              unit: range === '1H' ? 'minute' : 'hour',
+              stepSize: range === '1H' ? 10 : 1,
+              displayFormats: { minute: 'HH:mm', hour: 'HH:mm' }
             },
             ticks: { font: { size: 10 }, maxRotation: 0 },
             grid: { display: false }, 
