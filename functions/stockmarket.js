@@ -31,9 +31,9 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
     if (!s || s.status !== 'listed') throw new HttpsError('failed-precondition', '상장 상태가 아닙니다.');
   };
 
-  // ---------- 15분 스케줄러: ①이벤트결정 → ②뉴스생성/발송 → ③가격반영 ----------
+  // ---------- 10분 스케줄러: ①이벤트결정 → ②뉴스생성/발송 → ③가격반영 ----------
   const updateStockMarket = onSchedule({
-    schedule: 'every 15 minutes',
+    schedule: 'every 10 minutes', // [수정] 15분 -> 10분
     timeZone: 'Asia/Seoul',
     region: 'us-central1',
   }, async () => {
@@ -254,7 +254,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
         current_price: initPrice,
         price_history: [{ date: nowISO(), price: initPrice }],
         subscribers: [],
-        upcoming_event: null,
+        // [수정] upcoming_event 필드 삭제
       });
 
       // 주식 금고 필드 준비
