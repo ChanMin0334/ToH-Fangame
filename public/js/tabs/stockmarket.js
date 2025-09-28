@@ -208,7 +208,8 @@ export async function renderStocks(container){
         <div class="kv-card" style="padding: 8px; margin-bottom: 8px;">
             <div class="row" style="justify-content: space-between; align-items: center;">
                 <div class="text-dim" style="font-size: 12px;">보유: ${heldQty.toLocaleString()}주</div>
-                <input type="number" id="stock-qty-${stockId}" class="input" placeholder="수량 입력" style="width: 100px; text-align: right;">
+                <input type="number" id="stock-qty-${stockId}" class="input" placeholder="수량 입력" inputmode="numeric" min="1" step="1" style="width: 100px; text-align: right;">
+
             </div>
         </div>
 
