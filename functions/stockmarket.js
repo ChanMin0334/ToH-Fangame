@@ -243,22 +243,27 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
           const bps = Number(dplan.drift_bps || 5);
           const trend = Number(dplan.trend_sign || 1);
           
+          // [수정] 목표가를 소수점까지 정밀하게 계산하여 정체 현상 방지
           const nextTarget = (dplan.target_price || price) * (1 + trend * (bps / 10000));
           const gap = nextTarget - price;
-          const step = gap * 0.25;
+          const step = gap * 0.25; // 반올림 없이 25% 이동
 
           const volatility = stock.volatility || 'normal';
+          // [수정] 노이즈 팩터를 약간 올려 반올림에 의해 사라지지 않도록 보정
           const noiseFactor = { low: 0.003, normal: 0.006, high: 0.015 }[volatility] || 0.006;
           const noise = (Math.random() - 0.5) * price * noiseFactor;
           
           let newPrice = price + step + noise;
+          
+          // [수정] 만약 모든 계산 후에도 가격이 그대로라면 최소 ±1의 변동을 강제
           if (Math.round(newPrice) === price) {
               newPrice += (Math.random() < 0.5 ? -1 : 1);
           }
 
+          // 최종 가격은 마지막에 한 번만 반올림
           price = Math.max(1, Math.round(newPrice));
 
-          tx.update(dailyRef, { target_price: nextTarget });
+          tx.update(dailyRef, { target_price: nextTarget }); // 소수점 목표가 저장
         }
 
         // (4) [핵심 수정] 계산된 최종 가격과 히스토리를 DB에 업데이트
@@ -275,103 +280,120 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
       });
     }
 
-    // ANCHOR: 세계관 사건 처리 로직 추가  [전체 교체본]
-    // 인덱스 없이 안전하게: processed == false만 쿼리 → 시간 조건은 코드에서 검사
+    // ANCHOR: 세계관 사건 처리 로직 (전체 교체)
     try {
-      const nowUtc = new Date(); // UTC 기준, Timestamp 비교에 문제 없음
-      const worldEventsSnap = await db.collection('world_events')
-        .where('processed', '==', false)
-        .get();
+        const nowUtc = new Date();
+        const worldEventsQuery = db.collection('world_events')
+            .where('processed_preliminary', '==', false)
+            .where('trigger_time', '<=', admin.firestore.Timestamp.fromDate(nowUtc));
+            
+        const worldEventsSnap = await worldEventsQuery.get();
 
-      for (const eventDoc of worldEventsSnap.docs) {
-        const event = eventDoc.data();
+        for (const eventDoc of worldEventsSnap.docs) {
+            const event = eventDoc.data();
+            
+            // --- 이전 사건들 맥락으로 가져오기 ---
+            const historyLogs = [];
+            const recentEventsSnap = await db.collection('world_events')
+                .where('world_id', '==', event.world_id)
+                .where('processed_final', '==', true)
+                .where('trigger_time', '<', event.trigger_time)
+                .orderBy('trigger_time', 'desc')
+                .limit(3)
+                .get();
+            recentEventsSnap.forEach(d => historyLogs.push(`- ${d.data().premise}`));
+            const historyContext = historyLogs.length > 0 ? `\n\n## 참고: 최근 일어난 사건들\n${historyLogs.join('\n')}` : '';
 
-        // trigger_time 타입 호환: Timestamp → Date, 문자열 ISO도 허용
-        const trig = event?.trigger_time?.toDate?.() ? event.trigger_time.toDate()
-                    : (event?.trigger_time ? new Date(event.trigger_time) : null);
+            const affectedStocksSnap = await db.collection('stocks')
+                .where('world_id', '==', event.world_id)
+                .where('status', '==', 'listed')
+                .get();
 
-        // 실행 시점 전이면 건너뜀
-        if (!trig || trig > nowUtc) continue;
+            for (const stockDoc of affectedStocksSnap.docs) {
+                const stock = stockDoc.data();
+                
+                const systemPrompt = `당신은 게임 속 경제 분석 AI입니다. 주어진 세계관 사건에 대해, 특정 회사가 어떻게 대응했는지 그럴듯한 이야기를 만들고, 그 대응의 성공/실패 여부를 확률적으로 결정하세요.
+                
+                1.  **대응 성공 여부 결정**: 50% 확률로 'successful', 35% 'neutral', 15% 'failure'로 결정합니다.
+                2.  **뉴스 기사 작성**: 결정된 성공/실패 여부에 맞춰, 그럴듯한 예고 기사를 작성합니다. 이 기사는 **결과를 직접적으로 알려주지 않고, 회사의 대응책이나 움직임을 암시**해야 합니다.
+                3.  **JSON 출력**: 아래 형식의 JSON 하나만 출력해야 합니다.
+                
+                {
+                  "impact": "positive" | "negative" | "neutral",
+                  "news_title_preliminary": "예고 기사 제목 (암시적)",
+                  "news_body_preliminary": "예고 기사 본문 (2~3문장)"
+                }`;
+                
+                const userPrompt = `## 세계관 사건\n${event.premise}\n\n## 분석 대상 회사\n- 이름: ${stock.name}\n- 설명: ${stock.description || ''}\n- 세계관: ${stock.world_name || stock.world_id}${historyContext}`;
 
-        try {
-          // 이 세계관의 상장 종목 전체 조회
-          const affectedStocksSnap = await db.collection('stocks')
-            .where('world_id', '==', event.world_id)
-            .where('status', '==', 'listed')
-            .get();
+                let analysis;
+                try {
+                    const raw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
+                    analysis = JSON.parse(raw);
+                } catch (e) {
+                    logger.warn(`세계관 사건 AI 분석 실패 (stock: ${stockDoc.id})`, e);
+                    analysis = { impact: 'neutral', news_title_preliminary: '대응 미확인', news_body_preliminary: '회사의 대응이 아직 확인되지 않았습니다.' };
+                }
 
-          for (const stockDoc of affectedStocksSnap.docs) {
-            const stock = stockDoc.data();
-
-            // 1) 사건 영향 분석 (모델은 상단 callGemini 그대로 활용)
-            const systemPrompt =
-              `당신은 경제 분석 AI입니다. 아래 세계관 사건이 해당 회사 주가에 미칠 단기 영향(positive|negative|neutral)과 ` +
-              `뉴스 타이틀/본문을 JSON으로만 답하세요. 예: {"impact":"positive","news_title":"...","news_body":"..."}`;
-            const userPrompt =
-              `세계관 사건:\n${event.premise}\n\n대상 회사:\n${stock.name}\n` +
-              (stock.description ? `설명: ${stock.description}\n` : ``) +
-              `세계관: ${stock.world_name || stock.world_id}`;
-
-            let analysis = { impact: 'neutral', news_title: '', news_body: '' };
-            try {
-              const raw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
-              const parsed = JSON.parse(raw);
-              const impact = ['positive','negative','neutral'].includes(parsed?.impact) ? parsed.impact : 'neutral';
-              analysis = {
-                impact,
-                news_title: String(parsed?.news_title || `${stock.world_name || stock.world_id} 속보`),
-                news_body: String(parsed?.news_body || `${event.premise}`)
-              };
-            } catch (e) {
-              logger.warn(`세계관 사건 분석 실패(기본값 사용): ${stockDoc.id}`, e);
-            }
-
-            // 2) 가격 반영 (세계관 사건은 medium 강도로)
-            if (analysis.impact !== 'neutral') {
-              const newPrice = applyEventToPrice(stock.current_price, analysis.impact, 'medium');
-              const history = Array.isArray(stock.price_history) ? stock.price_history.slice(-1439) : [];
-              history.push({ date: nowISO(), price: newPrice });
-              await stockDoc.ref.update({
-                current_price: newPrice,
-                price_history: history
-              });
-            }
-
-            // 3) 구독자 뉴스 메일 발송
-            const subscribers = Array.isArray(stock.subscribers) ? stock.subscribers : [];
-            if (subscribers.length > 0) {
-              const batch = db.batch();
-              for (const uid of subscribers) {
-                const mailRef = db.collection('mail').doc(uid).collection('msgs').doc();
-                batch.set(mailRef, {
-                  kind: 'etc',
-                  title: `[세계관 속보] ${analysis.news_title || (stock.world_name || stock.world_id)}`,
-                  body: `${analysis.news_body || event.premise}\n\n(회사: ${stock.name})`,
-                  createdAt: FieldValue.serverTimestamp(),
-                  sentAt: FieldValue.serverTimestamp(),
-                  from: '세계 정세 분석국'
+                // 결과 반영은 15분 뒤로 예약
+                const finalImpactTime = new Date(event.trigger_time.toDate().getTime() + 15 * 60 * 1000);
+                
+                // 회사별 대응 결과를 이벤트 문서의 하위 컬렉션에 저장
+                await eventDoc.ref.collection('responses').doc(stockDoc.id).set({
+                    impact: analysis.impact || 'neutral',
+                    processed_final: false,
+                    final_impact_at: admin.firestore.Timestamp.fromDate(finalImpactTime)
                 });
-              }
-              await batch.commit();
+                
+                // 예고 기사 발송
+                const subscribers = stock.subscribers || [];
+                if (subscribers.length > 0) {
+                    const batch = db.batch();
+                    for (const uid of subscribers) {
+                        const mailRef = db.collection('mail').doc(uid).collection('msgs').doc();
+                        batch.set(mailRef, {
+                            kind: 'etc',
+                            title: `[속보] ${analysis.news_title_preliminary}`,
+                            body: `${analysis.news_body_preliminary}\n\n(회사: ${stock.name})\n(15분 후 시장에 결과가 반영됩니다.)`,
+                            sentAt: FieldValue.serverTimestamp(), from: '세계 정세 분석국'
+                        });
+                    }
+                    await batch.commit();
+                }
             }
-          } // end for stocks
-
-          // 모든 종목 반영이 끝나면 처리 완료 표시
-          await eventDoc.ref.update({
-            processed: true,
-            processed_at: FieldValue.serverTimestamp()
-          });
-    
-        } catch (errEach) {
-          // 개별 사건 처리 중 오류: 다음 사건은 계속 처리
-          logger.error(`세계관 사건 처리 중 오류 (event: ${eventDoc.id})`, errEach);
+            await eventDoc.ref.update({ processed_preliminary: true });
         }
-      } // end for events
+    } catch (e) { logger.error('세계관 사건(예고) 처리 중 오류', e); }
 
-    } catch (errAll) {
-      logger.error('세계관 사건 조회/처리 루프 실패', errAll);
-    }
-});
+    try {
+        const nowUtcTs = admin.firestore.Timestamp.now();
+        const finalImpactQuery = db.collectionGroup('responses')
+            .where('processed_final', '==', false)
+            .where('final_impact_at', '<=', nowUtcTs);
+            
+        const responsesSnap = await finalImpactQuery.get();
+
+        for (const responseDoc of responsesSnap.docs) {
+            const response = responseDoc.data();
+            const stockId = responseDoc.id;
+            const stockRef = db.doc(`stocks/${stockId}`);
+            
+            await db.runTransaction(async (tx) => {
+                const stockSnap = await tx.get(stockRef);
+                if (!stockSnap.exists()) return;
+                
+                const stock = stockSnap.data();
+                if (response.impact !== 'neutral') {
+                    const newPrice = applyEventToPrice(stock.current_price, response.impact, 'medium');
+                    const history = Array.isArray(stock.price_history) ? stock.price_history.slice(-1439) : [];
+                    history.push({ date: nowISO(), price: newPrice });
+                    tx.update(stockRef, { current_price: newPrice, price_history: history });
+                }
+                tx.update(responseDoc.ref, { processed_final: true });
+            });
+        }
+    } catch (e) { logger.error('세계관 사건(결과) 처리 중 오류', e); }
+  });
 
   // ==================================================================
   // 3) 매수/매도: 현재가와 히스토리를 항상 동시 갱신
@@ -618,7 +640,8 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         world_id,
         premise,
         trigger_time: admin.firestore.Timestamp.fromDate(new Date(trigger_time)),
-        processed: false,
+        processed_preliminary: false, // [수정] 1단계 처리 플래그
+        processed_final: false,       // [수정] 2단계 처리 플래그
         createdAt: FieldValue.serverTimestamp(),
         createdBy: uid,
     });
