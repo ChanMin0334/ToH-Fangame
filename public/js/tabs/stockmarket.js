@@ -5,6 +5,15 @@ import { showToast } from '../ui/toast.js';
 
 const call = (name)=> httpsCallable(func, name);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+// 오늘 00:00 KST의 UTC 타임스탬프(ms)
+function kstStartOfTodayUtcMs(){
+  const now = new Date();
+  const kstNowMs = now.getTime() + 9*60*60*1000; // UTC→KST
+  const kst = new Date(kstNowMs);
+  kst.setHours(0,0,0,0);                          // KST 자정
+  return kst.getTime() - 9*60*60*1000;            // 다시 UTC로 환산
+}
+
 
 export async function renderStocks(container){
   container.innerHTML = `
@@ -76,9 +85,28 @@ export async function renderStocks(container){
     listContainer.innerHTML = stocks.map(s => {
       const price = Number(s.current_price || 0);
       const history = Array.isArray(s.price_history) ? s.price_history : [];
-      const prevPrice = history.length > 1 ? history[history.length - 2].price : price;
-      const change = price - prevPrice;
-      const changePct = prevPrice > 0 ? (change / prevPrice * 100).toFixed(2) : 0;
+      const startKst = kstStartOfTodayUtcMs();
+
+      // 금일 시가 찾기: 오늘 00:00 KST 이후의 첫 포인트
+      const todayOpen = (() => {
+        const todays = history
+          .filter(p => Date.parse(p.date) >= startKst)
+          .sort((a,b) => Date.parse(a.date) - Date.parse(b.date));
+        if (todays.length) return Number(todays[0].price);
+
+        // 혹시 오늘 데이터가 아직 없으면 최근 24시간 중 첫 포인트를 사용(대비 값 안정화)
+        const last24h = history
+          .filter(p => (Date.now() - Date.parse(p.date)) <= 24*60*60*1000)
+          .sort((a,b) => Date.parse(a.date) - Date.parse(b.date));
+        if (last24h.length) return Number(last24h[0].price);
+
+        // 그래도 없으면 히스토리 첫 값 또는 현재가
+        return Number(history[0]?.price ?? price);
+      })();
+
+      const change = Number(price) - Number(todayOpen);
+      const changePct = todayOpen > 0 ? (change / todayOpen * 100).toFixed(2) : '0.00';
+
       const changeClass = change > 0 ? 'up' : change < 0 ? 'down' : '';
       const changeIcon = change > 0 ? '▲' : change < 0 ? '▼' : '—';
 
