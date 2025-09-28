@@ -1,6 +1,6 @@
 // /public/js/tabs/manage.js
-// 관리자 도구: [메일 발송] / [검색] / [버전 관리] / [후원자 목록] / [서비스 점검] 탭 UI
 
+// (기존 코드 상단... import 등)
 import { func, db, fx } from '../api/firebase.js';
 import { ensureAdmin, isAdminCached } from '../api/admin.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
@@ -8,7 +8,7 @@ import { showToast } from '../ui/toast.js';
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 
-// 스타일을 한 번만 주입하여 중복을 방지합니다.
+// (기존 stylesOnce 함수... )
 function stylesOnce(){
   if (document.getElementById('manage-style')) return;
   const css = `
@@ -74,6 +74,7 @@ function mainTpl(){
         <button class="manage-tab" data-tab="supporter">후원자 설정</button>
         <button class="manage-tab" data-tab="supporter-list">후원자 목록</button>
         <button class="manage-tab" data-tab="maintenance">서비스 점검</button>
+        <button class="manage-tab" data-tab="economy">경제 관리</button>
       </div>
       <div id="manage-tab-content"></div>
     </div>
@@ -81,6 +82,7 @@ function mainTpl(){
   `;
 }
 
+// (기존 sendTpl, searchTpl, supporterTpl, versionTpl, supporterListTpl, maintenanceTpl 함수...)
 function sendTpl(){
   return `
   <div class="manage-col">
@@ -201,7 +203,6 @@ function supporterListTpl() {
   </div>`;
 }
 
-// [신규] 서비스 점검 탭 UI 템플릿
 function maintenanceTpl() {
   return `
   <div class="manage-col">
@@ -223,6 +224,71 @@ function maintenanceTpl() {
     </div>
   </div>`;
 }
+
+// ANCHOR: 경제 관리 탭 템플릿 추가
+function economyTpl() {
+  return `
+  <div class="manage-col">
+    <div class="manage-tabs" style="border-bottom:none; margin-bottom:0;">
+        <button class="manage-tab active" data-subtab="company">주식회사 관리</button>
+        <button class="manage-tab" data-subtab="event">사건 관리</button>
+    </div>
+    <div id="economy-sub-content" class="manage-card" style="border-top-left-radius:0;"></div>
+  </div>
+  `;
+}
+
+function economyCompanyTpl() {
+  return `
+    <h5 style="margin-top:0;">주식회사 목록</h5>
+    <div id="stock-list" class="manage-col" style="max-height: 200px; overflow-y: auto; margin-bottom:12px;">
+        <div class="manage-hint">불러오는 중...</div>
+    </div>
+    <h5 style="margin-top:0;">신규 주식회사 상장</h5>
+    <div class="manage-col">
+      <input id="stock-name" class="manage-input" placeholder="회사명 (예: 아르카 방위 산업)">
+      <select id="stock-world" class="manage-select"></select>
+      <select id="stock-type" class="manage-select">
+          <option value="corporation">일반 기업</option>
+          <option value="guild">길드</option>
+      </select>
+      <input id="stock-price" type="number" min="1" class="manage-input" placeholder="초기 가격 (1 이상)">
+      <select id="stock-volatility" class="manage-select">
+          <option value="low">변동성: 낮음</option>
+          <option value="normal" selected>변동성: 보통</option>
+          <option value="high">변동성: 높음</option>
+      </select>
+      <textarea id="stock-desc" class="manage-textarea" rows="2" placeholder="회사 설명"></textarea>
+      <div class="manage-row" style="justify-content:flex-end">
+          <button id="btn-create-stock" class="btn primary">상장</button>
+      </div>
+    </div>
+  `;
+}
+
+function economyEventTpl() {
+    return `
+    <h5 style="margin-top:0;">수동 사건 생성</h5>
+    <div class="manage-col">
+        <select id="event-stock" class="manage-select">
+            <option value="">사건을 적용할 주식회사 선택</option>
+        </select>
+        <select id="event-impact" class="manage-select">
+            <option value="positive">긍정적 사건</option>
+            <option value="negative">부정적 사건</option>
+        </select>
+        <textarea id="event-premise" class="manage-textarea" rows="3" placeholder="사건의 전말 프롬프트 (예: 신기술 개발 성공, 대규모 계약 체결, 경쟁사 몰락 등)"></textarea>
+        <div class="manage-row">
+            <label class="manage-label">실행 시점</label>
+            <input id="event-time" type="datetime-local" class="manage-input">
+        </div>
+        <div class="manage-row" style="justify-content:flex-end">
+          <button id="btn-create-event" class="btn primary">사건 생성</button>
+        </div>
+    </div>
+  `;
+}
+
 
 export async function showManage(){
   stylesOnce();
@@ -261,6 +327,9 @@ export async function showManage(){
     } else if (tabId === 'maintenance') {
         contentWrap.innerHTML = maintenanceTpl();
         bindMaintenanceEvents();
+    } else if (tabId === 'economy') { // ANCHOR: 경제 관리 탭 렌더링
+        contentWrap.innerHTML = economyTpl();
+        bindEconomyEvents();
     }
   };
 
@@ -277,6 +346,7 @@ export async function showManage(){
   renderTabContent('send');
 }
 
+// (기존 bindSendEvents, bindSearchEvents, bindVersionEvents, bindSupporterEvents, bindSupporterListEvents, bindMaintenanceEvents 함수...)
 function bindSendEvents() {
     const $switch = document.getElementById('gacha-switch');
     const $panel  = document.getElementById('gacha-panel');
@@ -534,6 +604,118 @@ function bindMaintenanceEvents() {
         }
     });
 }
+
+// ANCHOR: 경제 관리 탭 이벤트 바인딩
+function bindEconomyEvents() {
+    const content = document.getElementById('economy-sub-content');
+    const tabs = document.querySelectorAll('#manage-tab-content .manage-tab');
+
+    const renderSubTab = (subTabId) => {
+        content.innerHTML = '';
+        if (subTabId === 'company') {
+            content.innerHTML = economyCompanyTpl();
+            bindCompanyEvents();
+        } else if (subTabId === 'event') {
+            content.innerHTML = economyEventTpl();
+            bindEventEvents();
+        }
+    };
+
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            tabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            renderSubTab(tab.dataset.subtab);
+        });
+    });
+
+    // 초기 렌더링
+    renderSubTab('company');
+}
+
+async function bindCompanyEvents() {
+    // 세계관 목록 로드
+    const worldSelect = document.getElementById('stock-world');
+    try {
+        const worldsSnap = await fx.getDoc(fx.doc(db, 'configs', 'worlds'));
+        if (worldsSnap.exists()) {
+            const worlds = worldsSnap.data().worlds || [];
+            worldSelect.innerHTML = worlds.map(w => `<option value="${w.id}">${w.name}</option>`).join('');
+        }
+    } catch (e) {
+        worldSelect.innerHTML = `<option value="">세계관 로드 실패</option>`;
+    }
+
+    // 주식회사 목록 로드
+    const stockListEl = document.getElementById('stock-list');
+    const stockSnap = await fx.getDocs(fx.query(fx.collection(db, 'stocks'), fx.orderBy('name')));
+    if (stockSnap.empty) {
+        stockListEl.innerHTML = `<div class="manage-hint">상장된 주식회사가 없습니다.</div>`;
+    } else {
+        stockListEl.innerHTML = stockSnap.docs.map(doc => {
+            const stock = doc.data();
+            return `<div class="manage-card" style="font-size:12px;"><b>${esc(stock.name)}</b> (${esc(stock.world_name || stock.world_id)}) - 현재가: ${stock.current_price}</div>`;
+        }).join('');
+    }
+
+    // 상장 버튼
+    document.getElementById('btn-create-stock').addEventListener('click', async (e) => {
+        const btn = e.target;
+        btn.disabled = true;
+        try {
+            const payload = {
+                name: document.getElementById('stock-name').value,
+                world_id: document.getElementById('stock-world').value,
+                world_name: document.getElementById('stock-world').options[document.getElementById('stock-world').selectedIndex].text,
+                type: document.getElementById('stock-type').value,
+                initial_price: Number(document.getElementById('stock-price').value),
+                volatility: document.getElementById('stock-volatility').value,
+                description: document.getElementById('stock-desc').value,
+            };
+            // 여기에 서버 함수 호출 로직 추가
+            showToast('주식회사 상장 기능은 서버에 구현해야 합니다.');
+        } catch (err) {
+            showToast(`상장 실패: ${err.message}`);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+}
+
+async function bindEventEvents() {
+    // 주식회사 목록 드롭다운 채우기
+    const eventStockSelect = document.getElementById('event-stock');
+    const stockSnap = await fx.getDocs(fx.query(fx.collection(db, 'stocks'), fx.orderBy('name')));
+    if (!stockSnap.empty) {
+        eventStockSelect.innerHTML += stockSnap.docs.map(doc => `<option value="${doc.id}">${doc.data().name}</option>`).join('');
+    }
+
+    // 사건 생성 버튼
+     document.getElementById('btn-create-event').addEventListener('click', async (e) => {
+        const btn = e.target;
+        btn.disabled = true;
+        try {
+            const dtValue = document.getElementById('event-time').value;
+            const payload = {
+                stock_id: document.getElementById('event-stock').value,
+                potential_impact: document.getElementById('event-impact').value,
+                premise: document.getElementById('event-premise').value,
+                // datetime-local 값을 UTC 분으로 변환
+                trigger_minute: dtValue ? (new Date(dtValue).getHours() * 60 + new Date(dtValue).getMinutes()) : null
+            };
+            if (!payload.stock_id || !payload.premise || payload.trigger_minute === null) {
+                throw new Error("모든 필드를 채워주세요.");
+            }
+            // 여기에 서버 함수 호출 로직 추가
+            showToast('수동 사건 생성 기능은 서버에 구현해야 합니다.');
+        } catch (err) {
+            showToast(`사건 생성 실패: ${err.message}`);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+}
+
 
 export const showAdmin = showManage;
 export default showManage;
