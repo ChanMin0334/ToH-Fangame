@@ -208,11 +208,17 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
 
           const gap = Number(d.target_price || price) - price;
           const toward = Math.sign(gap) * Math.max(0, Math.floor(Math.abs(gap) * 0.03));
-          const micro = Math.max(1, Math.round(price * (driftBps / 10000) * sign));
+          // 변동폭의 절대값을 먼저 계산하고, 방향(sign)을 나중에 곱해준다
+          const delta = Math.max(1, Math.round(price * (driftBps / 10000)));
+          const micro = delta * sign;
+
+          // 가격은 바닥만 1로 가드
           price = Math.max(1, price + toward + micro);
 
+          // 목표가도 micro 방향대로 움직임 (음수 허용), 단 최저 1 가드
           if (dailySnap.exists) {
-            tx.update(dailyRef, { target_price: Math.max(1, Number(d.target_price || price) + micro) });
+            const nextTarget = Math.max(1, Number(d.target_price ?? price) + micro);
+            tx.update(dailyRef, { target_price: nextTarget });
           }
         }
 
