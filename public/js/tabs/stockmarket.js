@@ -57,10 +57,8 @@ export async function renderStocks(container){
       return { id: d.id, ...data, isSubscribed: me && Array.isArray(data.subscribers) && data.subscribers.includes(me) };
     });
     
-    // [개선] UI를 통째로 바꾸는 대신, 변경된 내용만 업데이트합니다.
     updateStockList(stocks);
 
-    // [개선] 이벤트 핸들러는 최초 한 번만 등록합니다.
     if (!eventListenerAttached) {
       attachEventListeners();
       eventListenerAttached = true;
@@ -100,12 +98,11 @@ export async function renderStocks(container){
     if (activeId) {
       const activeRow = listContainer.querySelector(`.stock-row[data-id="${activeId}"]`);
       if (activeRow) {
-        toggleDetailView(activeRow, true); // 강제로 열린 상태 유지 및 차트 다시 그리기
+        toggleDetailView(activeRow, true);
       }
     }
   }
   
-  // [개선] 이벤트 위임 방식으로 단일 이벤트 리스너 사용
   function attachEventListeners() {
     listContainer.addEventListener('click', async (e) => {
       const row = e.target.closest('.stock-row');
@@ -125,7 +122,7 @@ export async function renderStocks(container){
     const id = btn.dataset.id;
     const actionButtons = btn.parentElement.querySelectorAll('button');
     actionButtons.forEach(b => b.disabled = true);
-
+    
     try {
       if (act === 'sub') {
         const want = !btn.textContent.includes('취소');
@@ -140,14 +137,14 @@ export async function renderStocks(container){
       } else if (act === 'sell') {
         const qty = Number(prompt('매도 수량?', '1') || '0') | 0;
         if (qty > 0) {
-            await call('sellStock')({ stockId: id, quantity: qty });
-            showToast('매도 완료!');
+             await call('sellStock')({ stockId: id, quantity: qty });
+             showToast('매도 완료!');
         }
       }
     } catch (err) {
       showToast(err.message || '오류가 발생했습니다.');
     } finally {
-      // onSnapshot이 UI를 자동으로 갱신하므로 수동으로 버튼을 다시 활성화할 필요가 없습니다.
+      // No need to re-enable buttons manually, onSnapshot will refresh the UI.
     }
   }
 
@@ -187,7 +184,9 @@ export async function renderStocks(container){
           <button class="btn xs" data-act="sell" data-id="${stockId}">매도</button>
         </div>
       `;
-      renderChart(stockId, stock.price_history || []);
+      // [개선] price_history의 마지막 72개 데이터만 사용
+      const recentHistory = (stock.price_history || []).slice(-72);
+      renderChart(stockId, recentHistory);
     } else {
       row.classList.remove('active');
       detailView.innerHTML = '';
