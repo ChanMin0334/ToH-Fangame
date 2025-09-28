@@ -203,7 +203,7 @@ export async function renderStocks(container){
         });
       });
       
-      detailView.querySelector('button[data-range="6H"]').click();
+      detailView.querySelector('button[data-range="1H"]').click();
 
     } else {
       row.classList.remove('active');
@@ -216,13 +216,14 @@ export async function renderStocks(container){
       return [];
     }
 
-    const interval = 5 * 60 * 1000;
+    // ▼▼▼ 1분 단위 데이터에 맞게 interval 및 duration 수정 ▼▼▼
+    const interval = 1 * 60 * 1000; // 1분 간격
     const duration = (range === '1H' ? 60 : 360) * 60 * 1000;
 
     const sortedHistory = history.map(p => ({ time: new Date(p.date).getTime(), price: p.price }))
                                  .sort((a, b) => a.time - b.time);
 
-    const endTime = Date.now(); // [수정] 차트의 끝을 현재 시간으로 고정
+    const endTime = Date.now();
     const startTime = endTime - duration;
 
     const continuousData = [];
@@ -234,13 +235,13 @@ export async function renderStocks(container){
         }
 
         const prevPoint = sortedHistory[historyIndex];
-        if (t < prevPoint.time) continue;
+        if (!prevPoint || t < prevPoint.time) continue; // 데이터가 시작되기 전 시간은 건너뜀
 
         const nextPoint = (historyIndex + 1 < sortedHistory.length) ? sortedHistory[historyIndex + 1] : prevPoint;
         
         let price;
         if (t > sortedHistory[sortedHistory.length - 1].time) {
-            price = sortedHistory[sortedHistory.length - 1].price; // 마지막 데이터 이후는 마지막 가격으로 유지
+            price = sortedHistory[sortedHistory.length - 1].price;
         } else if (prevPoint.time === nextPoint.time || prevPoint.time === t) {
             price = prevPoint.price;
         } else {
@@ -256,6 +257,7 @@ export async function renderStocks(container){
     return continuousData;
   }
 
+
   function displayChart(stockId, fullHistory, range) {
     if (activeChart) {
       activeChart.destroy();
@@ -270,14 +272,15 @@ export async function renderStocks(container){
     if (!ctx || !data.length) return;
     
     const lastPrice = data[data.length - 1]?.y || 0;
-    const prevPrice = data.length > 1 ? data[data.length - 2]?.y : lastPrice;
+    // ▼▼▼ 이전 가격을 찾을 때, 바로 직전 데이터가 아닌 조금 더 이전 데이터와 비교하여 추세선 색상 결정 ▼▼▼
+    const prevIndex = Math.max(0, data.length - 6); // 5분 전 데이터와 비교
+    const prevPrice = data.length > 1 ? data[prevIndex]?.y : lastPrice;
     const borderColor = lastPrice >= prevPrice ? 'rgba(255, 107, 107, 0.8)' : 'rgba(91, 124, 255, 0.8)';
     
-    // [수정] Y축 범위를 동적으로 계산
     const prices = data.map(p => p.y);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
-    const padding = (maxPrice - minPrice) * 0.1 || 5; // 변동이 없을 경우를 대비해 최소 여백 5 설정
+    const padding = (maxPrice - minPrice) * 0.1 || 5;
 
     activeChart = new Chart(ctx, {
       type: 'line',
@@ -299,8 +302,9 @@ export async function renderStocks(container){
           x: { 
             type: 'timeseries',
             time: {
+                // ▼▼▼ X축 단위를 1H, 6H에 맞게 조정 ▼▼▼
                 unit: range === '1H' ? 'minute' : 'hour',
-                stepSize: range === '1H' ? 15 : 1,
+                stepSize: range === '1H' ? 10 : 1, // 1H는 10분 단위, 6H는 1시간 단위로 표시
                 displayFormats: { minute: 'HH:mm', hour: 'HH:mm' }
             },
             ticks: { font: { size: 10 }, maxRotation: 0 },
@@ -308,8 +312,8 @@ export async function renderStocks(container){
             border: { display: false } 
           },
           y: { 
-            min: Math.max(0, Math.floor(minPrice - padding)), // Y축 최소값
-            max: Math.ceil(maxPrice + padding),              // Y축 최대값
+            min: Math.max(0, Math.floor(minPrice - padding)),
+            max: Math.ceil(maxPrice + padding),
             ticks: { font: { size: 10 } }, 
             grid: { color: 'rgba(255,255,255,0.1)' }, 
             border: { display: false } 
