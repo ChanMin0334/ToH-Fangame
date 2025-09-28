@@ -30,6 +30,23 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
     return text;
   }
 
+
+
+  // === [ADD] 안전 파서 & 펜스 제거 ===
+function stripFence(s='') {
+  return String(s).trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```$/i, '')
+    .trim();
+}
+function safeJson(s, fallback = {}) {
+  try { return JSON.parse(stripFence(s)); }
+  catch { return fallback; }
+}
+
+
+  
   const applyEventToPrice = (cur, dir, mag) => {
     const randomFactor = 1 + (Math.random() - 0.5) * 0.4;
     const rateBase = { small: 0.03, medium: 0.08, large: 0.20, massive: 0.35 }[mag] ?? 0.05;
@@ -93,7 +110,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
       for (let i = 0; i < numEvents; i++) {
         try {
           const ideaRaw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
-          const idea = JSON.parse(ideaRaw);
+          const idea = safeJson(ideaRaw, { title_before: '임시 제목' });
           const triggerMinute = Math.floor(Math.random() * (24 * 60));
           const actual_outcome = Math.random() < 0.7 ? idea.potential_impact
             : (idea.potential_impact === 'positive' ? 'negative' : 'positive');
@@ -292,17 +309,37 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         for (const eventDoc of worldEventsSnap.docs) {
             const event = eventDoc.data();
             
-            // --- 이전 사건들 맥락으로 가져오기 ---
-            const historyLogs = [];
-            const recentEventsSnap = await db.collection('world_events')
-                .where('world_id', '==', event.world_id)
-                .where('processed_final', '==', true)
-                .where('trigger_time', '<', event.trigger_time)
-                .orderBy('trigger_time', 'desc')
-                .limit(3)
-                .get();
-            recentEventsSnap.forEach(d => historyLogs.push(`- ${d.data().premise}`));
-            const historyContext = historyLogs.length > 0 ? `\n\n## 참고: 최근 일어난 사건들\n${historyLogs.join('\n')}` : '';
+           // --- 이전 사건들 맥락으로 가져오기 (인덱스 실패 대비) ---
+const historyLogs = [];
+let recentDocs = [];
+try {
+  // 우선 권장 쿼리 (인덱스 필요)
+  const q1 = db.collection('world_events')
+    .where('world_id', '==', event.world_id)
+    .where('processed_final', '==', true)
+    .where('trigger_time', '<', event.trigger_time)
+    .orderBy('trigger_time', 'desc')
+    .limit(3);
+  const s1 = await q1.get();
+  recentDocs = s1.docs;
+} catch (idxErr) {
+  // 인덱스 없을 때: 완화 쿼리 → 메모리 정렬/필터
+  const q2 = db.collection('world_events')
+    .where('world_id', '==', event.world_id)
+    .where('processed_final', '==', true)
+    .limit(20);
+  const s2 = await q2.get();
+  recentDocs = s2.docs
+    .map(d => d) // shallow
+    .filter(d => (d.data()?.trigger_time?.toMillis?.()||0) < event.trigger_time.toMillis())
+    .sort((a,b)=> (b.data().trigger_time?.toMillis?.()||0) - (a.data().trigger_time?.toMillis?.()||0))
+    .slice(0,3);
+}
+for (const d of recentDocs) historyLogs.push(`- ${d.data().premise}`);
+const historyContext = historyLogs.length
+  ? `\n\n## 참고: 최근 일어난 사건\n${historyLogs.join('\n')}`
+  : '';
+
 
             const affectedStocksSnap = await db.collection('stocks')
                 .where('world_id', '==', event.world_id)
@@ -329,7 +366,12 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
                 let analysis;
                 try {
                     const raw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
-                    analysis = JSON.parse(raw);
+                    analysis = safeJson(raw, {
+                      impact: 'neutral',
+                      news_title_preliminary: '대응 미확인',
+                      news_body_preliminary: '회사의 대응이 아직 확인되지 않았습니다.'
+                    });
+
                 } catch (e) {
                     logger.warn(`세계관 사건 AI 분석 실패 (stock: ${stockDoc.id})`, e);
                     analysis = { impact: 'neutral', news_title_preliminary: '대응 미확인', news_body_preliminary: '회사의 대응이 아직 확인되지 않았습니다.' };
@@ -616,7 +658,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
     const systemPrompt = `당신은 게임 속 주식 시장의 사건을 만드는 AI입니다. 반드시 JSON 하나로만 답하세요: {"title_before":"미리 공개될 자극적인 뉴스 제목"}`;
     const userPrompt = `사건 전말 프롬프트: ${premise}\n사건의 방향성: ${potential_impact}`;
     const ideaRaw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
-    const idea = JSON.parse(ideaRaw);
+    const idea = safeJson(ideaRaw, { title_before: '임시 제목' });
     const newEvent = {
         premise: premise, title_before: idea.title_before, potential_impact: potential_impact,
         actual_outcome: Math.random() < 0.85 ? potential_impact : (potential_impact === 'positive' ? 'negative' : 'positive'),
