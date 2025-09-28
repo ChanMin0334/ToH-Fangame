@@ -280,11 +280,11 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
       });
     }
 
-    // ANCHOR: 세계관 사건 처리 로직 (전체 교체)
+    // [교체 시작] 세계관 사건 처리 로직 버그 수정
     try {
         const nowUtc = new Date();
         const worldEventsQuery = db.collection('world_events')
-            .where('processed_preliminary', '==', false)
+            .where('processed_preliminary', '==', false) // <-- [버그 수정] 'processed' -> 'processed_preliminary'
             .where('trigger_time', '<=', admin.firestore.Timestamp.fromDate(nowUtc));
             
         const worldEventsSnap = await worldEventsQuery.get();
@@ -393,6 +393,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
             });
         }
     } catch (e) { logger.error('세계관 사건(결과) 처리 중 오류', e); }
+    // [교체 끝]
   });
 
   // ==================================================================
