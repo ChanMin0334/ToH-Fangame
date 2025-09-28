@@ -266,41 +266,27 @@ export async function renderStocks(container){
   function processHistoryForChart(history, range) {
     if (!history || history.length < 1) return [];
 
-    const interval = 1 * 60 * 1000;                         // 1분 간격
     const duration = (range === '1H' ? 60 : 360) * 60 * 1000;
-
-    const sortedHistory = history.map(p => ({ time: new Date(p.date).getTime(), price: Number(p.price) }))
-                                 .sort((a, b) => a.time - b.time);
-
     const endTime = Date.now();
     const startTime = endTime - duration;
 
-    const continuousData = [];
-    let historyIndex = 0;
+    // 1. 타임스탬프 기준으로 기록을 정렬합니다.
+    const sortedHistory = history
+        .map(p => ({ time: new Date(p.date).getTime(), price: Number(p.price) }))
+        .sort((a, b) => a.time - b.time);
+    
+    // 2. 선택된 시간 범위(예: 최근 1시간) 내의 데이터만 필터링합니다.
+    const dataInRange = sortedHistory.filter(p => p.time >= startTime && p.time <= endTime);
 
-    for (let t = startTime; t <= endTime; t += interval) {
-      while (historyIndex < sortedHistory.length - 1 && sortedHistory[historyIndex + 1].time <= t) {
-        historyIndex++;
-      }
-      const prevPoint = sortedHistory[historyIndex];
-      if (!prevPoint || t < prevPoint.time) continue;
-
-      const nextPoint = (historyIndex + 1 < sortedHistory.length) ? sortedHistory[historyIndex + 1] : prevPoint;
-      
-      let price;
-      if (t > sortedHistory[sortedHistory.length - 1].time) {
-        price = sortedHistory[sortedHistory.length - 1].price;
-      } else if (prevPoint.time === nextPoint.time || prevPoint.time === t) {
-        price = prevPoint.price;
-      } else {
-        const timeDiff = nextPoint.time - prevPoint.time;
-        const priceDiff = nextPoint.price - prevPoint.price;
-        const ratio = timeDiff > 0 ? (t - prevPoint.time) / timeDiff : 0;
-        price = prevPoint.price + (priceDiff * ratio);
-      }
-      continuousData.push({ x: t, y: price });
+    // 3. 그래프가 화면 왼쪽 끝에서 시작되도록, 시간 범위 바로 이전의 마지막 데이터를 찾아 맨 앞에 추가합니다.
+    const lastPointBeforeRange = sortedHistory.filter(p => p.time < startTime).pop();
+    if (lastPointBeforeRange) {
+        dataInRange.unshift(lastPointBeforeRange);
     }
-    return continuousData;
+
+    // 4. toggleDetailView 함수에서 현재 가격을 마지막 데이터로 이미 추가했으므로,
+    //    여기서는 포맷만 맞춰서 반환합니다. 이로써 불필요한 보간 로직이 제거되고 정확성이 향상됩니다.
+    return dataInRange.map(p => ({ x: p.time, y: p.price }));
   }
 
   function displayChart(stockId, fullHistory, range, todayOpen) {
