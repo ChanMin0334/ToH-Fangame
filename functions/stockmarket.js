@@ -127,7 +127,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
 
       for (let i = 0; i < numEvents; i++) {
         try {
-          const ideaRaw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
+          const ideaRaw = await callGemini('gemini-2.5-flash', systemPrompt, userPrompt);
           const idea = safeJson(ideaRaw, { title_before: '임시 제목' });
           const triggerMinute = Math.floor(Math.random() * (24 * 60));
           const actual_outcome = Math.random() < 0.7 ? idea.potential_impact
@@ -239,7 +239,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
               const userPrompt = `사건 전말: ${ev.premise}
 예상: ${ev.potential_impact}
 실제 결과: ${ev.actual_outcome}`;
-              const resultRaw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
+              const resultRaw = await callGemini('gemini-2.5-flash', systemPrompt, userPrompt);
               const newsObj = safeJson(resultRaw, {});
               const titleA = newsObj.title_after || newsObj.after_title || newsObj.title || '결과 요약';
               const bodyA  = newsObj.body_after  || newsObj.after_body  || newsObj.body  || '요약 본문 수신 실패';
@@ -715,7 +715,7 @@ ${event.premise}
 - JSON 외 다른 글자 금지.`;
     const userPrompt = `사건 전말 프롬프트: ${premise}
 사건의 방향성: ${potential_impact}`;
-    const ideaRaw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
+    const ideaRaw = await callGemini('gemini-2.5-flash', systemPrompt, userPrompt);
     const idea = safeJson(ideaRaw, { title_before: '임시 제목' });
     const newEvent = {
       premise: premise, title_before: idea.title_before, potential_impact: potential_impact,
