@@ -1,16 +1,25 @@
 // /functions/stockmarket.js (전체 수정)
-module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API_KEY*/ }) => {
+module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KEY }) => {
   const db = admin.firestore();
   const { FieldValue } = admin.firestore;
 
   // ---------- helpers ----------
   const nowISO = () => new Date().toISOString();
-  const dayStamp = (d = new Date()) => d.toISOString().slice(0, 10); // YYYY-MM-DD
+  const dayStamp = (d = new Date()) => {
+      const kstOffset = 9 * 60 * 60 * 1000;
+      const kstDate = new Date(d.getTime() + kstOffset);
+      return kstDate.toISOString().slice(0, 10);
+  };
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+  async function callGemini(model, system, user) {
+      // (이전 답변의 callGeminiServer 헬퍼 함수와 동일한 내용)
+      // ... 이 부분은 생략합니다.
+  }
 
   const applyEventToPrice = (cur, dir, mag) => {
     const randomFactor = 1 + (Math.random() - 0.5) * 0.4;
-    const rateBase = { small: 0.03, medium: 0.08, large: 0.15 }[mag] ?? 0.05;
+    const rateBase = { small: 0.03, medium: 0.08, large: 0.20, massive: 0.35 }[mag] ?? 0.05;
     const finalRate = rateBase * randomFactor;
     const rate = dir === 'up' ? finalRate : dir === 'down' ? -finalRate : 0;
     return Math.max(1, Math.round(cur * (1 + rate)));
@@ -28,55 +37,55 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
   };
 
   // ==================================================================
-  // 1. 일일 주가 계획 스케줄러 (매일 00:00 실행)
+  // 1. 일일 AI 이벤트 계획 스케줄러 (매일 00:05 KST 실행)
   // ==================================================================
   const planDailyStockEvents = onSchedule({
-    schedule: 'every day 00:00',
-    timeZone: 'Asia/Seoul',
-    region: 'us-central1',
+    schedule: '5 0 * * *', // 매일 00:05
+    timeZone: 'Asia/Seoul', region: 'us-central1',
   }, async () => {
-    logger.info('매일 자정, 주식 시장 일일 계획을 생성합니다.');
+    logger.info('매일 자정, AI 기반 주식 시장 이벤트를 생성합니다.');
     const today = dayStamp();
     const stocksSnap = await db.collection('stocks').where('status', '==', 'listed').get();
+    const worldsSnap = await db.collection('configs').doc('worlds').get();
+    const worldsData = worldsSnap.exists() ? worldsSnap.data() : {};
 
     for (const doc of stocksSnap.docs) {
-      const stock = doc.data();
-      const planRef = db.collection('stock_daily_plans').doc(`${doc.id}_${today}`);
-      const openPrice = stock.current_price || 100;
-      
-      const trendRoll = Math.random();
-      let trend, targetMultiplier;
-      if (trendRoll < 0.1) { trend = 'strong_up'; targetMultiplier = 1.15 + Math.random() * 0.1; }
-      else if (trendRoll < 0.4) { trend = 'up'; targetMultiplier = 1.05 + Math.random() * 0.05; }
-      else if (trendRoll < 0.6) { trend = 'stable'; targetMultiplier = 1.0 + (Math.random() - 0.5) * 0.04; }
-      else if (trendRoll < 0.9) { trend = 'down'; targetMultiplier = 0.95 - Math.random() * 0.05; }
-      else { trend = 'strong_down'; targetMultiplier = 0.85 - Math.random() * 0.1; }
+        const stock = doc.data();
+        const planRef = db.collection('stock_events').doc(`${doc.id}_${today}`);
+        const worldInfo = (worldsData.worlds || []).find(w => w.id === stock.world_id) || { name: stock.world_id, intro: '알려지지 않은 세계' };
 
-      const targetPrice = Math.max(1, Math.round(openPrice * targetMultiplier));
+        // AI에게 이벤트 아이디어 요청
+        const systemPrompt = `당신은 게임 속 주식 시장의 흥미로운 사건을 만드는 AI입니다. 주어진 주식회사와 세계관 정보를 바탕으로, 주가에 영향을 미칠 만한 그럴듯한 사건의 '전조'를 만드세요. 결과는 반드시 다음 JSON 형식이어야 합니다: {"premise": "사건의 배경 설명 (예: A공장에서 신기술이 발견되었다는 소문)", "title_before": "결과가 나오기 전 투자자들을 긴장시킬 뉴스 헤드라인", "potential_impact": "positive 또는 negative 중 하나"}`;
+        const userPrompt = `주식회사 정보: ${JSON.stringify(stock)}\n세계관 정보: ${JSON.stringify(worldInfo)}`;
+        
+        const numEvents = Math.floor(Math.random() * 3); // 하루 0~2회
+        const majorEvents = [];
 
-      const majorEvents = [];
-      const numEvents = Math.floor(Math.random() * 3);
-      const dayMinutes = 24 * 60;
-      for (let i = 0; i < numEvents; i++) {
-        const triggerMinute = Math.floor(Math.random() * dayMinutes);
-        const eventDir = Math.random() < 0.5 ? 'up' : 'down';
-        majorEvents.push({
-          trigger_minute: triggerMinute,
-          direction: eventDir,
-          magnitude: 'large',
-          news_generated: false,
-          processed: false,
-        });
-      }
-      
-      await planRef.set({
-        stock_id: doc.id,
-        date: today,
-        open_price: openPrice,
-        target_price: targetPrice,
-        daily_trend: trend,
-        major_events: majorEvents,
-      });
+        for (let i = 0; i < numEvents; i++) {
+            try {
+                const ideaRaw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
+                const idea = JSON.parse(ideaRaw);
+                
+                const triggerMinute = Math.floor(Math.random() * (24 * 60));
+                const actual_outcome = Math.random() < 0.7 ? idea.potential_impact : (idea.potential_impact === 'positive' ? 'negative' : 'positive');
+
+                majorEvents.push({
+                    premise: idea.premise,
+                    title_before: idea.title_before,
+                    potential_impact: idea.potential_impact,
+                    actual_outcome: actual_outcome,
+                    trigger_minute: triggerMinute,
+                    forecast_sent: false,
+                    processed: false,
+                });
+            } catch (e) {
+                logger.error(`AI 이벤트 생성 실패 (Stock ID: ${doc.id}):`, e);
+            }
+        }
+        
+        if (majorEvents.length > 0) {
+            await planRef.set({ stock_id: doc.id, date: today, major_events: majorEvents });
+        }
     }
   });
 
@@ -84,71 +93,76 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
   // 2. 1분 단위 가격 업데이트 스케줄러
   // ==================================================================
   const updateStockMarket = onSchedule({
-    schedule: 'every 1 minutes',
-    timeZone: 'Asia/Seoul',
-    region: 'us-central1',
+    schedule: 'every 1 minutes', timeZone: 'Asia/Seoul', region: 'us-central1',
   }, async () => {
     const today = dayStamp();
-    const now = new Date();
-    const currentMinute = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const currentMinute = now.getHours() * 60 + now.getMinutes();
     
-    const plansSnap = await db.collection('stock_daily_plans').where('date', '==', today).get();
+    const plansSnap = await db.collection('stock_events').where('date', '==', today).get();
     
     for (const planDoc of plansSnap.docs) {
-      const plan = planDoc.data();
-      const stockRef = db.collection('stocks').doc(plan.stock_id);
-      
-      await db.runTransaction(async (tx) => {
-        const stockSnap = await tx.get(stockRef);
-        if (!stockSnap.exists) return;
-        const stock = stockSnap.data();
-        let price = stock.current_price;
+        const plan = planDoc.data();
+        const stockRef = db.collection('stocks').doc(plan.stock_id);
 
-        let eventTriggered = false;
-        const events = plan.major_events || [];
-        for (const event of events) {
-          if (event.trigger_minute === currentMinute && !event.processed) {
-            price = applyEventToPrice(price, event.direction, event.magnitude);
-            event.processed = true;
-            eventTriggered = true;
-            logger.info(`중대 사건 발생: ${stock.name}, ${event.direction}/${event.magnitude}`);
+        await db.runTransaction(async (tx) => {
+            const [stockSnap, planSnap] = await Promise.all([tx.get(stockRef), tx.get(planDoc.ref)]);
+            if (!stockSnap.exists || !planSnap.exists) return;
             
-            const subscribers = stock.subscribers || [];
-            if (subscribers.length > 0) {
-              const news = {
-                title: `[속보] ${stock.name} 주가에 중대한 변동 발생`,
-                body: `${stock.name} 종목에 예측된 대규모 변동(${event.direction})이 실제 가격에 반영되었습니다.`,
-              };
-              subscribers.forEach(uid => {
-                const mailRef = db.collection('mail').doc(uid).collection('msgs').doc();
-                tx.set(mailRef, {
-                  kind: 'etc', title: `[주식 속보] ${stock.name}`, body: `${news.title}\n\n${news.body}`,
-                  sentAt: FieldValue.serverTimestamp(), from: '증권 정보국', read: false,
-                  attachments: { ref_type: 'stock', ref_id: stock.id },
-                });
-              });
+            const stock = stockSnap.data();
+            const currentPlan = planSnap.data();
+            let price = stock.current_price;
+            let planUpdated = false;
+
+            const events = currentPlan.major_events || [];
+            for (const event of events) {
+                // 1단계: 예고 기사 발송
+                if (event.trigger_minute === currentMinute && !event.forecast_sent) {
+                    const subscribers = stock.subscribers || [];
+                    subscribers.forEach(uid => {
+                        const mailRef = db.collection('mail').doc(uid).collection('msgs').doc();
+                        tx.set(mailRef, {
+                            kind: 'etc', title: `[주식 속보] ${stock.name}`, body: event.title_before,
+                            sentAt: FieldValue.serverTimestamp(), from: '증권 정보국', read: false,
+                        });
+                    });
+                    event.forecast_sent = true;
+                    planUpdated = true;
+                }
+                // 2단계: 실제 사건 처리 (예고 후 2분 뒤)
+                else if (event.trigger_minute + 2 === currentMinute && event.forecast_sent && !event.processed) {
+                    const direction = event.actual_outcome === 'positive' ? 'up' : 'down';
+                    price = applyEventToPrice(price, direction, 'large');
+                    
+                    // 결과 기사 생성 및 발송
+                    const systemPrompt = `사건의 전말과 실제 결과가 주어졌다. 투자자들에게 충격을 줄 만한 '결과 기사'를 JSON 형식으로 작성하라: {"title_after": "결과 헤드라인", "body_after": "결과 본문"}`;
+                    const userPrompt = `사건 전말: ${event.premise}\n예상: ${event.potential_impact}\n실제 결과: ${event.actual_outcome}`;
+                    try {
+                        const resultRaw = await callGemini('gemini-1.5-flash', systemPrompt, userPrompt);
+                        const news = JSON.parse(resultRaw);
+                        const subscribers = stock.subscribers || [];
+                        subscribers.forEach(uid => {
+                            const mailRef = db.collection('mail').doc(uid).collection('msgs').doc();
+                            tx.set(mailRef, {
+                                kind: 'etc', title: `[주식 결과] ${stock.name}`, body: `${news.title_after}\n\n${news.body_after}`,
+                                sentAt: FieldValue.serverTimestamp(), from: '증권 정보국', read: false,
+                            });
+                        });
+                    } catch(e) { logger.error('결과 기사 생성 실패:', e); }
+
+                    event.processed = true;
+                    planUpdated = true;
+                }
             }
-            break; 
-          }
-        }
-        
-        if (!eventTriggered) {
-          const target = plan.target_price;
-          const diff = target - price;
-          const noise = (Math.random() - 0.5) * (price * 0.005);
-          const remainingMinutes = (24 * 60) - currentMinute;
-          const move = remainingMinutes > 0 ? (diff / remainingMinutes) * (1 + Math.random() * 0.5) : 0;
-          price = Math.max(1, Math.round(price + move + noise));
-        }
 
-        const history = (stock.price_history || []).slice(-1439);
-        history.push({ date: nowISO(), price });
-
-        tx.update(stockRef, { current_price: price, price_history: history });
-        if(eventTriggered) {
-          tx.update(planDoc.ref, { major_events: events });
-        }
-      });
+            const history = (stock.price_history || []).slice(-1439);
+            history.push({ date: nowISO(), price });
+            tx.update(stockRef, { current_price: price, price_history: history });
+            
+            if (planUpdated) {
+                tx.update(planDoc.ref, { major_events: events });
+            }
+        });
     }
   });
   
