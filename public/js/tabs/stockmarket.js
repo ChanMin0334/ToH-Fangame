@@ -212,8 +212,8 @@ export async function renderStocks(container){
   }
   
   function processHistoryForChart(history, range) {
-    if (!history || history.length < 2) {
-      return (history || []).map(p => ({ x: new Date(p.date).getTime(), y: p.price }));
+    if (!history || history.length < 1) {
+      return [];
     }
 
     const interval = 5 * 60 * 1000;
@@ -222,7 +222,7 @@ export async function renderStocks(container){
     const sortedHistory = history.map(p => ({ time: new Date(p.date).getTime(), price: p.price }))
                                  .sort((a, b) => a.time - b.time);
 
-    const endTime = sortedHistory[sortedHistory.length - 1].time;
+    const endTime = Date.now(); // [수정] 차트의 끝을 현재 시간으로 고정
     const startTime = endTime - duration;
 
     const continuousData = [];
@@ -237,9 +237,11 @@ export async function renderStocks(container){
         if (t < prevPoint.time) continue;
 
         const nextPoint = (historyIndex + 1 < sortedHistory.length) ? sortedHistory[historyIndex + 1] : prevPoint;
-
+        
         let price;
-        if (prevPoint.time === nextPoint.time || prevPoint.time === t) {
+        if (t > sortedHistory[sortedHistory.length - 1].time) {
+            price = sortedHistory[sortedHistory.length - 1].price; // 마지막 데이터 이후는 마지막 가격으로 유지
+        } else if (prevPoint.time === nextPoint.time || prevPoint.time === t) {
             price = prevPoint.price;
         } else {
             const timeDiff = nextPoint.time - prevPoint.time;
@@ -271,6 +273,12 @@ export async function renderStocks(container){
     const prevPrice = data.length > 1 ? data[data.length - 2]?.y : lastPrice;
     const borderColor = lastPrice >= prevPrice ? 'rgba(255, 107, 107, 0.8)' : 'rgba(91, 124, 255, 0.8)';
     
+    // [수정] Y축 범위를 동적으로 계산
+    const prices = data.map(p => p.y);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const padding = (maxPrice - minPrice) * 0.1 || 5; // 변동이 없을 경우를 대비해 최소 여백 5 설정
+
     activeChart = new Chart(ctx, {
       type: 'line',
       data: { 
@@ -293,19 +301,15 @@ export async function renderStocks(container){
             time: {
                 unit: range === '1H' ? 'minute' : 'hour',
                 stepSize: range === '1H' ? 15 : 1,
-                displayFormats: {
-                    minute: 'HH:mm',
-                    hour: 'HH:mm'
-                }
+                displayFormats: { minute: 'HH:mm', hour: 'HH:mm' }
             },
-            ticks: { 
-                font: { size: 10 },
-                maxRotation: 0,
-            },
+            ticks: { font: { size: 10 }, maxRotation: 0 },
             grid: { display: false }, 
             border: { display: false } 
           },
           y: { 
+            min: Math.max(0, Math.floor(minPrice - padding)), // Y축 최소값
+            max: Math.ceil(maxPrice + padding),              // Y축 최대값
             ticks: { font: { size: 10 } }, 
             grid: { color: 'rgba(255,255,255,0.1)' }, 
             border: { display: false } 
