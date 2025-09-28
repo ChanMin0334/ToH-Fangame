@@ -29,7 +29,7 @@ export default async function showEconomy(){
   const hash = location.hash || '#/economy/shop';
   const isShop = hash.startsWith('#/economy/shop');
   const isStock = hash.startsWith('#/economy/stock');
-  const isMyStocks = hash.startsWith('#/economy/mystocks'); // ◀◀ '내 주식' 탭 확인
+  const isMyStocks = hash.startsWith('#/economy/mystocks');
 
   let userCoins = 0;
   const uid = auth.currentUser?.uid;
@@ -57,7 +57,7 @@ export default async function showEconomy(){
     await renderStocks(body);
   } else if (isShop) {
     await renderShop(body);
-  } else if (isMyStocks) { // ◀◀ '내 주식' 탭 렌더링
+  } else if (isMyStocks) {
     await renderMyStocks(body);
   } else {
     body.innerHTML = `<div class="kv-card text-dim">준비 중인 콘텐츠입니다.</div>`;
