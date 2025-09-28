@@ -199,11 +199,6 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
       const t = ((m % 1440) + 1440) % 1440;
       return currentMinute >= t; // 재시작/지연 시에도 '이미 지남'이면 즉시 처리
     };
-      if (typeof lastMinute !== 'number' || lastMinute < 0) return cur >= t;
-      const last = ((lastMinute % 1440) + 1440) % 1440;
-      if (last < cur) return t > last && t <= cur;
-      return t > last || t <= cur;
-    };
 
     const stocksSnap = await db.collection('stocks').where('status', '==', 'listed').get();
 
@@ -774,8 +769,10 @@ ${event.premise}
     const { stock_id, potential_impact, premise, trigger_minute } = req.data;
     const _tm = Math.max(0, Math.min(1429, Math.floor(Number(trigger_minute))));
 
-    if (!stock_id || !potential_impact || !premise || trigger_minute === null) {
-      throw new HttpsError('invalid-argument', '필수 인자가 누락되었습니다.');
+    if (!stock_id || !potential_impact || !premise || Number.isNaN(_tm)) {
+     throw new HttpsError('invalid-argument', '필수 인자가 누락되었습니다.');
+
+
     }
     const today = dayStamp();
     const planRef = db.collection('stock_events').doc(`${stock_id}_${today}`);
