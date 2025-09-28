@@ -451,7 +451,7 @@ ${event.premise}
       const nowUtcTs = admin.firestore.Timestamp.now();
       const finalImpactQuery = db.collectionGroup('responses')
         .where('processed_final', '==', false)
-        .where('final_impact_at', '<=', nowUtcTs);
+        .where('final_impact_at', '<=', nowUtcTs)
         .orderBy('final_impact_at', 'asc');
       
       const responsesSnap = await finalImpactQuery.get();
