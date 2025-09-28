@@ -217,7 +217,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         if (!movedByEvent) {
           const dailyRef = db.collection('stock_daily_plans').doc(`${stockRef.id}_${today}`);
           const dailySnap = await tx.get(dailyRef);
-          
+  
           let dplan = dailySnap.exists ? dailySnap.data() : null;
           if (!dplan) {
             dplan = {
@@ -233,7 +233,12 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
           const nextTarget = Math.max(1, Math.round((dplan.target_price || price) * (1 + trend * (bps / 10000))));
           const gap  = nextTarget - price;
           const step = gap === 0 ? 0 : Math.sign(gap) * Math.max(1, Math.floor(Math.abs(gap) * 0.25));
-          price = Math.max(1, price + step);
+  
+          // [수정] 자연스러운 변동을 위해 무작위 노이즈 추가
+          const volatility = stock.volatility || 'normal';
+          const noiseFactor = { low: 0.002, normal: 0.005, high: 0.012 }[volatility] || 0.005;
+          const noise = (Math.random() - 0.5) * price * noiseFactor;
+          price = Math.max(1, Math.round(price + step + noise));
 
           tx.update(dailyRef, { target_price: nextTarget });
         }
