@@ -12,10 +12,22 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
   };
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
-  async function callGemini(model, system, user) {
-      // (이전 답변의 callGeminiServer 헬퍼 함수와 동일한 내용)
-      // ... 이 부분은 생략합니다.
-  }
+async function callGemini(model, system, user) {
+  const key = GEMINI_API_KEY.value(); // defineSecret 사용
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+  const body = {
+    contents: [
+      { role: "user", parts: [{ text: `[SYSTEM]\n${system}\n\n[USER]\n${user}` }] }
+    ],
+    generationConfig: { temperature: 0.8, maxOutputTokens: 512 }
+  };
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const json = await res.json();
+  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!text) throw new Error(`Gemini response malformed: ${JSON.stringify(json).slice(0, 200)}`);
+  return text;
+}
+
 
   const applyEventToPrice = (cur, dir, mag) => {
     const randomFactor = 1 + (Math.random() - 0.5) * 0.4;
@@ -40,9 +52,11 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
   // 1. 일일 AI 이벤트 계획 스케줄러 (매일 00:05 KST 실행)
   // ==================================================================
   const planDailyStockEvents = onSchedule({
-    schedule: '5 0 * * *', // 매일 00:05
+    schedule: '5 0 * * *',
     timeZone: 'Asia/Seoul', region: 'us-central1',
+    secrets: [GEMINI_API_KEY],
   }, async () => {
+
     logger.info('매일 자정, AI 기반 주식 시장 이벤트를 생성합니다.');
     const today = dayStamp();
     const stocksSnap = await db.collection('stocks').where('status', '==', 'listed').get();
@@ -86,6 +100,19 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         if (majorEvents.length > 0) {
             await planRef.set({ stock_id: doc.id, date: today, major_events: majorEvents });
         }
+      // [신규] 일일 잔물결 계획(목표가/트렌드) 초기화
+const dailyRef = db.collection('stock_daily_plans').doc(`${doc.id}_${today}`);
+const basePrice = Number(stock.current_price || 0);
+const trendSign = Math.random() < 0.5 ? -1 : 1;  // 하루 방향성
+const driftBps = ({ low: 2, normal: 5, high: 10 }[stock.volatility] ?? 5); // 분당 bps
+await dailyRef.set({
+  stock_id: doc.id,
+  date: today,
+  target_price: basePrice,
+  trend_sign: trendSign,   // -1, +1
+  drift_bps: driftBps      // 분당 기초 변동폭(베이시스 포인트)
+}, { merge: true });
+
     }
   });
 
@@ -94,7 +121,9 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
   // ==================================================================
   const updateStockMarket = onSchedule({
     schedule: 'every 1 minutes', timeZone: 'Asia/Seoul', region: 'us-central1',
+    secrets: [GEMINI_API_KEY],
   }, async () => {
+
     const today = dayStamp();
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
     const currentMinute = now.getHours() * 60 + now.getMinutes();
@@ -129,8 +158,9 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
                     event.forecast_sent = true;
                     planUpdated = true;
                 }
-                // 2단계: 실제 사건 처리 (예고 후 2분 뒤)
-                else if (event.trigger_minute + 2 === currentMinute && event.forecast_sent && !event.processed) {
+                  // 2단계: 실제 사건 처리 (예고 후 2분 뒤)
+                  else if (event.trigger_minute + 10 === currentMinute && event.forecast_sent && !event.processed) {
+
                     const direction = event.actual_outcome === 'positive' ? 'up' : 'down';
                     price = applyEventToPrice(price, direction, 'large');
                     
@@ -154,6 +184,30 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
                     planUpdated = true;
                 }
             }
+
+          // [신규] 잔물결 업데이트: 이벤트가 가격을 바꾸지 않은 분일 때 소폭 변동
+const didMoveByEvent = events.some(ev =>
+  ev.forecast_sent && ev.processed && (ev.trigger_minute + 10 === currentMinute)
+);
+if (!didMoveByEvent) {
+  const dailyRef = db.collection('stock_daily_plans').doc(`${plan.stock_id}_${today}`);
+  const dailySnap = await tx.get(dailyRef);
+  const d = dailySnap.exists ? dailySnap.data() : {};
+  const driftBps = Math.max(1, Math.min(30, Number(d.drift_bps || 5))); // 가드
+  const sign = (d.trend_sign === -1 || d.trend_sign === 1) ? d.trend_sign : (Math.random()<0.5?-1:1);
+  
+  // 목표가 방향으로 1분에 gap의 3% 정도 접근 + 미세 드리프트
+  const gap = Number(d.target_price || price) - price;
+  const toward = Math.sign(gap) * Math.max(0, Math.floor(Math.abs(gap) * 0.03));
+  const micro = Math.max(1, Math.round(price * (driftBps / 10000) * sign));
+  price = Math.max(1, price + toward + micro);
+
+  // 목표가도 미세 이동 (시장 심리 누적)
+  if (dailySnap.exists) {
+    tx.update(dailyRef, { target_price: Math.max(1, Number(d.target_price || price) + micro) });
+  }
+}
+
 
             const history = (stock.price_history || []).slice(-1439);
             history.push({ date: nowISO(), price });
