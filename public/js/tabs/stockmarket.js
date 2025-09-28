@@ -125,36 +125,43 @@ export async function renderStocks(container){
   async function handleActionClick(btn) {
     const act = btn.dataset.act;
     const id = btn.dataset.id;
-    const actionButtons = btn.parentElement.querySelectorAll('button');
+    // ANCHOR: handleActionClick 함수 전체를 교체하세요.
+    const detailView = btn.closest('.stock-detail');
+    const actionButtons = detailView.querySelectorAll('button[data-act]');
     actionButtons.forEach(b => b.disabled = true);
     
     try {
-      if (act === 'sub') {
-        const want = !btn.textContent.includes('취소');
-        await call('subscribeToStock')({ stockId: id, subscribe: want });
-        showToast(`구독 정보가 변경되었습니다.`);
-      } else if (act === 'buy') {
-        const qty = Number(prompt('매수 수량?', '1') || '0') | 0;
-        if (qty > 0) {
-            await call('buyStock')({ stockId: id, quantity: qty });
-            showToast('매수 완료!');
+        if (act === 'sub') {
+            const want = !btn.textContent.includes('취소');
+            await call('subscribeToStock')({ stockId: id, subscribe: want });
+            showToast(`구독 정보가 변경되었습니다.`);
+        } else if (act === 'buy' || act === 'sell') {
+            const qtyInput = detailView.querySelector(`#stock-qty-${id}`);
+            const qty = Math.floor(Number(qtyInput.value || '0'));
+            
+            if (qty <= 0) {
+                showToast('수량을 정확히 입력해주세요.');
+                return; // 여기서 함수를 종료하여 finally가 실행되도록 합니다.
+            }
+            
+            if (act === 'buy') {
+                await call('buyStock')({ stockId: id, quantity: qty });
+                showToast(`${qty}주 매수 완료!`);
+            } else { // act === 'sell'
+                await call('sellStock')({ stockId: id, quantity: qty });
+                showToast(`${qty}주 매도 완료!`);
+            }
+            qtyInput.value = ''; // 성공 시 입력 필드 비우기
         }
-      } else if (act === 'sell') {
-        const qty = Number(prompt('매도 수량?', '1') || '0') | 0;
-        if (qty > 0) {
-             await call('sellStock')({ stockId: id, quantity: qty });
-             showToast('매도 완료!');
-        }
-      }
     } catch (err) {
-      showToast(err.message || '오류가 발생했습니다.');
+        showToast(err.message || '오류가 발생했습니다.');
     } finally {
-      // finally 블록을 추가하여 작업 성공/실패 여부와 관계없이 버튼을 다시 활성화합니다.
-      actionButtons.forEach(b => b.disabled = false);
+        actionButtons.forEach(b => b.disabled = false);
     }
   }
 
   async function toggleDetailView(row, forceOpen = false) {
+    // ANCHOR: toggleDetailView 함수 전체를 교체하세요.
     const stockId = row.dataset.id;
     const detailView = listContainer.querySelector(`#detail-${stockId}`);
     const currentlyActive = listContainer.querySelector('.stock-row.active');
@@ -174,11 +181,18 @@ export async function renderStocks(container){
 
     if (shouldOpen) {
       row.classList.add('active');
-      const docSnap = await fx.getDoc(fx.doc(db, 'stocks', stockId));
+      const me = auth.currentUser?.uid;
+      
+      // 주식 정보와 내 보유량 정보를 동시에 가져옵니다.
+      const [docSnap, portfolioSnap] = await Promise.all([
+        fx.getDoc(fx.doc(db, 'stocks', stockId)),
+        me ? fx.getDoc(fx.doc(db, `users/${me}/portfolio/${stockId}`)) : Promise.resolve(null)
+      ]);
+
       if (!docSnap.exists()) return;
       
       const stock = docSnap.data();
-      const me = auth.currentUser?.uid;
+      const heldQty = portfolioSnap?.exists() ? portfolioSnap.data().quantity : 0;
       const isSubscribed = me && Array.isArray(stock.subscribers) && stock.subscribers.includes(me);
 
       detailView.innerHTML = `
@@ -190,6 +204,14 @@ export async function renderStocks(container){
           <canvas id="chart-${stockId}"></canvas>
         </div>
         <div class="text-dim" style="font-size:12px;margin:8px 0">${esc(stock.description || '')}</div>
+        
+        <div class="kv-card" style="padding: 8px; margin-bottom: 8px;">
+            <div class="row" style="justify-content: space-between; align-items: center;">
+                <div class="text-dim" style="font-size: 12px;">보유: ${heldQty.toLocaleString()}주</div>
+                <input type="number" id="stock-qty-${stockId}" class="input" placeholder="수량 입력" style="width: 100px; text-align: right;">
+            </div>
+        </div>
+
         <div class="row" style="gap:8px; justify-content:flex-end;">
           <button class="btn xs" data-act="sub" data-id="${stockId}">${isSubscribed ? '구독취소' : '속보구독'}</button>
           <button class="btn xs" data-act="buy" data-id="${stockId}">매수</button>
