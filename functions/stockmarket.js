@@ -305,7 +305,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
     } catch (errAll) {
       logger.error('세계관 사건 조회/처리 루프 실패', errAll);
     }
-
+});
 
   // ==================================================================
   // 3) 매수/매도: 현재가와 히스토리를 항상 동시 갱신
