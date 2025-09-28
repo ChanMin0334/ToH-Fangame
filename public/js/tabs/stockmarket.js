@@ -1,11 +1,3 @@
-// /public/js/tabs/stockmarket.js
-import { db, fx, auth, func } from '../api/firebase.js';
-import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
-import { showToast } from '../ui/toast.js';
-
-const call = (name)=> httpsCallable(func, name);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-
 export async function renderStocks(container){
   container.innerHTML = `
     <style>
@@ -34,6 +26,12 @@ export async function renderStocks(container){
         border-bottom-right-radius:0;
       }
       .stock-row.active + .stock-detail { display: block; }
+      /* [추가] 차트 시간 범위 버튼 스타일 */
+      .btn-range.active {
+        background: var(--pri1);
+        color: white;
+        border-color: var(--pri1);
+      }
     </style>
     <div class="kv-card" style="margin-bottom:8px">
       <div class="row" style="gap:8px;align-items:center">
@@ -176,7 +174,11 @@ export async function renderStocks(container){
       const isSubscribed = me && Array.isArray(stock.subscribers) && stock.subscribers.includes(me);
 
       detailView.innerHTML = `
-        <div style="height: 120px; position: relative; margin-bottom: 8px;">
+        <div class="row" style="gap:4px; margin-bottom: 8px;">
+            <button class="btn xs ghost btn-range" data-range="1H">1H</button>
+            <button class="btn xs ghost btn-range" data-range="6H">6H</button>
+        </div>
+        <div style="height: 120px; position: relative;">
           <canvas id="chart-${stockId}"></canvas>
         </div>
         <div class="text-dim" style="font-size:12px;margin:8px 0">${esc(stock.description || '')}</div>
@@ -186,15 +188,39 @@ export async function renderStocks(container){
           <button class="btn xs" data-act="sell" data-id="${stockId}">매도</button>
         </div>
       `;
-      // [개선] price_history의 마지막 72개 데이터만 사용
-      const recentHistory = (stock.price_history || []).slice(-72);
-      renderChart(stockId, recentHistory);
+      
+      detailView.querySelectorAll('button[data-range]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            detailView.querySelectorAll('button[data-range]').forEach(b => b.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+            displayChart(stockId, stock.price_history || [], e.currentTarget.dataset.range);
+        });
+      });
+
+      // 기본적으로 6시간(6H) 버튼을 클릭한 상태로 차트를 표시합니다.
+      detailView.querySelector('button[data-range="6H"]').click();
+
     } else {
       row.classList.remove('active');
       detailView.innerHTML = '';
     }
   }
   
+  function displayChart(stockId, fullHistory, range) {
+    let historySlice = [];
+    if (range === '1H') {
+      historySlice = fullHistory.slice(-12); // 12개 * 5분 = 1시간
+    } else { // 기본값 6H
+      historySlice = fullHistory.slice(-72); // 72개 * 5분 = 6시간
+    }
+    
+    if (activeChart) {
+      activeChart.destroy();
+      activeChart = null;
+    }
+    renderChart(stockId, historySlice);
+  }
+
   function renderChart(stockId, history) {
     const ctx = document.getElementById(`chart-${stockId}`);
     if (!ctx) return;
@@ -220,7 +246,17 @@ export async function renderStocks(container){
       options: {
         responsive: true, maintainAspectRatio: false,
         scales: {
-          x: { ticks: { display: false }, grid: { display: false }, border: { display: false } },
+          x: { 
+            ticks: { 
+                display: true, // [수정] X축 시간 표시
+                font: { size: 10 },
+                maxRotation: 0,
+                autoSkip: true,
+                maxTicksLimit: 6 // [수정] 최대 6개의 시간 레이블만 표시하여 가독성 확보
+            }, 
+            grid: { display: false }, 
+            border: { display: false } 
+          },
           y: { ticks: { font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.1)' }, border: { display: false } }
         },
         plugins: { legend: { display: false } }
