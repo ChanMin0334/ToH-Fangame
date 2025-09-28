@@ -17,6 +17,7 @@ const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY'); // 이미 있다면 재�
 const exploreV2 = require('./explore_v2')(admin, { onCall, HttpsError, logger, GEMINI_API_KEY });
 const encounterV2 = require('./encounter_v2')(admin, { onCall, HttpsError, logger, GEMINI_API_KEY });
 const maintenanceFns = require('./maintenance')(admin, { onCall, HttpsError, logger }); 
+const inventoryFns = require('./inventory')(admin, { onCall, HttpsError, logger }); // ◀◀ 이 줄 추가
 
 const stockmarket = require('./stockmarket')(admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KEY });
 exports.updateStockMarket      = stockmarket.updateStockMarket;
@@ -697,7 +698,7 @@ exports.kickGuildMember = guildFns.kickFromGuild;
 
 
 Object.assign(exports, maintenanceFns);
-
+Object.assign(exports, inventoryFns);
 
 // === BEGIN PATCH: trade module export ===
 const tradeFns = require('./trade')(admin, { onCall, HttpsError, logger });
