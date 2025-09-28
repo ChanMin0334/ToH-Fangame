@@ -137,7 +137,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         try {
           const ideaRaw = await callGemini('gemini-2.5-flash', systemPrompt, userPrompt);
           const idea = safeJson(ideaRaw, { title_before: '임시 제목' });
-          const triggerMinute = Math.floor(Math.random() * (24 * 60));
+          const triggerMinute = Math.floor(Math.random() * ((24 * 60) - 10));
           const actual_outcome = Math.random() < 0.7 ? idea.potential_impact
             : (idea.potential_impact === 'positive' ? 'negative' : 'positive');
 
@@ -208,13 +208,30 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         let planUpdated = false;
 
         const events = Array.isArray(plan.major_events) ? plan.major_events : [];
-        const isNow = (m) => ((((m % 1440) + 1440) % 1440) === currentMinute);
+
+        // [CHANGE] 해당 분을 '지나쳤는지' 판정 (지연 실행/스킵 방지, 자정 래핑 대응)
+        const isDue = (m, lastMinute) => {
+          const t   = ((m % 1440) + 1440) % 1440;   // 0~1439
+          const cur = currentMinute;                // 0~1439
+
+          // 기록 없으면(첫 실행) 지금 시간이 트리거 시각을 '지났으면' 처리
+          if (typeof lastMinute !== 'number') return cur >= t;
+
+          const last = ((lastMinute % 1440) + 1440) % 1440;
+
+          // 같은 날 진행(last < cur): (last, cur] 구간에 t가 있으면 처리
+          if (last < cur) return t > last && t <= cur;
+
+          // 자정 넘김(last > cur): (last, 1439] ∪ [0, cur]에 t가 있으면 처리
+          return t > last || t <= cur;
+        };
+
 
         let movedByEvent = false;
 
         for (const ev of events) {
           // (1) 트리거 정각: 예고 발송
-          if (!ev.forecast_sent && isNow(ev.trigger_minute)) {
+          if (!ev.forecast_sent && isDue(ev.trigger_minute, plan.last_processed_minute)) {
             const subscribers = Array.isArray(stock.subscribers) ? stock.subscribers : [];
             const worldName = plan.world_name || stock.world_name || stock.world_id || '';
             const worldBadge = worldName ? `【${worldName}】 ` : '';
@@ -231,7 +248,7 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
           }
 
           // (2) +10분: 실제 결과 반영
-          if (ev.forecast_sent && !ev.processed && isNow(ev.trigger_minute + 10)) {
+          if (ev.forecast_sent && !ev.processed && isDue(ev.trigger_minute + 10, plan.last_processed_minute)) {
             price = applyEventToPrice(price, ev.actual_outcome, 'large');
             try {
               const systemPrompt = `역할: 너는 게임 속 경제 기사 작가야.
@@ -331,6 +348,9 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
         if (planUpdated) {
           tx.set(planDocRef, plan, { merge: true });
         }
+        // [ADD] 이번 루프의 마지막 처리 분을 기록 (중복 방지 & 누락분 보정 기준)
+        tx.set(planDocRef, { last_processed_minute: currentMinute }, { merge: true });
+
       });
     }
 
