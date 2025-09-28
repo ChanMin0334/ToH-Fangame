@@ -5,6 +5,7 @@ import { showToast } from '../ui/toast.js';
 
 const call = (name)=> httpsCallable(func, name);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
 // 오늘 00:00 KST의 UTC 타임스탬프(ms)
 function kstStartOfTodayUtcMs(){
   const now = new Date();
@@ -14,6 +15,20 @@ function kstStartOfTodayUtcMs(){
   return kst.getTime() - 9*60*60*1000;            // 다시 UTC로 환산
 }
 
+// price_history에서 금일 시가 찾기 (없으면 합리적 대안)
+function getTodayOpenFromHistory(history, currentPrice){
+  const startKst = kstStartOfTodayUtcMs();
+  const arr = Array.isArray(history) ? history : [];
+  const todays = arr.filter(p => Date.parse(p.date) >= startKst)
+                    .sort((a,b) => Date.parse(a.date) - Date.parse(b.date));
+  if (todays.length) return Number(todays[0].price);
+
+  const last24h = arr.filter(p => (Date.now() - Date.parse(p.date)) <= 24*60*60*1000)
+                     .sort((a,b) => Date.parse(a.date) - Date.parse(b.date));
+  if (last24h.length) return Number(last24h[0].price);
+
+  return Number(arr[0]?.price ?? currentPrice ?? 0);
+}
 
 export async function renderStocks(container){
   container.innerHTML = `
@@ -85,25 +100,8 @@ export async function renderStocks(container){
     listContainer.innerHTML = stocks.map(s => {
       const price = Number(s.current_price || 0);
       const history = Array.isArray(s.price_history) ? s.price_history : [];
-      const startKst = kstStartOfTodayUtcMs();
 
-      // 금일 시가 찾기: 오늘 00:00 KST 이후의 첫 포인트
-      const todayOpen = (() => {
-        const todays = history
-          .filter(p => Date.parse(p.date) >= startKst)
-          .sort((a,b) => Date.parse(a.date) - Date.parse(b.date));
-        if (todays.length) return Number(todays[0].price);
-
-        // 혹시 오늘 데이터가 아직 없으면 최근 24시간 중 첫 포인트를 사용(대비 값 안정화)
-        const last24h = history
-          .filter(p => (Date.now() - Date.parse(p.date)) <= 24*60*60*1000)
-          .sort((a,b) => Date.parse(a.date) - Date.parse(b.date));
-        if (last24h.length) return Number(last24h[0].price);
-
-        // 그래도 없으면 히스토리 첫 값 또는 현재가
-        return Number(history[0]?.price ?? price);
-      })();
-
+      const todayOpen = getTodayOpenFromHistory(history, price);
       const change = Number(price) - Number(todayOpen);
       const changePct = todayOpen > 0 ? (change / todayOpen * 100).toFixed(2) : '0.00';
 
@@ -111,7 +109,7 @@ export async function renderStocks(container){
       const changeIcon = change > 0 ? '▲' : change < 0 ? '▼' : '—';
 
       return `
-        <div class="stock-row ${s.id === activeId ? 'active' : ''}" data-id="${s.id}">
+        <div class="stock-row ${s.id === activeId ? 'active' : ''}" data-id="${s.id}" data-open="${todayOpen}">
           <div class="row">
             <div>
               <div style="font-weight:700;">${esc(s.name || s.id)}</div>
@@ -221,6 +219,9 @@ export async function renderStocks(container){
         fullHistory.push({ date: new Date().toISOString(), price: Number(stock.current_price || 0) });
       }
 
+      // 금일 시가 (차트 색 결정에 사용)
+      const todayOpen = getTodayOpenFromHistory(fullHistory, Number(stock.current_price || 0));
+
       detailView.innerHTML = `
         <div class="row" style="gap:4px; margin-bottom: 8px;">
             <button class="btn xs ghost btn-range" data-range="1H">1H</button>
@@ -249,10 +250,11 @@ export async function renderStocks(container){
         btn.addEventListener('click', (e) => {
           detailView.querySelectorAll('button[data-range]').forEach(b => b.classList.remove('active'));
           e.currentTarget.classList.add('active');
-          displayChart(stockId, fullHistory, e.currentTarget.dataset.range);
+          displayChart(stockId, fullHistory, e.currentTarget.dataset.range, todayOpen);
         });
       });
       
+      // 초기 차트
       detailView.querySelector('button[data-range="1H"]').click();
 
     } else {
@@ -301,20 +303,23 @@ export async function renderStocks(container){
     return continuousData;
   }
 
-  function displayChart(stockId, fullHistory, range) {
+  function displayChart(stockId, fullHistory, range, todayOpen) {
     if (activeChart) { activeChart.destroy(); activeChart = null; }
     const processedData = processHistoryForChart(fullHistory, range);
-    renderChart(stockId, processedData, range);
+    renderChart(stockId, processedData, range, todayOpen);
   }
 
-  function renderChart(stockId, data, range) {
+  function renderChart(stockId, data, range, todayOpen) {
     const ctx = document.getElementById(`chart-${stockId}`);
     if (!ctx || !data.length) return;
     
     const lastPrice = data[data.length - 1]?.y || 0;
-    const prevIndex = Math.max(0, data.length - 6);
-    const prevPrice = data.length > 1 ? data[prevIndex]?.y : lastPrice;
-    const borderColor = lastPrice >= prevPrice ? 'rgba(255, 107, 107, 0.8)' : 'rgba(91, 124, 255, 0.8)';
+
+    // 금일 시가 기준으로 색 결정
+    const isUpDay = Number(todayOpen || 0) > 0 ? (lastPrice >= Number(todayOpen)) : true;
+    const upColor   = 'rgba(255, 107, 107, 0.8)'; // 빨강
+    const downColor = 'rgba(91, 124, 255, 0.8)';   // 파랑
+    const borderColor = isUpDay ? upColor : downColor;
     
     const prices = data.map(p => p.y);
     const minPrice = Math.min(...prices);
