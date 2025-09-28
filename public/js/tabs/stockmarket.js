@@ -38,7 +38,7 @@ export async function renderStocks(container){
     <div class="kv-card" style="margin-bottom:8px">
       <div class="row" style="gap:8px;align-items:center">
         <div style="font-weight:900">주식 시장</div>
-        <div class="text-dim" style="font-size:12px">10분 주기 업데이트</div>
+        <div class="text-dim" style="font-size:12px">5분 주기 업데이트</div>
       </div>
     </div>
     <div id="stock-list-container"></div>
