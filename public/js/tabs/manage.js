@@ -1,6 +1,6 @@
 // /public/js/tabs/manage.js
+// 관리자 도구: [메일 발송] / [검색] / [버전 관리] / [후원자 목록] / [서비스 점검] / [경제 관리] 탭 UI
 
-// (기존 코드 상단... import 등)
 import { func, db, fx } from '../api/firebase.js';
 import { ensureAdmin, isAdminCached } from '../api/admin.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js';
@@ -8,7 +8,7 @@ import { showToast } from '../ui/toast.js';
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 
-// (기존 stylesOnce 함수... )
+// 스타일을 한 번만 주입하여 중복을 방지합니다.
 function stylesOnce(){
   if (document.getElementById('manage-style')) return;
   const css = `
@@ -82,7 +82,6 @@ function mainTpl(){
   `;
 }
 
-// (기존 sendTpl, searchTpl, supporterTpl, versionTpl, supporterListTpl, maintenanceTpl 함수...)
 function sendTpl(){
   return `
   <div class="manage-col">
@@ -225,13 +224,13 @@ function maintenanceTpl() {
   </div>`;
 }
 
-// ANCHOR: 경제 관리 탭 템플릿 추가
 function economyTpl() {
   return `
   <div class="manage-col">
     <div class="manage-tabs" style="border-bottom:none; margin-bottom:0;">
         <button class="manage-tab active" data-subtab="company">주식회사 관리</button>
-        <button class="manage-tab" data-subtab="event">사건 관리</button>
+        <button class="manage-tab" data-subtab="event">개별 사건 관리</button>
+        <button class="manage-tab" data-subtab="world-event">세계관 사건 관리</button>
     </div>
     <div id="economy-sub-content" class="manage-card" style="border-top-left-radius:0;"></div>
   </div>
@@ -268,7 +267,7 @@ function economyCompanyTpl() {
 
 function economyEventTpl() {
     return `
-    <h5 style="margin-top:0;">수동 사건 생성</h5>
+    <h5 style="margin-top:0;">개별 주식회사 사건 생성</h5>
     <div class="manage-col">
         <select id="event-stock" class="manage-select">
             <option value="">사건을 적용할 주식회사 선택</option>
@@ -284,6 +283,25 @@ function economyEventTpl() {
         </div>
         <div class="manage-row" style="justify-content:flex-end">
           <button id="btn-create-event" class="btn primary">사건 생성</button>
+        </div>
+    </div>
+  `;
+}
+
+function economyWorldEventTpl() {
+    return `
+    <h5 style="margin-top:0;">세계관 거시 사건 생성</h5>
+    <div class="manage-col">
+        <select id="world-event-world" class="manage-select">
+            <option value="">사건이 발생할 세계관 선택</option>
+        </select>
+        <textarea id="world-event-premise" class="manage-textarea" rows="4" placeholder="세계관 전체에 영향을 미칠 사건 프롬프트 (예: 기온키르 대륙에 거대한 운석이 떨어져 희귀 광물이 대량 발견됨. 이로 인해...)"></textarea>
+        <div class="manage-row">
+            <label class="manage-label">실행 시점</label>
+            <input id="world-event-time" type="datetime-local" class="manage-input">
+        </div>
+        <div class="manage-row" style="justify-content:flex-end">
+          <button id="btn-create-world-event" class="btn primary">세계관 사건 생성</button>
         </div>
     </div>
   `;
@@ -327,7 +345,7 @@ export async function showManage(){
     } else if (tabId === 'maintenance') {
         contentWrap.innerHTML = maintenanceTpl();
         bindMaintenanceEvents();
-    } else if (tabId === 'economy') { // ANCHOR: 경제 관리 탭 렌더링
+    } else if (tabId === 'economy') {
         contentWrap.innerHTML = economyTpl();
         bindEconomyEvents();
     }
@@ -342,11 +360,9 @@ export async function showManage(){
     renderTabContent(t.dataset.tab);
   });
   
-  // 초기 탭 렌더링
   renderTabContent('send');
 }
 
-// (기존 bindSendEvents, bindSearchEvents, bindVersionEvents, bindSupporterEvents, bindSupporterListEvents, bindMaintenanceEvents 함수...)
 function bindSendEvents() {
     const $switch = document.getElementById('gacha-switch');
     const $panel  = document.getElementById('gacha-panel');
@@ -605,10 +621,9 @@ function bindMaintenanceEvents() {
     });
 }
 
-// ANCHOR: 경제 관리 탭 이벤트 바인딩
 function bindEconomyEvents() {
     const content = document.getElementById('economy-sub-content');
-    const tabs = document.querySelectorAll('#manage-tab-content .manage-tab');
+    const tabs = document.querySelectorAll('#manage-tab-content .manage-tab[data-subtab]');
 
     const renderSubTab = (subTabId) => {
         content.innerHTML = '';
@@ -618,6 +633,9 @@ function bindEconomyEvents() {
         } else if (subTabId === 'event') {
             content.innerHTML = economyEventTpl();
             bindEventEvents();
+        } else if (subTabId === 'world-event') {
+            content.innerHTML = economyWorldEventTpl();
+            bindWorldEventEvents();
         }
     };
 
@@ -629,37 +647,39 @@ function bindEconomyEvents() {
         });
     });
 
-    // 초기 렌더링
     renderSubTab('company');
 }
 
 async function bindCompanyEvents() {
-    // 세계관 목록 로드
     const worldSelect = document.getElementById('stock-world');
-    try {
-        const worldsSnap = await fx.getDoc(fx.doc(db, 'configs', 'worlds'));
-        if (worldsSnap.exists()) {
-            const worlds = worldsSnap.data().worlds || [];
-            worldSelect.innerHTML = worlds.map(w => `<option value="${w.id}">${w.name}</option>`).join('');
-        }
-    } catch (e) {
-        worldSelect.innerHTML = `<option value="">세계관 로드 실패</option>`;
-    }
-
-    // 주식회사 목록 로드
     const stockListEl = document.getElementById('stock-list');
-    const stockSnap = await fx.getDocs(fx.query(fx.collection(db, 'stocks'), fx.orderBy('name')));
-    if (stockSnap.empty) {
-        stockListEl.innerHTML = `<div class="manage-hint">상장된 주식회사가 없습니다.</div>`;
-    } else {
-        stockListEl.innerHTML = stockSnap.docs.map(doc => {
-            const stock = doc.data();
-            return `<div class="manage-card" style="font-size:12px;"><b>${esc(stock.name)}</b> (${esc(stock.world_name || stock.world_id)}) - 현재가: ${stock.current_price}</div>`;
-        }).join('');
-    }
+    const btnCreate = document.getElementById('btn-create-stock');
 
-    // 상장 버튼
-    document.getElementById('btn-create-stock').addEventListener('click', async (e) => {
+    const loadData = async () => {
+        // Load worlds
+        try {
+            const worldsSnap = await fx.getDoc(fx.doc(db, 'configs', 'worlds'));
+            if (worldsSnap.exists()) {
+                const worlds = worldsSnap.data().worlds || [];
+                worldSelect.innerHTML = worlds.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+            }
+        } catch (e) {
+            worldSelect.innerHTML = `<option value="">세계관 로드 실패</option>`;
+        }
+
+        // Load stocks
+        const stockSnap = await fx.getDocs(fx.query(fx.collection(db, 'stocks'), fx.orderBy('name')));
+        if (stockSnap.empty) {
+            stockListEl.innerHTML = `<div class="manage-hint">상장된 주식회사가 없습니다.</div>`;
+        } else {
+            stockListEl.innerHTML = stockSnap.docs.map(doc => {
+                const stock = doc.data();
+                return `<div class="manage-card" style="font-size:12px;"><b>${esc(stock.name)}</b> (${esc(stock.world_name || stock.world_id)}) - 현재가: ${stock.current_price}</div>`;
+            }).join('');
+        }
+    };
+
+    btnCreate.addEventListener('click', async (e) => {
         const btn = e.target;
         btn.disabled = true;
         try {
@@ -672,26 +692,30 @@ async function bindCompanyEvents() {
                 volatility: document.getElementById('stock-volatility').value,
                 description: document.getElementById('stock-desc').value,
             };
-            // 여기에 서버 함수 호출 로직 추가
-            showToast('주식회사 상장 기능은 서버에 구현해야 합니다.');
+            if (!payload.name || !payload.world_id || !payload.initial_price) throw new Error("회사명, 세계관, 초기 가격은 필수입니다.");
+
+            const createStockFn = httpsCallable(func, 'adminCreateStock');
+            await createStockFn(payload);
+            showToast('주식회사 상장 완료!');
+            await loadData(); // 목록 새로고침
         } catch (err) {
             showToast(`상장 실패: ${err.message}`);
         } finally {
             btn.disabled = false;
         }
     });
+    
+    await loadData();
 }
 
 async function bindEventEvents() {
-    // 주식회사 목록 드롭다운 채우기
     const eventStockSelect = document.getElementById('event-stock');
     const stockSnap = await fx.getDocs(fx.query(fx.collection(db, 'stocks'), fx.orderBy('name')));
     if (!stockSnap.empty) {
         eventStockSelect.innerHTML += stockSnap.docs.map(doc => `<option value="${doc.id}">${doc.data().name}</option>`).join('');
     }
 
-    // 사건 생성 버튼
-     document.getElementById('btn-create-event').addEventListener('click', async (e) => {
+    document.getElementById('btn-create-event').addEventListener('click', async (e) => {
         const btn = e.target;
         btn.disabled = true;
         try {
@@ -700,14 +724,49 @@ async function bindEventEvents() {
                 stock_id: document.getElementById('event-stock').value,
                 potential_impact: document.getElementById('event-impact').value,
                 premise: document.getElementById('event-premise').value,
-                // datetime-local 값을 UTC 분으로 변환
-                trigger_minute: dtValue ? (new Date(dtValue).getHours() * 60 + new Date(dtValue).getMinutes()) : null
+                trigger_minute: dtValue ? (new Date(dtValue).getUTCHours() * 60 + new Date(dtValue).getUTCMinutes()) : null
             };
             if (!payload.stock_id || !payload.premise || payload.trigger_minute === null) {
                 throw new Error("모든 필드를 채워주세요.");
             }
-            // 여기에 서버 함수 호출 로직 추가
-            showToast('수동 사건 생성 기능은 서버에 구현해야 합니다.');
+            const createEventFn = httpsCallable(func, 'adminCreateManualEvent');
+            await createEventFn(payload);
+            showToast('수동 사건이 성공적으로 생성되었습니다.');
+        } catch (err) {
+            showToast(`사건 생성 실패: ${err.message}`);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+}
+
+async function bindWorldEventEvents() {
+    const worldSelect = document.getElementById('world-event-world');
+     try {
+        const worldsSnap = await fx.getDoc(fx.doc(db, 'configs', 'worlds'));
+        if (worldsSnap.exists()) {
+            const worlds = worldsSnap.data().worlds || [];
+            worldSelect.innerHTML += worlds.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+        }
+    } catch (e) {
+        worldSelect.innerHTML = `<option value="">세계관 로드 실패</option>`;
+    }
+
+    document.getElementById('btn-create-world-event').addEventListener('click', async (e) => {
+        const btn = e.target;
+        btn.disabled = true;
+        try {
+            const dtValue = document.getElementById('world-event-time').value;
+            const payload = {
+                world_id: document.getElementById('world-event-world').value,
+                premise: document.getElementById('world-event-premise').value,
+                trigger_time: dtValue ? new Date(dtValue).toISOString() : null
+            };
+             if (!payload.world_id || !payload.premise || !payload.trigger_time) {
+                throw new Error("모든 필드를 채워주세요.");
+            }
+            // 서버 함수 호출
+             showToast('세계관 사건 생성 기능은 서버에 구현해야 합니다.');
         } catch (err) {
             showToast(`사건 생성 실패: ${err.message}`);
         } finally {
