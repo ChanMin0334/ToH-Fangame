@@ -452,7 +452,8 @@ ${event.premise}
       const finalImpactQuery = db.collectionGroup('responses')
         .where('processed_final', '==', false)
         .where('final_impact_at', '<=', nowUtcTs);
-
+        .orderBy('final_impact_at', 'asc');
+      
       const responsesSnap = await finalImpactQuery.get();
 
       for (const responseDoc of responsesSnap.docs) {
