@@ -110,11 +110,13 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule, GEMINI_API_KE
       const basePrice = Number(stock.current_price || 0);
       const trendSign = Math.random() < 0.5 ? -1 : 1;  // 하루 방향성
       const driftBps = ({ low: 2, normal: 5, high: 10 }[stock.volatility] ?? 5); // 분당 bps
+      
       await dailyRef.set({
         stock_id: doc.id,
         date: today,
         target_price: basePrice,
         trend_sign: trendSign,   // -1, +1
+        daily_open: basePrice,
         drift_bps: driftBps      // 분당 기초 변동폭
       }, { merge: true });
     }
