@@ -385,7 +385,6 @@ async function sellItemsCore(uid, data) {
       const currentItems = userData.items_all || [];
       let totalGold = 0;
 
-      // 판매 가격 정책
       const prices = {
         consumable: { normal: 1, rare: 5, epic: 25, legend: 50, myth: 100, aether: 250 },
         non_consumable: { normal: 2, rare: 10, epic: 50, legend: 100, myth: 200, aether: 500 }
@@ -394,29 +393,14 @@ async function sellItemsCore(uid, data) {
       const itemsToKeep = [];
       const soldItemIds = new Set(itemIds);
 
-      // 1. 판매될 아이템을 장착한 내 모든 캐릭터를 찾습니다.
-      const charsRef = db.collection('chars');
-// Firestore 제한(<=30) 대비: 청크 분할
-const chunks = [];
-for (let i = 0; i < itemIds.length; i += 30) chunks.push(itemIds.slice(i, i + 30));
-
-const touched = new Map(); // doc.id → docSnap (중복 방지)
-for (const ids of chunks) {
-  const q = charsRef.where('owner_uid','==', uid).where('items_equipped','array-contains-any', ids);
-  const snap = await tx.get(q);
-  snap.forEach(doc => touched.set(doc.id, doc));
-}
-
-for (const [, doc] of touched) {
-  const data = doc.data();
-  const newEquipped = (data.items_equipped || []).filter(id => !soldItemIds.has(id));
-  tx.update(doc.ref, { items_equipped: newEquipped });
-}
-
-
+      // [수정] 판매할 아이템 목록을 순회하며 잠금 상태를 먼저 확인합니다.
       for (const item of currentItems) {
         if (soldItemIds.has(item.id)) {
-          // 'consume' 속성도 확인하도록 수정된 부분입니다.
+          // 잠긴 아이템이 포함되어 있으면 에러를 발생시켜 트랜잭션을 중단시킵니다.
+          if (item.isLocked === true) {
+            throw new HttpsError('failed-precondition', `잠긴 아이템(${item.name})은 판매할 수 없습니다.`);
+          }
+          
           const isConsumable = item.isConsumable || item.consumable || item.consume;
           const priceTier = isConsumable ? prices.consumable : prices.non_consumable;
           const price = priceTier[item.rarity] || 0;
@@ -426,7 +410,25 @@ for (const [, doc] of touched) {
         }
       }
 
-      if (totalGold > 0) {
+      // [수정] 잠금 해제된 아이템만 장착 해제 로직을 수행합니다.
+      const charsRef = db.collection('chars');
+      const chunks = [];
+      for (let i = 0; i < itemIds.length; i += 30) chunks.push(itemIds.slice(i, i + 30));
+
+      const touched = new Map();
+      for (const ids of chunks) {
+        const q = charsRef.where('owner_uid','==', uid).where('items_equipped','array-contains-any', ids);
+        const snap = await tx.get(q);
+        snap.forEach(doc => touched.set(doc.id, doc));
+      }
+
+      for (const [, doc] of touched) {
+        const data = doc.data();
+        const newEquipped = (data.items_equipped || []).filter(id => !soldItemIds.has(id));
+        tx.update(doc.ref, { items_equipped: newEquipped });
+      }
+
+      if (totalGold > 0 || itemsToKeep.length < currentItems.length) {
         tx.update(userRef, {
           items_all: itemsToKeep,
           coins: admin.firestore.FieldValue.increment(totalGold)
