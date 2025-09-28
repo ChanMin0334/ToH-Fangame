@@ -14,7 +14,6 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
     if (!cond) throw new HttpsError(code, msg);
   }
 
-  // ANCHOR: _calculatePrice 함수 최종 수정 (소비성 아이템 필드 및 희귀도 동의어 처리 강화)
   function _calculatePrice(item) {
     const raw = String(item?.rarity || 'normal').trim().toLowerCase();
     const norm = ({
@@ -28,13 +27,11 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       non_consumable:{ normal: 2,  rare:10,  epic: 50,  legend:100,  myth: 200, aether: 500 }
     };
     
-    // [수정] 모든 가능한 소비성 아이템 필드 이름을 확인하도록 변경
     const isConsumable = item.isConsumable || item.consumable || item.consume;
     const table = isConsumable ? prices.consumable : prices.non_consumable;
     
     const price = table[norm];
 
-    // [추가] 만약 가격 계산이 실패하면(0원), 최소 가격 1원을 보장하여 등록 실패 방지
     if (!price || price <= 0) {
         logger.warn(`[trade] Price calculation failed for item. Defaulting to 1.`, { itemId: item.id, rarity: item.rarity, isConsumable });
         return 1;
@@ -42,33 +39,40 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
 
     return price;
   }
-  // ANCHOR_END
 
+  // ANCHOR: _removeItemFromUser 함수 수정
   async function _removeItemFromUser(tx, userRef, userSnap, itemId, uid) {
-  const items = Array.isArray(userSnap.get('items_all')) ? [...userSnap.get('items_all')] : [];
-  const idx = items.findIndex(it => String(it?.id) === String(itemId));
-  _assert(idx >= 0, 'failed-precondition', '인벤토리에 해당 아이템이 없어');
-  const [item] = items.splice(idx, 1);
-
-  // 1) 모든 읽기 먼저: 이 아이템을 착용 중인 내 캐릭터들 조회
-  const charsRef = db.collection('chars');
-  const mineSnap = await tx.get(charsRef.where('owner_uid','==', uid));
-  const targets = mineSnap.docs.filter(d => {
-    const eq = d.data().items_equipped || [];
-    return eq.some(v => String(v) === String(itemId));
-  });
-
-  // 2) 그 다음 모든 쓰기: 인벤토리에서 제거 + 착용 해제
-  tx.update(userRef, { items_all: items });
-
-  targets.forEach(doc => {
-    const ch = doc.data();
-    const newEquipped = (ch.items_equipped || []).filter(v => String(v) !== String(itemId));
-    tx.update(doc.ref, { items_equipped: newEquipped });
-  });
-
-  return item;
-}
+    const items = Array.isArray(userSnap.get('items_all')) ? [...userSnap.get('items_all')] : [];
+    const idx = items.findIndex(it => String(it?.id) === String(itemId));
+    _assert(idx >= 0, 'failed-precondition', '인벤토리에 해당 아이템이 없어');
+    
+    const item = items[idx]; // 먼저 아이템을 가져옵니다.
+    
+    // [수정] 아이템을 제거하기 전에 잠금 상태를 확인합니다.
+    _assert(item.isLocked !== true, 'failed-precondition', '잠긴 아이템은 처리할 수 없습니다.');
+  
+    items.splice(idx, 1); // 확인 후 제거합니다.
+  
+    // 1) 모든 읽기 먼저: 이 아이템을 착용 중인 내 캐릭터들 조회
+    const charsRef = db.collection('chars');
+    const mineSnap = await tx.get(charsRef.where('owner_uid','==', uid));
+    const targets = mineSnap.docs.filter(d => {
+      const eq = d.data().items_equipped || [];
+      return eq.some(v => String(v) === String(itemId));
+    });
+  
+    // 2) 그 다음 모든 쓰기: 인벤토리에서 제거 + 착용 해제
+    tx.update(userRef, { items_all: items });
+  
+    targets.forEach(doc => {
+      const ch = doc.data();
+      const newEquipped = (ch.items_equipped || []).filter(v => String(v) !== String(itemId));
+      tx.update(doc.ref, { items_equipped: newEquipped });
+    });
+  
+    return item;
+  }
+  // ANCHOR_END
 
 
   function _addItemToUser(tx, userRef, itemObj) {
@@ -145,10 +149,8 @@ module.exports = (admin, { onCall, HttpsError, logger }) => {
       const userSnap = await tx.get(userRef);
 _assert(userSnap.exists, 'not-found', '유저 없음');
 
-// ✅ 먼저 읽기/조회+제거(안에서 chars 쿼리 read 포함)
 const item = await _removeItemFromUser(tx, userRef, userSnap, String(itemId), uid);
 
-// ✅ 그 다음 쓰기(일일 카운트 증가)
 _bumpDailyTradeCount(tx, userRef, userSnap);
 
       const basePrice = _calculatePrice(item);
@@ -387,7 +389,6 @@ const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
 
     const bid = Math.floor(Number(amount));
     const prev = A.topBid || null;
-    // 이전 최고 입찰자 문서는 쓰기 전에 미리 읽어둔다 (읽기-먼저 원칙)
     const prevRef = (prev?.uid) ? db.doc(`users/${prev.uid}`) : null;
     const prevSnap = prevRef ? await tx.get(prevRef) : null;
 
@@ -403,10 +404,8 @@ const auctionBid = onCall({ region:'us-central1' }, async (req)=>{
       _assert(delta >= MIN_STEP, 'failed-precondition', '이전 입찰보다 높아야 해');
       _hold(tx, meRef, me, delta);
     } else {
-      // 새로 들어오는 입찰자: 전체 입찰가만큼 홀드
       _hold(tx, meRef, me, bid);
 
-      // 이전 최고 입찰자가 있으면, 미리 읽어둔 스냅샷으로 환불(읽기는 위에서 이미 끝남)
       if (prev?.uid && prevSnap?.exists) {
         _release(tx, prevRef, prevSnap, Number(prev.amount||0));
       }
