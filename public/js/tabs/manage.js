@@ -246,7 +246,10 @@ function economyCompanyTpl() {
     <h5 style="margin-top:0;">신규 주식회사 상장</h5>
     <div class="manage-col">
       <input id="stock-name" class="manage-input" placeholder="회사명 (예: 아르카 방위 산업)">
-      <select id="stock-world" class="manage-select"></select>
+      <select id="stock-world" class="manage-select">
+        <option value="">세계관 선택</option>
+        </select>
+
       <select id="stock-type" class="manage-select">
           <option value="corporation">일반 기업</option>
           <option value="guild">길드</option>
@@ -656,16 +659,29 @@ async function bindCompanyEvents() {
     const btnCreate = document.getElementById('btn-create-stock');
 
     const loadData = async () => {
-        // Load worlds
+        // Load worlds (static assets → Firestore fallback)
         try {
+          const res = await fetch('/assets/worlds.json', { cache: 'no-store' });
+          if (!res.ok) throw new Error('assets fetch failed');
+          const data = await res.json();
+          const worlds = Array.isArray(data?.worlds) ? data.worlds : [];
+          worldSelect.innerHTML = `<option value="">세계관 선택</option>` +
+            worlds.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+        } catch (e) {
+          try {
             const worldsSnap = await fx.getDoc(fx.doc(db, 'configs', 'worlds'));
             if (worldsSnap.exists()) {
-                const worlds = worldsSnap.data().worlds || [];
-                worldSelect.innerHTML = worlds.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+              const worlds = worldsSnap.data().worlds || [];
+              worldSelect.innerHTML = `<option value="">세계관 선택</option>` +
+                worlds.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+            } else {
+              worldSelect.innerHTML = `<option value="">세계관 데이터 없음</option>`;
             }
-        } catch (e) {
+          } catch (err) {
             worldSelect.innerHTML = `<option value="">세계관 로드 실패</option>`;
+          }
         }
+
 
         // Load stocks
         const stockSnap = await fx.getDocs(fx.query(fx.collection(db, 'stocks'), fx.orderBy('name')));
@@ -743,14 +759,27 @@ async function bindEventEvents() {
 async function bindWorldEventEvents() {
     const worldSelect = document.getElementById('world-event-world');
      try {
-        const worldsSnap = await fx.getDoc(fx.doc(db, 'configs', 'worlds'));
-        if (worldsSnap.exists()) {
-            const worlds = worldsSnap.data().worlds || [];
-            worldSelect.innerHTML += worlds.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
-        }
-    } catch (e) {
-        worldSelect.innerHTML = `<option value="">세계관 로드 실패</option>`;
+  const res = await fetch('/assets/worlds.json', { cache: 'no-store' });
+  if (!res.ok) throw new Error('assets fetch failed');
+  const data = await res.json();
+  const worlds = Array.isArray(data?.worlds) ? data.worlds : [];
+  worldSelect.innerHTML = `<option value="">세계관 선택</option>` +
+    worlds.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+} catch (e) {
+  try {
+    const worldsSnap = await fx.getDoc(fx.doc(db, 'configs', 'worlds'));
+    if (worldsSnap.exists()) {
+      const worlds = worldsSnap.data().worlds || [];
+      worldSelect.innerHTML = `<option value="">세계관 선택</option>` +
+        worlds.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+    } else {
+      worldSelect.innerHTML = `<option value="">세계관 데이터 없음</option>`;
     }
+  } catch (err) {
+    worldSelect.innerHTML = `<option value="">세계관 로드 실패</option>`;
+  }
+}
+
 
     document.getElementById('btn-create-world-event').addEventListener('click', async (e) => {
         const btn = e.target;
@@ -766,7 +795,9 @@ async function bindWorldEventEvents() {
                 throw new Error("모든 필드를 채워주세요.");
             }
             // 서버 함수 호출
-             showToast('세계관 사건 생성 기능은 서버에 구현해야 합니다.');
+             const createWorldEvent = httpsCallable(func, 'adminCreateWorldEvent');
+               await createWorldEvent(payload);
+               showToast('세계관 사건이 등록됐어!');
         } catch (err) {
             showToast(`사건 생성 실패: ${err.message}`);
         } finally {
