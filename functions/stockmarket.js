@@ -7,24 +7,28 @@ module.exports = (admin, { onCall, HttpsError, logger, onSchedule /*, GEMINI_API
   const nowISO = () => new Date().toISOString();
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
   
-  // [수정] 이벤트 기반 가격 변동 로직
+  // [수정] 이벤트 기반 가격 변동 로직 (무작위성 추가)
   const applyEventToPrice = (cur, dir, mag) => {
+    // 기본 변동률에 ±20%의 무작위성을 추가합니다.
+    const randomFactor = 1 + (Math.random() - 0.5) * 0.4; // 0.8 ~ 1.2
     const rateBase = { small: 0.03, medium: 0.08, large: 0.15 }[mag] ?? 0.05;
-    const rate = dir === 'up' ? rateBase : dir === 'down' ? -rateBase : 0;
+    const finalRate = rateBase * randomFactor;
+
+    const rate = dir === 'up' ? finalRate : dir === 'down' ? -finalRate : 0;
     return Math.max(1, Math.round(cur * (1 + rate)));
   };
 
-  // [신규] 거래량 기반 가격 변동 로직
+  // [수정] 거래량 기반 가격 변동 로직 (변동폭 제한 제거)
   const applyTradeToPrice = (currentPrice, quantity, isBuy) => {
       // 거래량 100주당 0.1% 변동을 기본으로 설정
       const baseRate = 0.001; 
       const changeRate = baseRate * (quantity / 100);
       const multiplier = isBuy ? (1 + changeRate) : (1 - changeRate);
       
-      // 가격 변동폭을 최대 5%로 제한하여 급격한 펌핑/덤핑 방지
-      const finalMultiplier = clamp(multiplier, 0.95, 1.05);
+      // 가격 변동폭 제한 로직을 제거하여 시장 충격을 그대로 반영합니다.
+      // const finalMultiplier = clamp(multiplier, 0.95, 1.05);
       
-      return Math.max(1, Math.round(currentPrice * finalMultiplier));
+      return Math.max(1, Math.round(currentPrice * multiplier));
   };
   
   const ensureListed = (s) => {
